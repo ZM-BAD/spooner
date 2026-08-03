@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    name: pre-commit (markdownlint + common checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "lts/*"
+      - uses: pre-commit/action@v3.0.1
+
+  typecheck:
+    name: TypeScript 6 typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "lts/*"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Smoke — run TS scripts zero-build
+        run: node skills/spooner/scripts/detect.ts && node skills/spooner/scripts/audit.ts
+
+  commitlint:
+    name: commitlint (Conventional Commits)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "lts/*"
+          cache: npm
+      - run: npm ci
+      # Lint the last commit of the push directly. The wagoid action was
+      # dropped: it computes the push range via the GitHub API, which
+      # crashes on orphan/force-push histories (no common ancestor).
+      # Local pre-commit enforces every commit; this is the CI safety net.
+      - name: Lint the last commit
+        run: git log -1 --format=%B | npx commitlint
+
+  skill-validate:
+    name: SKILL.md spec validation (skills-ref)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install skills-ref==0.1.1
+      - run: agentskills validate skills/spooner

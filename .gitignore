@@ -1,0 +1,22 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Python (skills-ref validation, etc.)
+__pycache__/
+*.pyc
+.venv/
+
+# Build artifacts (this project is zero-build; listed defensively)
+dist/
+build/
+out/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+
+# Internal Chinese design archive (local-only; not suitable for the public repo)
+docs/
+HANDOFF.md
