@@ -1,4 +1,4 @@
-# CI workflow installed by spooner transform Stage 2 (node stack; warn-only
+# CI workflow installed by spooner transform Stage 2 (java stack; warn-only
 # quality gates; hard gates: declared-command executability + .ai-native.yml consistency)
 name: ai-native
 
@@ -37,24 +37,17 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-java@v5.7.0
         with:
-          node-version: "lts/*"
-          cache: npm
-      - run: npm ci || npm install
-      # declared scripts only — a repo without lint/test scripts must not red
-      # (same trust model as the declared-commands gate)
-      - name: lint + test (declared scripts only)
+          distribution: temurin
+          java-version: "21"
+      - name: test
         run: |
-          node -e '
-            const { execSync } = require("node:child_process");
-            const scripts = require("./package.json").scripts || {};
-            for (const k of ["lint", "test"]) {
-              if (typeof scripts[k] === "string") { console.log("> npm run " + k); execSync("npm run " + k, { stdio: "inherit" }); }
-              else { console.log("no " + k + " script declared — skipped"); }
-            }
-          '
-
+          if [ -f ./mvnw ]; then ./mvnw -q -B test
+          elif [ -f ./gradlew ]; then ./gradlew build
+          elif [ -f pom.xml ]; then mvn -q -B test
+          elif [ -f build.gradle ]; then gradle build
+          else echo "no java build file found"; fi
   security:
     name: secret scan (gitleaks, warn-only)
     runs-on: ubuntu-latest
@@ -68,28 +61,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   declared-commands:
-    name: declared build/test commands executable (hard gate)
+    name: declared lifecycle commands executable (hard gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/setup-java@v5.7.0
         with:
-          node-version: "lts/*"
-          cache: npm
-      - run: npm ci || npm install
-      - name: Run declared build/test scripts
+          distribution: temurin
+          java-version: "21"
+      - name: Run declared build/test commands
         run: |
-          node -e '
-            const { execSync } = require("node:child_process");
-            const scripts = require("./package.json").scripts || {};
-            // self-contained build/test families only: check/verify chain
-            // external tooling (pre-commit etc.) and are excluded from the gate
-            const keys = ["build", "compile", "typecheck", "test", "spec"];
-            const declared = keys.filter((k) => typeof scripts[k] === "string");
-            if (declared.length === 0) { console.log("no build/test scripts declared"); process.exit(0); }
-            for (const k of declared) { console.log("> npm run " + k); execSync("npm run " + k, { stdio: "inherit" }); }
-          '
-
+          if [ -f ./mvnw ]; then ./mvnw -q -B test
+          elif [ -f ./gradlew ]; then ./gradlew build
+          elif [ -f pom.xml ]; then mvn -q -B test
+          elif [ -f build.gradle ]; then gradle build
+          else echo "no java build file found"; fi
   manifest-consistency:
     name: .ai-native.yml consistency + template version (hard gate)
     runs-on: ubuntu-latest

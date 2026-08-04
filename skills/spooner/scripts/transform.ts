@@ -193,13 +193,36 @@ export function writeManifest(root: string, stages: Record<string, ManifestStage
 
 // --- stage 2: gates installer ---------------------------------------------------
 
-/** Install path → template file (verbatim copies, zero parameters, v1). */
-export const STAGE2_TEMPLATES: Record<string, string> = {
+/** Cross-stack gates (installed for every stack; decision #13). */
+export const STAGE2_COMMON: Record<string, string> = {
   ".commitlintrc.json": "commitlintrc.json",
   ".pre-commit-config.yaml": "pre-commit-config.yaml",
   ".markdownlint-cli2.yaml": "markdownlint-cli2.yaml",
-  ".github/workflows/ai-native.yml": "ci-workflow.yml",
 };
+
+/** Supported stack → workflow template (verbatim copies, zero parameters). */
+export const STAGE2_WORKFLOWS: Record<string, string> = {
+  node: "ci-workflow-node.yml",
+  python: "ci-workflow-python.yml",
+  go: "ci-workflow-go.yml",
+  java: "ci-workflow-java.yml",
+};
+
+const STACK_PRIORITY: string[] = ["node", "python", "go", "java"];
+
+/** First supported stack in the repo (node > python > go > java), else null. */
+export function primaryStack(root: string): string | null {
+  const stacks = detect(root).stacks;
+  return STACK_PRIORITY.find((s) => stacks.includes(s)) ?? null;
+}
+
+/** Stage-2 template map for a repo: cross-stack gates + its stack's workflow. */
+export function stage2Templates(root: string): Record<string, string> {
+  const stack = primaryStack(root);
+  const tpl = { ...STAGE2_COMMON };
+  if (stack) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
+  return tpl;
+}
 
 export const TEMPLATE_DIR = join(import.meta.dirname, "..", "templates");
 
@@ -242,17 +265,35 @@ function packageJsonOf(root: string): Record<string, unknown> | null {
 }
 
 /** Declared build-ish and test-ish npm scripts (same key families as the audit). */
-function declaredBuildTest(root: string): { build: string | null; test: string | null } {
+function declaredNpmLifecycle(root: string): { build: string | null; test: string | null } {
   const pkg = packageJsonOf(root);
   const scripts = pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
   const build = ["build", "compile", "typecheck", "check", "verify"].find((k) => typeof scripts[k] === "string") ?? null;
   const test = ["test", "spec"].find((k) => typeof scripts[k] === "string") ?? null;
-  return { build, test };
+  return { build: build ? `npm run ${build}` : null, test: test ? `npm run ${test}` : null };
 }
 
-function runNpm(root: string, key: string): boolean {
+/**
+ * Per-stack lifecycle commands (decision #13): node stays package.json-declared;
+ * python/go/java use fixed standard commands, verified by the CI hard gate —
+ * the same trust model as package.json scripts (the gate actually runs them).
+ */
+function stackLifecycle(root: string): { build: string | null; test: string | null } {
+  const stack = primaryStack(root);
+  if (stack === "go") return { build: "go build ./...", test: "go test ./..." };
+  if (stack === "python") return { build: null, test: "python3 -m unittest discover -q || [ $? -eq 5 ]" };
+  if (stack === "java") {
+    if (existsSync(join(root, "build.gradle"))) {
+      return { build: existsSync(join(root, "gradlew")) ? "./gradlew build" : "gradle build", test: null };
+    }
+    return { build: null, test: existsSync(join(root, "mvnw")) ? "./mvnw -q -B test" : "mvn -q -B test" };
+  }
+  return declaredNpmLifecycle(root);
+}
+
+function runCommand(root: string, command: string): boolean {
   try {
-    execFileSync("npm", ["run", key], { cwd: root, stdio: "pipe" });
+    execFileSync("sh", ["-c", command], { cwd: root, stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -260,10 +301,10 @@ function runNpm(root: string, key: string): boolean {
 }
 
 function runDeclared(root: string): { ok: boolean; keys: string[] } {
-  const { build, test } = declaredBuildTest(root);
+  const { build, test } = stackLifecycle(root);
   const keys = [build, test].filter((k): k is string => k !== null);
   for (const k of keys) {
-    if (!runNpm(root, k)) return { ok: false, keys };
+    if (!runCommand(root, k)) return { ok: false, keys };
   }
   return { ok: true, keys };
 }
@@ -276,15 +317,41 @@ export function manifestWithStage(root: string, stage: string, entry: ManifestSt
 }
 
 function applyStage2(root: string, dryRun: boolean): Stage2Result {
-  const plans: Stage2FilePlan[] = Object.entries(STAGE2_TEMPLATES).map(([file, tpl]) => {
+  const templates = stage2Templates(root);
+  const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
     return readFileSync(target, "utf8") === templateContent(tpl) ? { file, action: "keep" } : { file, action: "conflict" };
   });
   const toWrite = plans.filter((p) => p.action === "write");
   const conflicts = plans.filter((p) => p.action === "conflict");
-  const { build, test } = declaredBuildTest(root);
-  const command = [build && `npm run ${build}`, test && `npm run ${test}`].filter(Boolean).join(" && ") || null;
+  const { build, test } = stackLifecycle(root);
+  const command = [build, test].filter(Boolean).join(" && ") || null;
+
+  // Unsupported-stack notice (decision #13): cross-stack gates only, no workflow.
+  const stack = primaryStack(root);
+  const detected = detect(root).stacks;
+  const notice =
+    stack !== null
+      ? null
+      : detected.length > 0
+        ? `stack ${detected.join("/")}: transform not supported yet — audit works; supported stacks: node/python/go/java (cross-stack gates installed, CI workflow skipped)`
+        : "no recognized stack — cross-stack gates installed, CI workflow skipped (supported stacks: node/python/go/java)";
+
+  // Wrong-stack workflow hint: installed bytes match a different stack's template.
+  const workflowFile = ".github/workflows/ai-native.yml";
+  let wrongStackHint: string | null = null;
+  if (stack && templates[workflowFile]) {
+    const target = join(root, workflowFile);
+    if (existsSync(target)) {
+      const installed = readFileSync(target, "utf8");
+      if (installed !== templateContent(templates[workflowFile])) {
+        const other = Object.entries(STAGE2_WORKFLOWS).find(([s, t]) => s !== stack && installed === templateContent(t));
+        if (other) wrongStackHint = `installed workflow targets the ${other[0]} stack — delete ${workflowFile} and re-run to install the ${stack} workflow`;
+      }
+    }
+  }
+  const extra = [notice, wrongStackHint].filter(Boolean).join("; ");
 
   if (dryRun) {
     return {
@@ -294,7 +361,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
       files: plans,
       buildCheck: { command, before: null, after: null },
       manifestUpdated: false,
-      message: `dry-run: ${toWrite.length} file(s) to write, ${conflicts.length} conflict(s), ${plans.length - toWrite.length - conflicts.length} already installed; verification command: ${command ?? "none declared"}`,
+      message: `dry-run: ${toWrite.length} file(s) to write, ${conflicts.length} conflict(s), ${plans.length - toWrite.length - conflicts.length} already installed; verification command: ${command ?? "none declared"}${extra ? `; ${extra}` : ""}`,
     };
   }
 
@@ -305,7 +372,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
   const before = command ? runDeclared(root).ok : null;
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
-    writeFileSync(join(root, p.file), templateContent(STAGE2_TEMPLATES[p.file]), "utf8");
+    writeFileSync(join(root, p.file), templateContent(templates[p.file]), "utf8");
   }
   const after = command ? runDeclared(root).ok : null;
   // the manifest is the ledger: restore it even when no files are written
@@ -321,14 +388,14 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
         date: new Date().toISOString().slice(0, 10),
         warnOnly: true,
         templateVersion: TOOL_VERSION,
-        files: Object.keys(STAGE2_TEMPLATES),
+        files: Object.keys(templates),
       }),
     );
   }
 
   let message: string;
   if (toWrite.length === 0 && conflicts.length === 0) {
-    message = manifestMissing ? "stage 2 files already installed; manifest restored" : "stage 2 already installed (no changes)";
+    message = (manifestMissing ? "stage 2 files already installed; manifest restored" : "stage 2 already installed (no changes)") + (extra ? `; ${extra}` : "");
   } else if (after === false) {
     const written = toWrite.map((p) => p.file).join(", ");
     message =
@@ -341,7 +408,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
     if (conflicts.length > 0) parts.push(`${conflicts.length} conflict(s) kept (existing config differs — not overwritten: ${conflicts.map((c) => c.file).join(", ")})`);
     if (before === null) parts.push("no build/test command declared — nothing to verify");
     else parts.push(`build green before+after (${command})`);
-    message = `stage 2 applied: ${parts.join("; ")}${manifestUpdated ? "; manifest updated" : ""}`;
+    message = `stage 2 applied: ${parts.join("; ")}${extra ? `; ${extra}` : ""}${manifestUpdated ? "; manifest updated" : ""}`;
   }
 
   return { stage: 2, applied: toWrite.length > 0, dryRun: false, files: plans, buildCheck: { command, before, after }, manifestUpdated, message };
@@ -370,6 +437,24 @@ function makefileTargetsOf(root: string): string[] {
 }
 
 /**
+ * Stack lifecycle commands (decision #13): standard commands traced to build
+ * files, verified by the CI hard gate — same trust model as package.json scripts.
+ */
+function stackCommandsOf(root: string): { command: string; purpose: string }[] {
+  const stacks = detect(root).stacks;
+  const out: { command: string; purpose: string }[] = [];
+  if (stacks.includes("go")) {
+    out.push({ command: "go build ./...", purpose: "build" }, { command: "go test ./...", purpose: "test" }, { command: "go vet ./...", purpose: "vet" });
+  }
+  if (stacks.includes("python")) out.push({ command: "python3 -m unittest discover", purpose: "test" });
+  if (stacks.includes("java")) {
+    if (existsSync(join(root, "build.gradle"))) out.push({ command: "gradle build", purpose: "build + test" });
+    else out.push({ command: existsSync(join(root, "mvnw")) ? "./mvnw -q -B test" : "mvn -q -B test", purpose: "test" });
+  }
+  return out;
+}
+
+/**
  * Deterministic AGENTS.md generation: every command traces to a real file
  * (package.json scripts / Makefile). Nothing is invented — the killer gate.
  */
@@ -381,6 +466,7 @@ export function generateAgentsMd(root: string): string {
   const description = typeof pkg?.description === "string" ? pkg.description : null;
   const scriptKeys = Object.keys(scripts).sort();
   const makeTargets = makefileTargetsOf(root);
+  const stackCmds = stackCommandsOf(root);
   const lines: string[] = [
     `# ${name} — agent contract`,
     "",
@@ -399,12 +485,13 @@ export function generateAgentsMd(root: string): string {
     "## Commands (all real and executable)",
     "",
   ];
-  if (scriptKeys.length === 0 && makeTargets.length === 0) {
+  if (scriptKeys.length === 0 && makeTargets.length === 0 && stackCmds.length === 0) {
     lines.push("- None declared. Add build/test commands (e.g. package.json scripts) to unlock the gates.", "");
   } else {
     lines.push("| Command | Purpose |", "|---|---|");
     for (const k of scriptKeys) lines.push(`| \`npm run ${k}\` | ${k} |`);
     for (const t of makeTargets) lines.push(`| \`make ${t}\` | Makefile target |`);
+    for (const c of stackCmds) lines.push(`| \`${c.command}\` | ${c.purpose} |`);
     lines.push("");
   }
   lines.push("## Conventions", "");
@@ -591,7 +678,7 @@ export function checkConsistency(root: string): ManifestConsistency | null {
 // --- stage status -------------------------------------------------------------
 
 function stageStatus(root: string, stage: number): StageReport {
-  const files = STAGE_FILES[stage];
+  const files = stage === 2 ? Object.keys(stage2Templates(root)) : STAGE_FILES[stage];
   const present = files.filter((f) => existsSync(join(root, f)));
   const missing = files.filter((f) => !present.includes(f));
   const status: StageStatus = present.length === 0 ? "not-installed" : missing.length === 0 ? "installed" : "partial";

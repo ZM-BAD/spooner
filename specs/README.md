@@ -35,7 +35,7 @@ specs/
 ```
 
 - Register or update ROADMAP whenever a spec is created, changed, or shipped (numbers stay stable; stage comes from `status`)
-- A spec is a living document: corrections during implementation are allowed (record the reason)
+- A spec is a **living document**: it presents the current contract only — no acceptance logs, no fix history, no version-transition notes (those live in git commit messages; design decisions live in `docs/05`, local-only). Behavior changes update the spec **in place**; a new spec is for a new feature, never for a revision of an existing one
 - Slice plans live inside the spec; every slice must be independently verifiable
 - Changing frozen design: review the internal decision log (`docs/05`, local-only) first, then update `HANDOFF.md` (local)
 

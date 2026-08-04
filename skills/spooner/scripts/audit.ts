@@ -160,6 +160,23 @@ function makefileTarget(root: string, name: string): boolean {
   return makefileTargets(root).includes(name);
 }
 
+/**
+ * Per-stack lifecycle command presence (decision #13): standard commands
+ * traced to build files — go.mod → go build/test, python → python3 -m unittest,
+ * java → mvn/gradle. The CI hard gate verifies them (same trust model as
+ * package.json scripts).
+ */
+function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolean; source: string | null } {
+  const stacks = detect(root).stacks;
+  if (stacks.includes("go")) return { hasBuild: true, hasTest: true, source: "go.mod (go build/test)" };
+  if (stacks.includes("python")) return { hasBuild: false, hasTest: true, source: "pyproject.toml (python3 -m unittest)" };
+  if (stacks.includes("java")) {
+    if (existsSync(join(root, "build.gradle"))) return { hasBuild: true, hasTest: true, source: "build.gradle (gradle build/test)" };
+    return { hasBuild: true, hasTest: true, source: "pom.xml (mvn compile/test)" };
+  }
+  return { hasBuild: false, hasTest: false, source: null };
+}
+
 function daysSince(epochSeconds: number): number {
   return (Date.now() / 1000 - epochSeconds) / 86400;
 }
@@ -263,14 +280,16 @@ function checkAgentsLength(root: string): CheckResult {
 function checkAgentsCommands(root: string): CheckResult {
   const buildKey = scriptKey(root, /^(build|compile|typecheck|check|verify)\b/);
   const testKey = scriptKey(root, /^(test|spec)\b/);
-  const hasBuild = buildKey !== null || makefileTarget(root, "build");
-  const hasTest = testKey !== null || makefileTarget(root, "test");
+  const sc = stackCommandSources(root);
+  const hasBuild = buildKey !== null || makefileTarget(root, "build") || sc.hasBuild;
+  const hasTest = testKey !== null || makefileTarget(root, "test") || sc.hasTest;
   const sources: string[] = [];
   if (buildKey || testKey) sources.push("package.json scripts");
   if (makefileTargets(root).length > 0) sources.push("Makefile");
+  if (sc.source) sources.push(sc.source);
   const evidence = sources.length > 0
     ? `commands traceable to ${sources.join(" + ")} (build: ${hasBuild}, test: ${hasTest})`
-    : "no build/test commands found in package.json or Makefile";
+    : "no build/test commands found in package.json, Makefile, or stack build files";
   return {
     id: "agents-commands",
     category: "agent-setup",
@@ -338,7 +357,7 @@ function checkCfgHooks(root: string): CheckResult {
       discipline = hasPattern(root, [/^\.commitlintrc/, /^commitlint\.config/, /^\.markdownlint/]) !== null;
     }
   }
-  // Gate-active check: config content alone proves nothing — the hooks
+  // Gate-active check (M7): config content alone proves nothing — the hooks
   // must actually be installed. pre-commit/lefthook write .git/hooks/;
   // husky keeps its hooks in .husky/ (core.hooksPath). A missing `.git`
   // (or a worktree `.git` file) means no installable hooks — under-score.

@@ -1,5 +1,9 @@
 # Spooner
 
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 
 <p align="center">
@@ -17,18 +21,26 @@
 
 Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after the detective who keeps robots in line in *I, Robot* (2004) — Spooner keeps AI coding in line.
 
-> 中文说明见 [README.zh-CN.md](README.zh-CN.md)。
-
-**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) shipped** — the audit → transform → check → sync loop is complete, with manifest drift hard-gated in CI; next: launch prep.
+**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1-M6 shipped** — the audit → transform → check → sync loop is complete, manifest drift is hard-gated in CI, transform supports **node / python / go / java**, and the installed commitlint gate actually enforces (hook install step + CI commit-msg check + gate-active audit); next: launch prep.
 
 ## The workflow
 
 | Command | What it does | When |
 |---|---|---|
 | `audit` | Detect and score AI coding readiness (repeatable — a health check) | Any repo, anytime |
-| `transform` | Incremental, verifiable, rollback-able transformations (CI gates incl. the manifest drift gate / AGENTS.md / SDD) | Once — the surgery |
+| `transform` | Incremental, verifiable, rollback-able transformations (stack-aware CI gates incl. the manifest drift gate / AGENTS.md / SDD) | Once — the surgery |
 | `check` | Continuously detect drift (repeatable, with records) | Every CI run |
 | `sync` | Re-sync installed templates to the current tool version (version-aware, one-click) | When the tool advances |
+
+## Stack support
+
+| Stack | detect + audit | transform (gates + CI + AGENTS.md) |
+|---|---|---|
+| node (incl. React/Vue/Next) | ✅ | ✅ `npm` lifecycle |
+| python | ✅ | ✅ `python3 -m unittest discover` |
+| go | ✅ | ✅ `go build/test ./...` |
+| java (Maven + Gradle) | ✅ | ✅ `mvn test` / `gradle build` |
+| rust / ruby / php / swift / dotnet | ✅ (audit under-scores only) | ⚠️ cross-stack gates + explicit notice |
 
 ## Compatibility
 
@@ -82,6 +94,7 @@ spooner/
 npm run typecheck   # tsc --noEmit (TypeScript 6, zero build)
 npm run lint:md     # markdownlint-cli2
 npm run check       # typecheck + lint:md
+pre-commit install --hook-type commit-msg   # enforce Conventional Commits on every commit
 pre-commit run --all-files
 node skills/spooner/scripts/detect.ts   # slice 1: stack detection
 ```

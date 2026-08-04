@@ -1,5 +1,9 @@
 # Spooner
 
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
 > 对仓库的 **AI 编程就绪度** 进行检测评分，并就地执行渐进化改造——装好工程门禁、生成 Agent 指令文件、落地 SDD 工作流。每步可验证、不破坏现有构建。
 
 <p align="center">
@@ -17,18 +21,26 @@
 
 Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里给机器人立规矩的警探——Spooner 是给 AI 编码立规矩的。
 
-> English version: [README.md](README.md)。
-
-**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1（audit）+ M2（transform）+ M3（check）+ M4（sync）+ M5（CI drift gate）已交付** —— audit → transform → check → sync 闭环完成，manifest 漂移在 CI 中被硬门禁拦截；下一步：发布准备。
+**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1-M6 已交付** —— audit → transform → check → sync 闭环完成，manifest 漂移在 CI 中被硬门禁拦截，transform 支持 **node / python / go / java**，安装的 commitlint 门禁真正生效（钩子安装步骤 + CI commit-msg 检查 + gate-active 审计）；下一步：发布准备。
 
 ## 工作流
 
 | 命令 | 做什么 | 何时 |
 |---|---|---|
 | `audit` | 检测就绪度并评分（可重复，体检） | 任意仓库、任意时刻 |
-| `transform` | 渐进化、可验证、可回滚的改造（CI 门禁含 manifest 漂移 gate / AGENTS.md / SDD） | 一次性，手术 |
+| `transform` | 渐进化、可验证、可回滚的改造（按栈的 CI 门禁含 manifest 漂移 gate / AGENTS.md / SDD） | 一次性，手术 |
 | `check` | 持续检测漂移（可重复，有记录） | 每次 CI 运行 |
 | `sync` | 已装模板随工具版本重同步（版本感知、一键应用） | 工具升级后 |
+
+## 栈支持
+
+| 栈 | detect + audit | transform（门禁 + CI + AGENTS.md） |
+|---|---|---|
+| node（含 React/Vue/Next） | ✅ | ✅ `npm` 生命周期 |
+| python | ✅ | ✅ `python3 -m unittest discover` |
+| go | ✅ | ✅ `go build/test ./...` |
+| java（Maven + Gradle） | ✅ | ✅ `mvn test` / `gradle build` |
+| rust / ruby / php / swift / dotnet | ✅（audit 只低估不虚高） | ⚠️ 跨栈门禁 + 明确暂不支持提示 |
 
 ## 兼容性
 
@@ -82,6 +94,7 @@ spooner/
 npm run typecheck   # tsc --noEmit（TypeScript 6，零构建）
 npm run lint:md     # markdownlint-cli2
 npm run check       # typecheck + lint:md
+pre-commit install --hook-type commit-msg   # 每次 commit 强制 Conventional Commits
 pre-commit run --all-files
 node skills/spooner/scripts/detect.ts   # 切片 1：栈识别
 ```

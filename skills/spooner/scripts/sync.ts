@@ -25,12 +25,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   TOOL_VERSION,
-  STAGE2_TEMPLATES,
+  STAGE2_COMMON,
+  STAGE2_WORKFLOWS,
   STAGE4_TEMPLATES,
   TEMPLATE_DIR,
   readManifest,
   writeManifest,
   manifestWithStage,
+  primaryStack,
   checkConsistency,
   type ManifestConsistency,
 } from "./transform.ts";
@@ -89,18 +91,25 @@ function templateContent(name: string): string {
   return readFileSync(join(TEMPLATE_DIR, name), "utf8");
 }
 
-/** Template file for an install path, or null when not template-managed. */
-function templateFor(file: string): string | null {
-  return STAGE2_TEMPLATES[file] ?? STAGE4_TEMPLATES[file] ?? null;
+/** Template file for an install path, or null when not template-managed
+ *  (e.g. AGENTS.md). The workflow template resolves by primary stack (decision #13). */
+function templateFor(file: string, root: string): string | null {
+  const common = STAGE2_COMMON[file];
+  if (common) return common;
+  if (file === ".github/workflows/ai-native.yml") {
+    const stack = primaryStack(root);
+    return stack ? STAGE2_WORKFLOWS[stack] : null;
+  }
+  return STAGE4_TEMPLATES[file] ?? null;
 }
 
 /** Every manifest file entry across stages (stage ascending, then file). */
-function manifestEntries(manifest: { stages: Record<string, { files: string[]; templateVersion?: string }> }): ManifestEntry[] {
+function manifestEntries(manifest: { stages: Record<string, { files: string[]; templateVersion?: string }> }, root: string): ManifestEntry[] {
   const out: ManifestEntry[] = [];
   for (const [k, s] of Object.entries(manifest.stages)) {
     const stage = Number.parseInt(k, 10);
     for (const file of s.files) {
-      out.push({ stage, file, template: templateFor(file), templateVersion: s.templateVersion ?? TOOL_VERSION });
+      out.push({ stage, file, template: templateFor(file, root), templateVersion: s.templateVersion ?? TOOL_VERSION });
     }
   }
   return out.sort((a, b) => a.stage - b.stage || a.file.localeCompare(b.file));
@@ -125,7 +134,7 @@ function classify(root: string, e: ManifestEntry): SyncFileReport {
 export function outdatedTemplates(root: string): SyncFileReport[] {
   const mr = readManifest(root);
   if (!mr.present || !mr.manifest) return [];
-  return manifestEntries(mr.manifest)
+  return manifestEntries(mr.manifest, root)
     .map((e) => classify(root, e))
     .filter((f) => f.status === "outdated");
 }
@@ -145,7 +154,7 @@ function run(root: string, dryRun: boolean): SyncReport {
     };
   }
 
-  const pairs = manifestEntries(mr.manifest).map((entry) => ({ entry, report: classify(root, entry) }));
+  const pairs = manifestEntries(mr.manifest, root).map((entry) => ({ entry, report: classify(root, entry) }));
   const files = pairs.map((p) => p.report);
   const count = (s: FileStatus) => files.filter((f) => f.status === s).length;
   const toApply = pairs.filter((p) => p.report.status === "outdated" || p.report.status === "missing");

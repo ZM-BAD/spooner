@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) shipped — `detect`, `audit`, `transform`, `check`, `sync` available; the installed CI workflow hard-gates manifest consistency.**
+> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) + M6 (multi-stack) shipped — `detect`, `audit`, `transform`, `check`, `sync` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit).**
 
 ## Workflow
 
@@ -24,6 +24,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 - **Node.js >= 22.18** — the scripts are TypeScript run natively via type stripping; there is no build step. On older Node, `audit.ts` prints an upgrade hint and exits.
 - **git** — freshness checks and maturity gating read commit history.
+- **Stack toolchains** — stage 2's verification and the installed CI gate run the stack's lifecycle commands (`npm` / `python3 -m unittest` / `go build` / `mvn`), so the stack toolchain must be available where `transform` runs (CI sets it up itself via setup-node / setup-python / setup-go / setup-java).
 - The scripts are **zero-dependency** (Node builtins only). `detect` and `audit` are **read-only**; `transform`, `check` and `sync` write only what they declare (installed template files / the `.ai-native.yml` manifest / the `.ai-native/baseline.json` ledger).
 
 ## Running the scripts
@@ -88,9 +89,21 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 
 | Stage | What it does | Outputs |
 |---|---|---|
-| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + CI workflow (warn-only quality jobs; hard gates: declared build/test commands executable + `.ai-native.yml` consistency — drift turns CI red) | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` |
-| 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
+| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red) | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template) |
+| 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile / stack lifecycle: `mvn`, `go`, `python3 -m unittest`) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
 | 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
+
+### Stack support (M6)
+
+| Stack | detect | audit | transform gates + CI workflow | AGENTS.md commands |
+|---|---|---|---|---|
+| node (incl. React/Vue/Next) | ✅ | ✅ | ✅ `npm run build/test` lifecycle | package.json scripts + Makefile |
+| python | ✅ | ✅ | ✅ `python3 -m unittest discover` | pyproject/requirements → `python3 -m unittest discover` |
+| go | ✅ | ✅ | ✅ `go build ./...` + `go test ./...` | go.mod → `go build/test/vet ./...` |
+| java (Maven + Gradle) | ✅ | ✅ | ✅ `mvn -q -B test` / `gradle build` | pom.xml → `mvn`, build.gradle → `gradle` |
+| rust / ruby / php / swift / dotnet | ✅ | ✅ (under-scores only, never over) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
+
+**Primary stack rule**: node > python > go > java for mixed repos (one workflow per repo). Non-supported stacks get an explicit notice — never silent npm gates. The audit's `agents-commands` check credits the stack lifecycle commands too (go/java repos can now score 2/2).
 
 `check` (M3) makes the loop repeatable: re-run `scripts/check.ts --root <path>` any time — in CI, before a release, or when the user says "is anything drifting?". First run records a baseline (`.ai-native/baseline.json`); later runs report the score delta, manifest drift (files the manifest declares but that are missing, mapped back to the transform stage that installs them), and fixed suggestions. Check only reports — transform does the fixing (same separation as audit/transform). When installed templates go stale (see sync below), check's suggestions say so and `sync` applies the current ones.
 

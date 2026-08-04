@@ -1,5 +1,5 @@
-# CI workflow installed by spooner transform Stage 2 (warn-only quality gates;
-# hard gates: declared-command executability + .ai-native.yml consistency)
+# CI workflow installed by spooner transform Stage 2 (node stack; warn-only
+# quality gates; hard gates: declared-command executability + .ai-native.yml consistency)
 name: ai-native
 
 on:
