@@ -4,11 +4,15 @@
 > The spec directory (`specs/<nnn>-<name>/`) only holds specs that can state **scope + acceptance criteria**; the authoritative stage is the frontmatter `status` (proposed → approved → in-progress → shipped).
 > Update this file whenever a spec is created or changed (rules in specs/README.md).
 
-## 🟢 Current (in-progress)
+## ✅ Shipped
 
 | ID | Name | Status | Notes |
 |---|---|---|---|
-| 0001 | m1-audit-core | in-progress | Slices 1-3 ✅ (stack detection + audit scoring/reporting, incl. Node version guard; calibrated on 5 repos, spread 8.5-17, healthy); remaining: slice 4 (full SKILL.md instructions) |
+| 0001 | m1-audit-core | shipped | Acceptance passed 2026-08-04 (criteria 1-6; hasCi false positive fixed during the run) — audit: stack detection + scoring/reporting + full SKILL.md instructions |
+
+## 🟢 Current (in-progress)
+
+Nothing in progress — M1 shipped; next is writing spec 0002 (m2-transform).
 
 ## 🟡 Next
 

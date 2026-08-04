@@ -188,7 +188,9 @@ function ciContent(root: string): string {
   ]) {
     parts.push(readIfExists(join(root, file)) ?? "");
   }
-  return parts.join("\n");
+  // Filter empties: missing CI files must not inflate hasCi (joining
+  // empty strings still yields newlines → length > 0 → false positive)
+  return parts.filter((p) => p.length > 0).join("\n");
 }
 
 function hasCi(root: string): boolean {
@@ -336,13 +338,51 @@ function checkCfgHooks(root: string): CheckResult {
       discipline = hasPattern(root, [/^\.commitlintrc/, /^commitlint\.config/, /^\.markdownlint/]) !== null;
     }
   }
-  const ok = mechanism !== null && discipline;
+  // Gate-active check: config content alone proves nothing — the hooks
+  // must actually be installed. pre-commit/lefthook write .git/hooks/;
+  // husky keeps its hooks in .husky/ (core.hooksPath). A missing `.git`
+  // (or a worktree `.git` file) means no installable hooks — under-score.
+  const hooksActive = (() => {
+    if (mechanism === ".husky") {
+      return (
+        existsSync(join(root, ".husky", "pre-commit")) ||
+        existsSync(join(root, ".husky", "commit-msg"))
+      );
+    }
+    const gitDir = join(root, ".git");
+    if (!existsSync(gitDir) || !lstatSync(gitDir).isDirectory()) return false;
+    return (
+      existsSync(join(gitDir, "hooks", "pre-commit")) ||
+      existsSync(join(gitDir, "hooks", "commit-msg"))
+    );
+  })();
+
+  if (mechanism === null || !discipline) {
+    return {
+      id: "cfg-hooks",
+      category: "configuration",
+      score: 0,
+      max: 1,
+      evidence: `hook mechanism: ${mechanism ?? "missing"}${mechanism ? ", no commitlint/markdownlint found" : ""}`,
+      fix: "transform Stage 2 (commitlint + pre-commit)",
+    };
+  }
+  if (!hooksActive) {
+    return {
+      id: "cfg-hooks",
+      category: "configuration",
+      score: 0.5,
+      max: 1,
+      evidence: `${mechanism} config present but git hooks not installed — run: pre-commit install --hook-type commit-msg`,
+      fix: "install the hooks: pre-commit install --hook-type commit-msg",
+    };
+  }
   return {
     id: "cfg-hooks",
     category: "configuration",
-    score: ok ? 1 : 0,
+    score: 1,
     max: 1,
-    evidence: ok ? `${mechanism} enforces commit discipline` : `hook mechanism: ${mechanism ?? "missing"}${mechanism ? ", no commitlint/markdownlint found" : ""}`,
+    evidence: `${mechanism} enforces commit discipline (git hooks installed)`,
     fix: "transform Stage 2 (commitlint + pre-commit)",
   };
 }

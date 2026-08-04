@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: shipped
 target: M1
 date: 2026-08-03
 ---
@@ -47,7 +47,7 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 |---|---|---|
 | cfg-lint | lint config exists and the command is real | 1 / 0 |
 | cfg-format | formatter config exists and the command is real | 1 / 0 |
-| cfg-hooks | local commit gate (pre-commit / lefthook / husky, incl. commitlint or markdownlint) | 1 / 0 |
+| cfg-hooks | local commit gate (pre-commit / lefthook / husky, incl. commitlint or markdownlint) — **gate-active**: config present + discipline + git hooks actually installed | 1 / 0.5 / 0 |
 | cfg-ci | CI exists with lint + test | 1 / 0 |
 | cfg-test | test framework + real test command | 1 / 0 |
 
@@ -75,7 +75,7 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 | struct-readme | README present with >50 chars of real content (not a placeholder) | 1 / 0 |
 | struct-layout | sources organized (src / lib / packages subdir or equivalent) | 1 / 0 |
 
-**Calibration note**: weights are an expert-set first version (kardo-core r=0.828 structure); after the slice 2 implementation, cross-check on ≥3 real repos and record corrections here — the calibration loop is the differentiator (internal archive docs/04 insight #1), not a one-off.
+**Calibration note**: weights are an expert-set first version (kardo-core r=0.828 structure); the calibration loop (cross-check on real repos, see "Calibration status") is the differentiator (internal archive docs/04 insight #1), not a one-off.
 
 ## Maturity assessment (deterministic rules)
 
@@ -168,21 +168,11 @@ Conventions: `items` expands all 19 checks; `gaps` = ids where score < max; `sug
 | 1 | scripts/detect.ts stack detection | [x] |
 | 2 | scripts/audit.ts scoring (per matrix + maturity rules) + real-repo calibration | [x] |
 | 3 | Report output (JSON + markdown, per schema) | [x] |
-| 4 | Full SKILL.md instructions + examples | [ ] |
+| 4 | Full SKILL.md instructions + examples | [x] |
 
-## Calibration record (slice 2, 2026-08-03)
+## Calibration status
 
-First pass over 5 real repositories (read-only):
-
-| Repo | Stack | Maturity | Score | Gaps |
-|---|---|---|---|---|
-| DAG-chat | node | stable | 16/20 | 4 |
-| headroom | node | stable | 14.5/20 | 6 |
-| kite | node | skeleton | 17/20 | 3 |
-| kuan-chat | node | stable | 12/20 | 8 |
-| starraft | — | stable | 8.5/20 | 11 |
-
-Verdict: scores spread 8.5-17, discrimination is healthy, no systematic bias; 0.5 steps work; maturity gating behaves as designed (kite is well set up but <5 commits → skeleton). **Weights v1 are usable, no change yet**; re-review once more external samples exist.
+Weights v1 (kardo-core r=0.828 structure) calibrated on 5 real repositories (2026-08-03; scores 8.5-17): discrimination healthy, no systematic bias, 0.5 steps work, maturity gating behaves as designed. Re-review once more external samples exist (multi-stack calibration is a launch prerequisite).
 
 ## Risks
 
