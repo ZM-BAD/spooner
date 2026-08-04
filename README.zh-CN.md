@@ -21,7 +21,7 @@
 
 Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里给机器人立规矩的警探——Spooner 是给 AI 编码立规矩的。
 
-**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1-M6 已交付** —— audit → transform → check → sync 闭环完成，manifest 漂移在 CI 中被硬门禁拦截，transform 支持 **node / python / go / java**，安装的 commitlint 门禁真正生效（钩子安装步骤 + CI commit-msg 检查 + gate-active 审计）；下一步：发布准备。
+**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1-M6 已交付** —— audit → transform → check → sync 闭环完成，manifest 漂移在 CI 中被硬门禁拦截，transform 支持 **node / python / go / java**，安装的 commitlint 门禁真正生效（钩子安装步骤 + CI commit-msg 检查 + gate-active 审计），transform 情境感知（CI 平台分流：非 GitHub 仓库只装跨栈门禁 + 明确跳过说明）；下一步：发布准备。
 
 ## 工作流
 

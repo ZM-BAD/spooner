@@ -11,7 +11,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- M1-M6 shipped (2026-08-04): specs 0001-0006 acceptance verified — the audit → transform → check → sync loop is complete, the installed CI workflow hard-gates manifest consistency (drift → red), transform supports node/python/go/java (decision #13), and the installed commitlint gate is real (install step + CI commit-msg check + gate-active audit — spec 0001/0002 revisions); next candidates: launch prep (docs/06)
+- M1-M6 + M8 shipped (2026-08-04): specs 0001-0006 + 0008 acceptance verified — the audit → transform → check → sync loop is complete, the installed CI workflow hard-gates manifest consistency (drift → red), transform supports node/python/go/java (decision #13), the installed commitlint gate is real (install step + CI commit-msg check + gate-active audit — spec 0001/0002 revisions), and transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice, spec 0008); next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -60,6 +60,7 @@ spooner/
 
 ## Red lines (re-check while developing)
 
+- **Never merge to main or push on main without explicit user approval** — develop on feature branches; merges and pushes happen only when the user asks
 - Commands must be real and executable — derived from actual files, never invented (AGENTS.md command executability is the killer gate)
 - Every step verified and rollback-able — never break an existing build
 - Long docs stay within 100-200 lines (AGENTS.md class); SKILL.md body < 500 lines

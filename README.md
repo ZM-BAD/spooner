@@ -21,7 +21,7 @@
 
 Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after the detective who keeps robots in line in *I, Robot* (2004) — Spooner keeps AI coding in line.
 
-**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1-M6 shipped** — the audit → transform → check → sync loop is complete, manifest drift is hard-gated in CI, transform supports **node / python / go / java**, and the installed commitlint gate actually enforces (hook install step + CI commit-msg check + gate-active audit); next: launch prep.
+**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1-M6 shipped** — the audit → transform → check → sync loop is complete, manifest drift is hard-gated in CI, transform supports **node / python / go / java**, the installed commitlint gate actually enforces (hook install step + CI commit-msg check + gate-active audit), and transform is context-aware (CI-platform routing: non-GitHub repos get cross-stack gates with an explicit skipped-workflow notice); next: launch prep.
 
 ## The workflow
 
