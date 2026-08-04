@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -21,10 +21,16 @@ jobs:
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: "lts/*"
+      # Local hooks need node_modules (tsc/@types/node) which this job does
+      # not install; typecheck + tests run in the typecheck job, manifest
+      # consistency in the ai-native workflow — skip them here (same commands,
+      # same results, no duplicate work).
       - uses: pre-commit/action@v3.0.1
+        env:
+          SKIP: typecheck,test,manifest-consistency
 
   typecheck:
-    name: TypeScript 6 typecheck
+    name: TypeScript 6 typecheck + tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
@@ -34,6 +40,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm test
       - name: Smoke — run TS scripts zero-build
         run: node skills/spooner/scripts/detect.ts && node skills/spooner/scripts/audit.ts
 

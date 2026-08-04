@@ -31,3 +31,31 @@ repos:
     rev: v8.24.3
     hooks:
       - id: gitleaks
+  # Local hooks: keep pre-commit a superset of CI — typecheck and the test
+  # suite run in CI but must also run locally, or a green pre-commit can ship
+  # a red CI. Declared-only (same trust model as the CI lint-test job): a repo
+  # without these npm scripts skips them; a repo WITH them runs them for real
+  # (a failing script fails the hook — never masked as "not declared").
+  - repo: local
+    hooks:
+      - id: typecheck
+        name: TypeScript typecheck (declared)
+        entry: bash -c 'node -e "const{execSync}=require(\"node:child_process\");const s=require(\"./package.json\").scripts||{};if(typeof s.typecheck===\"string\"){console.log(\"> npm run typecheck\");execSync(\"npm run typecheck\",{stdio:\"inherit\"})}else console.log(\"no typecheck script declared — skipped\")"'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: test
+        name: npm test (declared)
+        entry: bash -c 'node -e "const{execSync}=require(\"node:child_process\");const s=require(\"./package.json\").scripts||{};if(typeof s.test===\"string\"){console.log(\"> npm test\");execSync(\"npm test\",{stdio:\"inherit\"})}else console.log(\"no test script declared — skipped\")"'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: manifest-consistency
+        name: .ai-native.yml consistency (dry-run)
+        entry: node skills/spooner/scripts/transform.ts --stage all --dry-run --format markdown
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

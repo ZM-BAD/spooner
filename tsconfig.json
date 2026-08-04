@@ -14,5 +14,5 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
-  "include": ["skills/spooner/scripts/**/*.ts"]
+  "include": ["skills/spooner/scripts/**/*.ts", "skills/spooner/test/**/*.ts"]
 }

@@ -139,7 +139,7 @@ export function outdatedTemplates(root: string): SyncFileReport[] {
     .filter((f) => f.status === "outdated");
 }
 
-function run(root: string, dryRun: boolean): SyncReport {
+export function run(root: string, dryRun: boolean): SyncReport {
   const mr = readManifest(root);
   if (!mr.present || !mr.manifest) {
     return {
