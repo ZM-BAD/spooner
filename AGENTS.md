@@ -5,13 +5,13 @@
 
 ## What this project is
 
-Spooner audits a codebase's **AI coding readiness** (audit), transforms it in place with incremental, verifiable steps (transform: CI gates / AGENTS.md / SDD workflow), and continuously detects drift (check). Product form = an Agent Skills (SKILL.md) package at `skills/spooner/` — not a CLI. Resume/star-driven; not commercialized.
+Spooner audits a codebase's **AI coding readiness** (audit), transforms it in place with incremental, verifiable steps (transform: CI gates / AGENTS.md / SDD workflow), continuously detects drift (check), and re-syncs installed templates when the tool advances (sync). Product form = an Agent Skills (SKILL.md) package at `skills/spooner/` — not a CLI. Resume/star-driven; not commercialized.
 
-## Current status (2026-08-03)
+## Current status (2026-08-04)
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- M1 (audit) + M2 (transform) + M3 (check) shipped (2026-08-04): specs 0001/0002/0003 acceptance verified — the audit → transform → check loop is complete; next candidates: upgrade, launch prep (docs/06)
+- M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) shipped (2026-08-04): specs 0001/0002/0003/0004 acceptance verified — the audit → transform → check → sync loop is complete; next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -26,7 +26,8 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 | `node skills/spooner/scripts/audit.ts` | AI-Readiness scoring (/20, M1; optional `--root <path>` / `--format markdown`) |
 | `node skills/spooner/scripts/check.ts` | drift check (M3: baseline delta + manifest drift; optional `--root <path>` / `--format markdown`) |
 | `node skills/spooner/scripts/transform.ts` | transform workflow (M2: stages 2-4 + manifest consistency; optional `--root <path>` / `--stage 2/3/4/all` / `--dry-run` / `--format markdown`) |
-| `agentskills validate skills/spooner` | SKILL.md spec validation (requires `pip install skills-ref`) |
+| `node skills/spooner/scripts/sync.ts` | template re-sync (M4: version-aware diff of installed vs current templates + one-click apply; optional `--root <path>` / `--dry-run` / `--format markdown`) |
+| `.venv/bin/agentskills validate skills/spooner` | SKILL.md spec validation (`.venv` via `python3 -m venv .venv && .venv/bin/pip install skills-ref`; CI pins the same version) |
 
 ## Layout
 
@@ -73,4 +74,5 @@ spooner/
 | `specs/README.md` | SDD workflow: states, conventions, two-layer structure |
 | `specs/ROADMAP.md` | Planning index: current / next / vision / ideas |
 | `specs/0001-m1-audit-core/spec.md` | M1 audit contract: scoring matrix, report schema, acceptance |
+| `specs/0004-m4-sync/spec.md` | M4 sync contract: templateVersion extension, sync report schema, acceptance |
 | `skills/spooner/SKILL.md` | The distributable skill entry |

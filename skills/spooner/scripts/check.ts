@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAudit } from "./audit.ts";
 import { checkConsistency } from "./transform.ts";
+import { outdatedTemplates } from "./sync.ts";
 
 const BASELINE_DIR = ".ai-native";
 const BASELINE_FILE = "baseline.json";
@@ -100,6 +101,11 @@ function run(root: string): CheckReport {
     suggestions.push("No .ai-native.yml manifest — run transform stage 2 to install the manifest, then re-check.");
   } else if (!drift.consistent) {
     suggestions.push(`Drift: ${drift.missing.length} manifest file(s) missing (${drift.missing.join(", ")}) — re-run transform stage ${stageHint(drift.missing)} to restore them.`);
+  }
+
+  const outdated = outdatedTemplates(root);
+  if (outdated.length > 0) {
+    suggestions.push(`Templates outdated: ${outdated.length} file(s) (${outdated.map((f) => f.file).join(", ")}) — run sync to apply the current templates.`);
   }
 
   return {

@@ -23,3 +23,6 @@ HANDOFF.md
 
 # check baseline ledger (local record, not shared — the manifest .ai-native.yml is tracked)
 .ai-native/
+
+# ZCode local tool data (plans archive, etc.)
+.zcode/

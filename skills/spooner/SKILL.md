@@ -1,6 +1,6 @@
 ---
 name: spooner
-description: Audit a codebase's AI coding readiness — detect the stack, score it out of 20 with a gap list and maturity assessment, using deterministic zero-build scripts. Use when the user asks to audit or improve a repository's readiness for AI coding agents, or to run the audit / transform / check workflow.
+description: Audit a codebase's AI coding readiness — detect the stack, score it out of 20 with a gap list and maturity assessment, using deterministic zero-build scripts. Use when the user asks to audit or improve a repository's readiness for AI coding agents, or to run the audit / transform / check / sync workflow.
 license: MIT
 compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via type stripping — no build step, zero third-party dependencies)
 ---
@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) + M2 (transform) + M3 (check) shipped — `detect`, `audit`, `transform`, `check` available.**
+> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) shipped — `detect`, `audit`, `transform`, `check`, `sync` available.**
 
 ## Workflow
 
@@ -18,12 +18,13 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 | audit — detect and score readiness (repeatable health check) | ✅ M1 | `scripts/detect.ts` + `scripts/audit.ts` |
 | transform — incremental, verifiable, rollback-able changes (gates → AGENTS.md → SDD) | ✅ M2 | `scripts/transform.ts` |
 | check — continuously detect drift (repeatable, with records) | ✅ M3 | `scripts/check.ts` |
+| sync — re-sync installed templates when the tool advances (versioned, one-click) | ✅ M4 | `scripts/sync.ts` |
 
 ## Prerequisites
 
 - **Node.js >= 22.18** — the scripts are TypeScript run natively via type stripping; there is no build step. On older Node, `audit.ts` prints an upgrade hint and exits.
 - **git** — freshness checks and maturity gating read commit history.
-- The scripts are **zero-dependency** (Node builtins only) and **read-only** — running them never modifies the target repository.
+- The scripts are **zero-dependency** (Node builtins only). `detect` and `audit` are **read-only**; `transform`, `check` and `sync` write only what they declare (installed template files / the `.ai-native.yml` manifest / the `.ai-native/baseline.json` ledger).
 
 ## Running the scripts
 
@@ -34,6 +35,7 @@ node <skill-dir>/scripts/detect.ts --root /path/to/repo
 node <skill-dir>/scripts/audit.ts --root /path/to/repo [--format json|markdown]
 node <skill-dir>/scripts/transform.ts --root /path/to/repo [--stage 2|3|4|all] [--dry-run] [--format json|markdown]
 node <skill-dir>/scripts/check.ts --root /path/to/repo [--format json|markdown]
+node <skill-dir>/scripts/sync.ts --root /path/to/repo [--dry-run] [--format json|markdown]
 ```
 
 (When developing this skill inside the spooner repo, `<skill-dir>` is `skills/spooner`.)
@@ -42,6 +44,7 @@ node <skill-dir>/scripts/check.ts --root /path/to/repo [--format json|markdown]
 - `audit.ts` defaults to JSON (machine-parseable); `--format markdown` prints the human-readable report.
 - `transform.ts` defaults to `--stage all` status; `--stage 2|3|4` applies one stage, `--dry-run` shows the plan without writing anything.
 - `check.ts` re-runs the audit, compares against the stored baseline and the manifest, and reports drift — defaults to JSON; `--format markdown` for humans.
+- `sync.ts` compares manifest-recorded template files against the current skill templates and re-syncs them — defaults to **apply** (replaces outdated, restores missing); `--dry-run` shows the per-file plan without writing.
 
 ## The audit workflow (M1)
 
@@ -89,7 +92,27 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 | 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
 | 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
 
-`check` (M3) makes the loop repeatable: re-run `scripts/check.ts --root <path>` any time — in CI, before a release, or when the user says "is anything drifting?". First run records a baseline (`.ai-native/baseline.json`); later runs report the score delta, manifest drift (files the manifest declares but that are missing, mapped back to the transform stage that installs them), and fixed suggestions. Check only reports — transform does the fixing (same separation as audit/transform).
+`check` (M3) makes the loop repeatable: re-run `scripts/check.ts --root <path>` any time — in CI, before a release, or when the user says "is anything drifting?". First run records a baseline (`.ai-native/baseline.json`); later runs report the score delta, manifest drift (files the manifest declares but that are missing, mapped back to the transform stage that installs them), and fixed suggestions. Check only reports — transform does the fixing (same separation as audit/transform). When installed templates go stale (see sync below), check's suggestions say so and `sync` applies the current ones.
+
+## sync — the workflow (M4)
+
+When spooner itself advances — a new skill version whose templates changed (newer pre-commit rev pins, actions versions, gate configs) — the template files it installed earlier go stale. `sync` is the versioned re-sync: compare installed vs current templates, one-click apply. **Naming**: `sync` not "upgrade" — transform is the AI-ification of the repo; upgrading spooner itself is replacing the skill package (distribution, not a command); sync re-syncs the installed artifacts to the current tool version (uv `sync` semantics).
+
+**Agent-driven procedure:**
+
+1. **Dry-run first, always**: `node <skill-dir>/scripts/sync.ts --root <path> --dry-run` — classifies every manifest-recorded file per the table below; nothing is written.
+2. **Confirm the plan with the user, then apply**: `node <skill-dir>/scripts/sync.ts --root <path>` — replaces `outdated` files with the current template bytes, restores `missing` ones, stamps the touched stages in `.ai-native.yml` (`templateVersion` + date), and reports post-apply manifest consistency plus the rollback command (`git restore …`).
+3. **Never overwrite user edits**: a file that differs from the template at the same version is `modified` — reported and left alone (the same red line as transform's conflicts).
+4. **No manifest**: a repo without `.ai-native.yml` is not synced — the report says to run `transform --stage 2` first.
+5. **Generated files are out of scope**: AGENTS.md / CLAUDE.md are reported as `generated` and never written — re-run `transform --stage 3` to regenerate them.
+
+| Status | Meaning | sync (apply) action |
+|---|---|---|
+| `up-to-date` | installed bytes == current template | nothing |
+| `outdated` | installed from an older template version (version pair in the report) | replace with the current template |
+| `modified` | same version, bytes differ (user edits) | never touch |
+| `missing` | manifest records it, file is gone | restore from the template |
+| `generated` | AGENTS.md / CLAUDE.md — not template-managed | never touch (re-run `transform --stage 3`) |
 
 ## Examples
 
@@ -221,6 +244,28 @@ A stage 2 dry-run on a repo with no gates reports the plan first, e.g. `dry-run:
 
 The second run on the same repo reports `delta: 0` and "Readiness unchanged"; after a gap is fixed (e.g. a lint config added), it reports `delta: +1`; if a manifest-listed file is deleted, it reports `Manifest drift: <file>` and "re-run transform stage N to restore them".
 
+### Sync report, dry-run (real output — synthetic fixture with a stale install, 2026-08-04)
+
+```markdown
+# Sync Report
+
+- Root: . · Dry-run: true · Templates: installed 0.1.0 → current 0.1.0
+
+| File | Stage | Status | Version |
+|---|---|---|---|
+| .commitlintrc.json | 2 | up-to-date | — |
+| .pre-commit-config.yaml | 2 | outdated | 0.0.9 → 0.1.0 |
+| AGENTS.md | 3 | generated | — |
+| CLAUDE.md | 3 | generated | — |
+| docs/sdd/spec.md | 4 | up-to-date | — |
+
+- Manifest consistency: consistent
+
+dry-run: 1 outdated (apply replaces), 0 missing (apply restores), 0 modified (user edits — never touched), 2 generated (not template-managed), 5 tracked file(s)
+```
+
+The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed pre-commit rev pin). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion: "0.1.0"` on the stage, and reports `rollback: git restore .pre-commit-config.yaml`. A user-edited file at the same version reports `modified` and is never touched.
+
 ## Red lines
 
 - Commands are derived from real files, never invented — a gap is reported, never faked
@@ -228,5 +273,6 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 - audit is read-only — it never writes to the audited repository
 - The report is deterministic — no timestamps, no LLM-generated suggestions (fixed copy)
 - transform never overwrites an existing file whose content differs — conflicts are reported, the user decides
+- sync never overwrites a `modified` file (user edits at the current template version) — it replaces only `outdated`/`missing` template files and reports the rollback command (`git restore …`)
 - transform verifies the declared build/test commands before and after each applied stage; on failure it names the rollback command (`git restore …`)
 - Scripts are zero-dependency and only do what they declare (scan + report + install)

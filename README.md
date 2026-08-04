@@ -19,7 +19,7 @@ Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) bu
 
 > 中文说明见 [README.zh-CN.md](README.zh-CN.md)。
 
-**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1 (audit) + M2 (transform) + M3 (check) shipped** — the audit → transform → check loop is complete; next candidates: upgrade, launch prep.
+**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) shipped** — the audit → transform → check → sync loop is complete; next: launch prep.
 
 ## The workflow
 
@@ -28,6 +28,7 @@ Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) bu
 | `audit` | Detect and score AI coding readiness (repeatable — a health check) | Any repo, anytime |
 | `transform` | Incremental, verifiable, rollback-able transformations (CI gates / AGENTS.md / SDD) | Once — the surgery |
 | `check` | Continuously detect drift (repeatable, with records) | Every CI run |
+| `sync` | Re-sync installed templates to the current tool version (version-aware, one-click) | When the tool advances |
 
 ## Compatibility
 

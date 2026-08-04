@@ -14,14 +14,14 @@
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detect } from "./detect.ts";
 
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-const TOOL_VERSION = "0.2.2";
+export const TOOL_VERSION = "0.2.2";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -32,6 +32,8 @@ const STAGE_FILES: Record<number, string[]> = {
 
 interface ManifestStage {
   date: string;
+  /** Tool version whose templates this stage installed (M4; absent on pre-M4 manifests). */
+  templateVersion?: string;
   warnOnly?: boolean;
   files: string[];
 }
@@ -134,6 +136,7 @@ function stringifyManifest(m: Manifest): string {
   const lines: string[] = [`schemaVersion: ${m.schemaVersion}`, `tool: ${m.tool}`, `version: "${m.version}"`, "stages:"];
   for (const [stage, s] of Object.entries(m.stages)) {
     lines.push(`  ${stage}:`, `    date: "${s.date}"`);
+    if (s.templateVersion !== undefined) lines.push(`    templateVersion: "${s.templateVersion}"`);
     if (s.warnOnly !== undefined) lines.push(`    warnOnly: ${s.warnOnly}`);
     lines.push("    files:");
     for (const f of s.files) lines.push(`      - "${f}"`);
@@ -153,19 +156,27 @@ export function readManifest(root: string): { present: boolean; manifest: Manife
       throw new Error(`schema mismatch (expected schemaVersion ${SCHEMA_VERSION}, tool ${TOOL_NAME}, stages map)`);
     }
     const stages: Record<string, ManifestStage> = {};
+    const topVersion = typeof parsed["version"] === "string" ? parsed["version"] : TOOL_VERSION;
     for (const [k, v] of Object.entries(stagesRaw)) {
-      const s = v as { date?: unknown; warnOnly?: unknown; files?: unknown };
+      const s = v as { date?: unknown; warnOnly?: unknown; files?: unknown; templateVersion?: unknown };
       if (typeof s !== "object" || s === null || typeof s.date !== "string" || !Array.isArray(s.files) || s.files.some((f) => typeof f !== "string")) {
         throw new Error(`stage "${k}" entry malformed`);
       }
-      stages[k] = { date: s.date, files: s.files as string[], warnOnly: s.warnOnly === true ? true : undefined };
+      const tv = s.templateVersion;
+      stages[k] = {
+        date: s.date,
+        files: s.files as string[],
+        warnOnly: s.warnOnly === true ? true : undefined,
+        // per-stage version, else the manifest-level version (pre-M4 manifests), else current
+        templateVersion: typeof tv === "string" && tv !== "" ? tv : topVersion,
+      };
     }
     return {
       present: true,
       manifest: {
         schemaVersion: parsed["schemaVersion"] as number,
         tool: parsed["tool"] as string,
-        version: typeof parsed["version"] === "string" ? parsed["version"] : TOOL_VERSION,
+        version: topVersion,
         stages,
       },
       error: null,
@@ -183,14 +194,14 @@ export function writeManifest(root: string, stages: Record<string, ManifestStage
 // --- stage 2: gates installer ---------------------------------------------------
 
 /** Install path → template file (verbatim copies, zero parameters, v1). */
-const STAGE2_TEMPLATES: Record<string, string> = {
+export const STAGE2_TEMPLATES: Record<string, string> = {
   ".commitlintrc.json": "commitlintrc.json",
   ".pre-commit-config.yaml": "pre-commit-config.yaml",
   ".markdownlint-cli2.yaml": "markdownlint-cli2.yaml",
   ".github/workflows/ai-native.yml": "ci-workflow.yml",
 };
 
-const TEMPLATE_DIR = join(import.meta.dirname, "..", "templates");
+export const TEMPLATE_DIR = join(import.meta.dirname, "..", "templates");
 
 interface Stage2FilePlan {
   file: string;
@@ -257,7 +268,7 @@ function runDeclared(root: string): { ok: boolean; keys: string[] } {
   return { ok: true, keys };
 }
 
-function manifestWithStage(root: string, stage: string, entry: ManifestStage): Record<string, ManifestStage> {
+export function manifestWithStage(root: string, stage: string, entry: ManifestStage): Record<string, ManifestStage> {
   const mr = readManifest(root);
   const merged: Record<string, ManifestStage> = { ...(mr.present && mr.manifest ? mr.manifest.stages : {}) };
   merged[stage] = entry;
@@ -287,6 +298,10 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
     };
   }
 
+  // Local verification runs the full declared family (incl. check/verify —
+  // local tooling like pre-commit exists here); the CI gate template runs
+  // self-contained families only (a clean CI checkout lacks that tooling).
+  // A failure here names rollback or pre-existing, never fakes green.
   const before = command ? runDeclared(root).ok : null;
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
@@ -301,6 +316,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
       manifestWithStage(root, "2", {
         date: new Date().toISOString().slice(0, 10),
         warnOnly: true,
+        templateVersion: TOOL_VERSION,
         files: Object.keys(STAGE2_TEMPLATES),
       }),
     );
@@ -357,7 +373,7 @@ export function generateAgentsMd(root: string): string {
   const pkg = packageJsonOf(root);
   const scripts = pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
   const stacks = detect(root).stacks;
-  const name = typeof pkg?.name === "string" && pkg.name ? pkg.name : basename(root);
+  const name = typeof pkg?.name === "string" && pkg.name ? pkg.name : basename(resolve(root));
   const description = typeof pkg?.description === "string" ? pkg.description : null;
   const scriptKeys = Object.keys(scripts).sort();
   const makeTargets = makefileTargetsOf(root);
@@ -437,7 +453,7 @@ function applyStage3(root: string, dryRun: boolean): Stage3Result {
   if (manifestUpdated) {
     writeManifest(
       root,
-      manifestWithStage(root, "3", { date: new Date().toISOString().slice(0, 10), files: ["AGENTS.md", "CLAUDE.md"] }),
+      manifestWithStage(root, "3", { date: new Date().toISOString().slice(0, 10), templateVersion: TOOL_VERSION, files: ["AGENTS.md", "CLAUDE.md"] }),
     );
   }
 
@@ -458,7 +474,7 @@ function applyStage3(root: string, dryRun: boolean): Stage3Result {
 // --- stage 4: SDD adoption ---------------------------------------------------------
 
 /** Install path → template file. */
-const STAGE4_TEMPLATES: Record<string, string> = {
+export const STAGE4_TEMPLATES: Record<string, string> = {
   "docs/sdd/spec.md": "sdd/spec.md",
   "docs/sdd/plan.md": "sdd/plan.md",
   "docs/sdd/tasks.md": "sdd/tasks.md",
@@ -529,7 +545,7 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
   const manifestUpdated = toWrite.length > 0 || appended;
   if (manifestUpdated) {
     const files = [...Object.keys(STAGE4_TEMPLATES), ...(appended ? ["AGENTS.md"] : [])];
-    writeManifest(root, manifestWithStage(root, "4", { date: new Date().toISOString().slice(0, 10), files }));
+    writeManifest(root, manifestWithStage(root, "4", { date: new Date().toISOString().slice(0, 10), templateVersion: TOOL_VERSION, files }));
   }
 
   let message: string;
@@ -548,7 +564,7 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
   return { stage: 4, applied: manifestUpdated, dryRun: false, files: plans, agentsSdd, manifestUpdated, message };
 }
 
-interface ManifestConsistency {
+export interface ManifestConsistency {
   checked: boolean;
   consistent: boolean;
   missing: string[];
