@@ -19,7 +19,7 @@ Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放
 
 > English version: [README.md](README.md)。
 
-**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1（audit）已交付**（技术栈检测 + 评分/报告 + 完整 SKILL.md 指令，验收标准 1-6 通过）；下一步：M2（transform）。
+**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1（audit）+ M2（transform）已交付**（detect/audit/transform 全部验收通过）；下一步候选：check（漂移检测）。
 
 ## 工作流
 

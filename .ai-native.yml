@@ -1,0 +1,12 @@
+schemaVersion: 1
+tool: spooner
+version: "0.2.2"
+stages:
+  2:
+    date: "2026-08-04"
+    warnOnly: true
+    files:
+      - ".commitlintrc.json"
+      - ".pre-commit-config.yaml"
+      - ".markdownlint-cli2.yaml"
+      - ".github/workflows/ai-native.yml"

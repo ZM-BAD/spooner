@@ -9,16 +9,17 @@
 | ID | Name | Status | Notes |
 |---|---|---|---|
 | 0001 | m1-audit-core | shipped | Acceptance passed 2026-08-04 (criteria 1-6; hasCi false positive fixed during the run) — audit: stack detection + scoring/reporting + full SKILL.md instructions |
+| 0002 | m2-transform | shipped | Acceptance passed 2026-08-04 (criteria 1-9, 14 assertions; two dogfood defects fixed) — stages 2-4 (gates → AGENTS.md + symlink → SDD) + `.ai-native.yml` manifest |
 
 ## 🟢 Current (in-progress)
 
-Nothing in progress — M1 shipped; next is writing spec 0002 (m2-transform).
+Nothing in progress — 0001/0002 shipped; next spec: check (drift), upgrade, or 0002 lessons recap.
 
 ## 🟡 Next
 
 | ID | Name | Status | Notes |
 |---|---|---|---|
-| 0002 | m2-transform (reserved) | to be written | Gates → AGENTS.md generation + symlink → SDD adoption (scope in the internal archive, docs/02). Start after M1 acceptance — M1's lessons will shape the transform slice design; writing it early guarantees rework |
+| 0002 | m2-transform | shipped | Acceptance passed 2026-08-04 — spec `specs/0002-m2-transform/spec.md`: agent-driven stages 2-4 (gates → AGENTS.md + symlink → SDD) + `.ai-native.yml` manifest; check/upgrade deferred |
 
 ## 🔵 Vision (not yet spec'd)
 

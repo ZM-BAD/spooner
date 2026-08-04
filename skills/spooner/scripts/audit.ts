@@ -284,7 +284,7 @@ function checkAgentsCommands(root: string): CheckResult {
 function checkAgentsSdd(root: string): CheckResult {
   const file = agentFile(root);
   const content = file ? readIfExists(join(root, file)) ?? "" : "";
-  const mentions = /\bspec\b|spec-driven|SDD/i.test(content);
+  const mentions = /\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(content);
   return {
     id: "agents-sdd",
     category: "agent-setup",

@@ -19,7 +19,7 @@ Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) bu
 
 > 中文说明见 [README.zh-CN.md](README.zh-CN.md)。
 
-**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1 (audit) shipped** (stack detection + scoring/reporting + full SKILL.md instructions, acceptance criteria 1-6 verified); next: M2 (transform).
+**Status (2026-08-04):** product design frozen; engineering scaffold ready (TypeScript 6, zero-build, SDD workflow, full lint + CI); **M1 (audit) + M2 (transform) shipped** (detect/audit/transform all verified); next candidate: check (drift).
 
 ## The workflow
 

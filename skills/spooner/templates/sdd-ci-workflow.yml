@@ -1,0 +1,21 @@
+# SDD gate installed by spooner transform Stage 4 (optional):
+# spec files must exist — deleting them fails CI on purpose
+name: sdd
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spec-exists:
+    name: spec files exist (SDD gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Check docs/sdd/spec.md exists
+        run: test -f docs/sdd/spec.md

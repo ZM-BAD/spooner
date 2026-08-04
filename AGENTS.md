@@ -11,7 +11,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- M1 (audit) shipped (2026-08-04): spec `specs/0001-m1-audit-core/`, acceptance criteria 1-6 verified; next is M2 (transform, spec 0002)
+- M1 (audit) + M2 (transform) shipped (2026-08-04): specs 0001/0002 acceptance verified (1-6 and 1-9); next candidate: check (drift) spec
 
 ## Commands (all real and executable)
 
@@ -24,6 +24,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 | `pre-commit run --all-files` | run all pre-commit hooks |
 | `node skills/spooner/scripts/detect.ts` | stack detection (M1; optional `--root <path>`) |
 | `node skills/spooner/scripts/audit.ts` | AI-Readiness scoring (/20, M1; optional `--root <path>` / `--format markdown`) |
+| `node skills/spooner/scripts/transform.ts` | transform workflow (M2: stages 2-4 + manifest consistency; optional `--root <path>` / `--stage 2/3/4/all` / `--dry-run` / `--format markdown`) |
 | `agentskills validate skills/spooner` | SKILL.md spec validation (requires `pip install skills-ref`) |
 
 ## Layout

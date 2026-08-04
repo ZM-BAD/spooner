@@ -9,15 +9,15 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) shipped — `detect` + `audit` available, full instructions below. `transform` and `check` land in M2.**
+> **Status: M1 (audit) + M2 (transform) shipped — `detect`, `audit`, `transform` available. `check` lands in a later milestone.**
 
 ## Workflow
 
 | Step | Available | Scripts / status |
 |---|---|---|
 | audit — detect and score readiness (repeatable health check) | ✅ M1 | `scripts/detect.ts` + `scripts/audit.ts` |
-| transform — incremental, verifiable, rollback-able changes (CI gates → AGENTS.md → SDD) | ⏳ M2 | not yet available |
-| check — continuously detect drift (repeatable, with records) | ⏳ M2 | not yet available |
+| transform — incremental, verifiable, rollback-able changes (gates → AGENTS.md → SDD) | ✅ M2 | `scripts/transform.ts` |
+| check — continuously detect drift (repeatable, with records) | ⏳ later | not yet available |
 
 ## Prerequisites
 
@@ -32,12 +32,14 @@ Both scripts accept `--root <path>` (default: the current working directory) and
 ```sh
 node <skill-dir>/scripts/detect.ts --root /path/to/repo
 node <skill-dir>/scripts/audit.ts --root /path/to/repo [--format json|markdown]
+node <skill-dir>/scripts/transform.ts --root /path/to/repo [--stage 2|3|4|all] [--dry-run] [--format json|markdown]
 ```
 
 (When developing this skill inside the spooner repo, `<skill-dir>` is `skills/spooner`.)
 
 - `detect.ts` always prints JSON: `{ root, stacks, manifests }` — the detected stacks plus one entry per known manifest (`package.json`, `pyproject.toml`, `go.mod`, …) with an `exists` flag.
 - `audit.ts` defaults to JSON (machine-parseable); `--format markdown` prints the human-readable report.
+- `transform.ts` defaults to `--stage all` status; `--stage 2|3|4` applies one stage, `--dry-run` shows the plan without writing anything.
 
 ## The audit workflow (M1)
 
@@ -67,15 +69,25 @@ node <skill-dir>/scripts/audit.ts --root . > /tmp/b.json
 diff /tmp/a.json /tmp/b.json   # no output = deterministic
 ```
 
-## transform & check — M2, not yet available
+## transform — the workflow (M2)
 
-Gap `fix` strings and suggestions reference transform stages:
+The audit ends at "what to do"; transform **does it** — in place, one verified, confirmable stage at a time, never breaking the existing build. Run it only on `stable`/`legacy` repos (skeleton repos are "too early" by design).
 
-- **Stage 2 — gates only**: commitlint + pre-commit + gitleaks + markdownlint + CI lint/test/security jobs; warn-only, never touching existing logic.
-- **Stage 3 — agent files**: AGENTS.md generated from real commands + a CLAUDE.md symlink.
-- **Stage 4 (optional) — SDD**: spec/plan/tasks templates + workflow conventions in AGENTS.md.
+**Agent-driven procedure:**
 
-Until M2 ships, do **not** fabricate these files yourself: the M1 report ends at "what to do", not "do it".
+1. **Stage 1 = the audit** (above): report + plan. Show the user the score and the gap list; agree on the stage order. Default order: Stage 2 (gates) → Stage 3 (agent files) → Stage 4 (SDD).
+2. **Dry-run first, always**: `node <skill-dir>/scripts/transform.ts --root <path> --stage 2 --dry-run` — prints the exact plan (files to write / keep / conflict) and the build command that will be verified. Nothing is written.
+3. **Apply with user confirmation**: `--stage 2` writes the missing gate files and verifies the repo's declared build/test commands **before and after**; if the post-apply check fails, the report lists the files and the rollback command (`git restore …`) and exits non-zero. **Then install the git hooks**: `pre-commit install --hook-type commit-msg` — plain `pre-commit install` installs only the pre-commit stage and leaves the commitlint hook dead (config ≠ enforcement); the commit-msg hook is what actually checks every commit.
+4. **Respect conflicts**: an existing file whose content differs from the template is **never overwritten** — it's reported as `conflict` and left to the user's decision.
+5. **Re-run freely**: applying an already-installed stage is a reported no-op (idempotent). The `.ai-native.yml` manifest records what each stage installed (date, files); `transform.ts --stage all` reports per-stage status plus **manifest consistency** (installed files vs the manifest — the drift seed).
+
+| Stage | What it does | Outputs |
+|---|---|---|
+| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + CI workflow (warn-only quality jobs; hard gate: declared build/test commands executable) | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` |
+| 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
+| 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
+
+`check` (drift detection as a repeatable health check) is a later milestone — its seed is the manifest consistency report above.
 
 ## Examples
 
@@ -84,17 +96,15 @@ Until M2 ships, do **not** fabricate these files yourself: the M1 report ends at
 ```markdown
 # AI-Readiness Report
 
-- Stack: node · Maturity: skeleton · Score: **12/20**
-
-> Fewer than 5 commits — too early to transform. Return once the project stabilizes.
+- Stack: node · Maturity: stable · Score: **16/20**
 
 ## Score by category
 
 | Category | Score | Max |
 |---|---|---|
 | Agent Setup | 5 | 6 |
-| Configuration | 2 | 5 |
-| Integrity | 1 | 4 |
+| Configuration | 3 | 5 |
+| Integrity | 4 | 4 |
 | Freshness | 3 | 3 |
 | Structure | 1 | 2 |
 
@@ -104,18 +114,13 @@ Until M2 ships, do **not** fabricate these files yourself: the M1 report ends at
 |---|---|---|---|
 | agents-commands | 1/2 | commands traceable to package.json scripts (build: true, test: false) | add real build/test commands, then document them in AGENTS.md |
 | cfg-format | 0/1 | formatter config: missing, command: missing | transform Stage 2 |
-| cfg-ci | 0/1 | CI present (lint: true, test: false) | transform Stage 2 (CI lint + test jobs) |
 | cfg-test | 0/1 | no test framework or test command found | transform Stage 2 (add a test command) |
-| sec-scan | 0/1 | no secret scanning configured | transform Stage 2 (gitleaks) |
-| sec-ci | 0/1 | CI has no security job | transform Stage 2 (CI security job) |
-| drift | 0/1 | .ai-native.yml manifest missing | run transform to install the manifest |
 | struct-layout | 0/1 | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ |
 
 ## Suggestions
 
 - Run transform Stage 3 to generate an AGENTS.md derived from real commands (with a CLAUDE.md symlink).
 - Run transform Stage 2 to install lint/format/CI gates (warn-only; keep the existing build green).
-- Run transform Stage 2 security pass: gitleaks, .env protection, and a CI security job.
 - Add a README with real content and organize sources under src/, lib/, or packages/.
 ```
 
@@ -126,15 +131,15 @@ Until M2 ships, do **not** fabricate these files yourself: the M1 report ends at
   "schemaVersion": 1,
   "root": ".",
   "stacks": ["node"],
-  "maturity": "skeleton",
-  "maturityNote": "Fewer than 5 commits — too early to transform. Return once the project stabilizes.",
+  "maturity": "stable",
+  "maturityNote": null,
   "score": {
-    "total": 12,
+    "total": 16,
     "max": 20,
     "byCategory": {
       "agent-setup": { "score": 5, "max": 6 },
-      "configuration": { "score": 2, "max": 5 },
-      "integrity": { "score": 1, "max": 4 },
+      "configuration": { "score": 3, "max": 5 },
+      "integrity": { "score": 4, "max": 4 },
       "freshness": { "score": 3, "max": 3 },
       "structure": { "score": 1, "max": 2 }
     }
@@ -161,15 +166,14 @@ Until M2 ships, do **not** fabricate these files yourself: the M1 report ends at
       "category": "agent-setup",
       "score": 1,
       "max": 1,
-      "evidence": "AGENTS.md: 75 lines",
+      "evidence": "AGENTS.md: 76 lines",
       "fix": "trim AGENTS.md"
     }
   ],
-  "gaps": ["agents-commands", "cfg-format", "cfg-ci", "cfg-test", "sec-scan", "sec-ci", "drift", "struct-layout"],
+  "gaps": ["agents-commands", "cfg-format", "cfg-test", "struct-layout"],
   "suggestions": [
     "Run transform Stage 3 to generate an AGENTS.md derived from real commands (with a CLAUDE.md symlink).",
     "Run transform Stage 2 to install lint/format/CI gates (warn-only; keep the existing build green).",
-    "Run transform Stage 2 security pass: gitleaks, .env protection, and a CI security job.",
     "Add a README with real content and organize sources under src/, lib/, or packages/."
   ]
 }
@@ -177,10 +181,30 @@ Until M2 ships, do **not** fabricate these files yourself: the M1 report ends at
 
 All 19 check ids: `agents-md`, `agents-bridge`, `agents-length`, `agents-commands`, `agents-sdd`, `cfg-lint`, `cfg-format`, `cfg-hooks`, `cfg-ci`, `cfg-test`, `sec-env`, `sec-scan`, `sec-ci`, `drift`, `fresh-recent`, `fresh-active`, `fresh-deps`, `struct-readme`, `struct-layout`.
 
+### Transform status (real output — the spooner repo itself, 2026-08-04)
+
+```markdown
+# Transform Status
+
+- Root: . · Stage: all · Dry-run: false
+
+| Stage | Status | Present | Missing |
+|---|---|---|---|
+| 2 | installed | .commitlintrc.json, .pre-commit-config.yaml, .markdownlint-cli2.yaml, .github/workflows/ai-native.yml | — |
+| 3 | installed | AGENTS.md, CLAUDE.md | — |
+| 4 | not-installed | — | docs/sdd/spec.md, docs/sdd/plan.md, docs/sdd/tasks.md, .github/workflows/sdd.yml |
+
+- Manifest consistency: consistent
+```
+
+A stage 2 dry-run on a repo with no gates reports the plan first, e.g. `dry-run: 4 file(s) to write, 0 conflict(s), 0 already installed; verification command: npm run build && npm run test` — only `--stage 2` (without `--dry-run`) writes, and only after the user confirms.
+
 ## Red lines
 
 - Commands are derived from real files, never invented — a gap is reported, never faked
 - Every step is verified and rollback-able — never break an existing build
 - audit is read-only — it never writes to the audited repository
 - The report is deterministic — no timestamps, no LLM-generated suggestions (fixed copy)
-- Scripts are zero-dependency and only do what they declare (scan + report)
+- transform never overwrites an existing file whose content differs — conflicts are reported, the user decides
+- transform verifies the declared build/test commands before and after each applied stage; on failure it names the rollback command (`git restore …`)
+- Scripts are zero-dependency and only do what they declare (scan + report + install)
