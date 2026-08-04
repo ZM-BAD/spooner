@@ -93,6 +93,10 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 3. **Apply with user confirmation**: `--stage 2` writes the missing gate files and verifies the repo's declared build/test commands **before and after**; if the post-apply check fails, the report lists the files and the rollback command (`git restore …`) and exits non-zero. **Then install the git hooks**: `pre-commit install --hook-type commit-msg` — plain `pre-commit install` installs only the pre-commit stage and leaves the commitlint hook dead (config ≠ enforcement); the commit-msg hook is what actually checks every commit.
 4. **Respect conflicts**: an existing file whose content differs from the template is **never overwritten** — it's reported as `conflict` and left to the user's decision.
 5. **Re-run freely**: applying an already-installed stage is a reported no-op (idempotent). The `.ai-native.yml` manifest records what each stage installed (date, files); `transform.ts --stage all` reports per-stage status plus **manifest consistency** (installed files vs the manifest — the drift seed).
+6. **Verify it took effect — not just that files were written** (the config ≠ enforcement lesson, productized): after each applied stage, prove the gates are real.
+   - Re-run the audit: `cfg-hooks` must now score **1/1** (the git hooks are actually installed — the gate-active check), and the configuration/integrity scores reflect the installed gates.
+   - Run `pre-commit run --all-files` once — the hooks execute; nothing is silently dead.
+   - In full mode, prove commitlint actually rejects: write a deliberately invalid message (e.g. `echo "bad commit message" > .git/COMMIT_EDITMSG`), run `pre-commit run --hook-stage commit-msg --commit-msg-filename .git/COMMIT_EDITMSG` — it must **fail**; restore the file afterwards (`git log -1 --format=%B > .git/COMMIT_EDITMSG`).
 
 | Stage | What it does | Outputs |
 |---|---|---|
