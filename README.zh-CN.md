@@ -19,14 +19,14 @@ Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放
 
 > English version: [README.md](README.md)。
 
-**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1（audit）+ M2（transform）+ M3（check）+ M4（sync）已交付** —— audit → transform → check → sync 闭环完成；下一步：发布准备。
+**当前状态（2026-08-04）：** 产品设计已冻结；工程脚手架已就绪（TypeScript 6、零构建、SDD 工作流、全套 lint + CI）；**M1（audit）+ M2（transform）+ M3（check）+ M4（sync）+ M5（CI drift gate）已交付** —— audit → transform → check → sync 闭环完成，manifest 漂移在 CI 中被硬门禁拦截；下一步：发布准备。
 
 ## 工作流
 
 | 命令 | 做什么 | 何时 |
 |---|---|---|
 | `audit` | 检测就绪度并评分（可重复，体检） | 任意仓库、任意时刻 |
-| `transform` | 渐进化、可验证、可回滚的改造（CI 门禁 / AGENTS.md / SDD） | 一次性，手术 |
+| `transform` | 渐进化、可验证、可回滚的改造（CI 门禁含 manifest 漂移 gate / AGENTS.md / SDD） | 一次性，手术 |
 | `check` | 持续检测漂移（可重复，有记录） | 每次 CI 运行 |
 | `sync` | 已装模板随工具版本重同步（版本感知、一键应用） | 工具升级后 |
 

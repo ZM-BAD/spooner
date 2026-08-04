@@ -308,7 +308,11 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
     writeFileSync(join(root, p.file), templateContent(STAGE2_TEMPLATES[p.file]), "utf8");
   }
   const after = command ? runDeclared(root).ok : null;
-  const manifestUpdated = toWrite.length > 0;
+  // the manifest is the ledger: restore it even when no files are written
+  // (a deleted .ai-native.yml must not be a dead end for the drift gate's
+  // "run transform stage 2" remediation — and check's no-manifest suggestion)
+  const manifestMissing = !readManifest(root).present;
+  const manifestUpdated = toWrite.length > 0 || manifestMissing;
 
   if (manifestUpdated) {
     writeManifest(
@@ -324,7 +328,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
 
   let message: string;
   if (toWrite.length === 0 && conflicts.length === 0) {
-    message = "stage 2 already installed (no changes)";
+    message = manifestMissing ? "stage 2 files already installed; manifest restored" : "stage 2 already installed (no changes)";
   } else if (after === false) {
     const written = toWrite.map((p) => p.file).join(", ");
     message =

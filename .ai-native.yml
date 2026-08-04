@@ -4,6 +4,7 @@ version: "0.2.2"
 stages:
   2:
     date: "2026-08-04"
+    templateVersion: "0.2.2"
     warnOnly: true
     files:
       - ".commitlintrc.json"

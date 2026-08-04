@@ -12,14 +12,15 @@
 | 0002 | m2-transform | shipped | Acceptance passed 2026-08-04 (criteria 1-9, 14 assertions; two dogfood defects fixed) — stages 2-4 (gates → AGENTS.md + symlink → SDD) + `.ai-native.yml` manifest |
 | 0003 | m3-check | shipped | Acceptance passed 2026-08-04 (criteria 1-8, 11 assertions) — re-run audit + baseline delta + manifest drift + fixed suggestions; `.ai-native/baseline.json` ledger |
 | 0004 | m4-sync | shipped | Acceptance passed 2026-08-04 (criteria 1-12, 31 assertions) — version-aware template re-sync + one-click apply; manifest `templateVersion` extension; check "run sync" suggestion |
+| 0005 | m5-drift-gate | shipped | Acceptance passed 2026-08-04 (criteria 1-11, 21 assertions; manifest-restore defect fixed during the run) — 5th hard-gate job in the installed CI workflow: manifest file drift + template staleness → CI red; TOOL_VERSION 0.1.1 |
 
 ## 🟢 Current (in-progress)
 
-Nothing in progress — 0001/0002/0003/0004 shipped (audit/transform/check/sync complete); next: launch prep (docs/06), CI drift gate, or vision/ideas.
+Nothing in progress — 0001-0005 shipped (audit/transform/check/sync complete + CI drift gate); next: launch prep (docs/06), or vision/ideas.
 
 ## 🟡 Next
 
-Nothing spec'd as next — candidates: CI drift gate, launch prep (docs/06).
+Nothing spec'd as next — candidates: launch prep (docs/06), SVG readiness badge.
 
 ## 🔵 Vision (not yet spec'd)
 

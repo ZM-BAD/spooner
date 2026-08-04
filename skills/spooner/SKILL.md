@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) shipped — `detect`, `audit`, `transform`, `check`, `sync` available.**
+> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) shipped — `detect`, `audit`, `transform`, `check`, `sync` available; the installed CI workflow hard-gates manifest consistency.**
 
 ## Workflow
 
@@ -88,11 +88,13 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 
 | Stage | What it does | Outputs |
 |---|---|---|
-| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + CI workflow (warn-only quality jobs; hard gate: declared build/test commands executable) | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` |
+| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + CI workflow (warn-only quality jobs; hard gates: declared build/test commands executable + `.ai-native.yml` consistency — drift turns CI red) | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` |
 | 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
 | 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
 
 `check` (M3) makes the loop repeatable: re-run `scripts/check.ts --root <path>` any time — in CI, before a release, or when the user says "is anything drifting?". First run records a baseline (`.ai-native/baseline.json`); later runs report the score delta, manifest drift (files the manifest declares but that are missing, mapped back to the transform stage that installs them), and fixed suggestions. Check only reports — transform does the fixing (same separation as audit/transform). When installed templates go stale (see sync below), check's suggestions say so and `sync` applies the current ones.
+
+The installed CI workflow (Stage 2) enforces this as a hard gate too: the `manifest-consistency` job fails the build when a manifest-listed file is missing (naming the file and the restoring transform stage) or when the installed templates are older than the workflow's baked version (pointing at `sync`) — drift turns CI red until transform/sync fixes it.
 
 ## sync — the workflow (M4)
 
@@ -249,12 +251,12 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 ```markdown
 # Sync Report
 
-- Root: . · Dry-run: true · Templates: installed 0.1.0 → current 0.1.0
+- Root: . · Dry-run: true · Templates: installed 0.1.1 → current 0.1.1
 
 | File | Stage | Status | Version |
 |---|---|---|---|
 | .commitlintrc.json | 2 | up-to-date | — |
-| .pre-commit-config.yaml | 2 | outdated | 0.0.9 → 0.1.0 |
+| .pre-commit-config.yaml | 2 | outdated | 0.0.9 → 0.1.1 |
 | AGENTS.md | 3 | generated | — |
 | CLAUDE.md | 3 | generated | — |
 | docs/sdd/spec.md | 4 | up-to-date | — |
@@ -264,7 +266,7 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 dry-run: 1 outdated (apply replaces), 0 missing (apply restores), 0 modified (user edits — never touched), 2 generated (not template-managed), 5 tracked file(s)
 ```
 
-The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed pre-commit rev pin). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion: "0.1.0"` on the stage, and reports `rollback: git restore .pre-commit-config.yaml`. A user-edited file at the same version reports `modified` and is never touched.
+The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed pre-commit rev pin). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion` on the stage, and reports `rollback: git restore .pre-commit-config.yaml`. A user-edited file at the same version reports `modified` and is never touched.
 
 ## Red lines
 

@@ -1,5 +1,5 @@
 # CI workflow installed by spooner transform Stage 2 (warn-only quality gates;
-# the only hard gate is declared-command executability)
+# hard gates: declared-command executability + .ai-native.yml consistency)
 name: ai-native
 
 on:
@@ -88,4 +88,89 @@ jobs:
             const declared = keys.filter((k) => typeof scripts[k] === "string");
             if (declared.length === 0) { console.log("no build/test scripts declared"); process.exit(0); }
             for (const k of declared) { console.log("> npm run " + k); execSync("npm run " + k, { stdio: "inherit" }); }
+          '
+
+  manifest-consistency:
+    name: .ai-native.yml consistency + template version (hard gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Check manifest consistency and template staleness
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            // baked at install time; must track the spooner TOOL_VERSION that
+            // shipped this workflow (docs/08 ledger rule: every bump updates it)
+            const EXPECTED = "0.2.2";
+            function parseYaml(text) {
+              const lines = text.split("\n").map((l) => ({ indent: l.length - l.trimStart().length, raw: l }));
+              let i = 0;
+              function parseBlock(indent) {
+                const obj = {}; const arr = []; let isArray = false;
+                while (i < lines.length) {
+                  const { indent: ind, raw } = lines[i];
+                  const trimmed = raw.trim();
+                  if (!trimmed || trimmed.startsWith("#")) { i++; continue; }
+                  if (ind < indent) break;
+                  if (ind > indent) throw new Error("unexpected indent at " + trimmed);
+                  if (trimmed.startsWith("- ")) { isArray = true; arr.push(scalar(trimmed.slice(2))); i++; continue; }
+                  if (isArray) throw new Error("mixed map/array at " + trimmed);
+                  const m = trimmed.match(/^([^:]+):\s*(.*)$/);
+                  if (!m) throw new Error("cannot parse line " + trimmed);
+                  const key = m[1].trim(); const rest = m[2].trim();
+                  if (rest === "") { i++; obj[key] = i < lines.length && lines[i].indent > ind ? parseBlock(lines[i].indent) : null; }
+                  else { obj[key] = scalar(rest); i++; }
+                }
+                return isArray ? arr : obj;
+              }
+              function scalar(raw) {
+                const v = raw.trim();
+                if (v === "true") return true;
+                if (v === "false") return false;
+                if (v === "null" || v === "~") return null;
+                const q = v.match(/^"([^"]*)"$/);
+                if (q) return q[1];
+                return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v;
+              }
+              return parseBlock(0);
+            }
+            function lt(a, b) {
+              const pa = a.split(".").map((p) => Number.parseInt(p, 10));
+              const pb = b.split(".").map((p) => Number.parseInt(p, 10));
+              for (let k = 0; k < Math.max(pa.length, pb.length); k++) {
+                const x = pa[k] || 0; const y = pb[k] || 0;
+                if (x !== y) return x < y;
+              }
+              return false;
+            }
+            function stageHint(missing) {
+              if (missing.some((f) => f.startsWith("docs/sdd") || f.endsWith("sdd.yml"))) return 4;
+              if (missing.some((f) => f === "AGENTS.md" || f === "CLAUDE.md")) return 3;
+              return 2;
+            }
+            if (!fs.existsSync(".ai-native.yml")) {
+              console.error("ai-native: no .ai-native.yml manifest — run transform stage 2 first");
+              process.exit(1);
+            }
+            let m;
+            try { m = parseYaml(fs.readFileSync(".ai-native.yml", "utf8")); }
+            catch (e) { console.error("ai-native: manifest parse error — " + e.message); process.exit(1); }
+            if (m.schemaVersion !== 1 || m.tool !== "spooner" || typeof m.stages !== "object" || m.stages === null || Array.isArray(m.stages)) {
+              console.error("ai-native: manifest schema mismatch (expected schemaVersion 1, tool spooner, stages map)");
+              process.exit(1);
+            }
+            const missing = [];
+            for (const s of Object.values(m.stages)) {
+              if (s && Array.isArray(s.files)) for (const f of s.files) if (typeof f === "string" && !fs.existsSync(f)) missing.push(f);
+            }
+            if (missing.length > 0) {
+              console.error("ai-native: manifest drift — missing: " + missing.join(", ") + " — re-run transform stage " + stageHint(missing));
+              process.exit(1);
+            }
+            const version = typeof m.version === "string" ? m.version : "0.0.0";
+            if (lt(version, EXPECTED)) {
+              console.error("ai-native: installed templates v" + version + " < expected v" + EXPECTED + " — run sync to apply the current templates");
+              process.exit(1);
+            }
+            console.log("ai-native: consistent (" + Object.keys(m.stages).length + " stage(s) at v" + version + ")");
           '

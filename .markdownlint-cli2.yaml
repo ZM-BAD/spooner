@@ -1,4 +1,4 @@
-# markdownlint-cli2 config (shared by the pre-commit hook and npm run lint:md)
+# markdownlint-cli2 config (installed by spooner transform Stage 2)
 config:
   MD013: false   # line length: no limit for Chinese text/tables
   MD024: false   # duplicate headings: bilingual docs mirror sections

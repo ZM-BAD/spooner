@@ -11,7 +11,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) shipped (2026-08-04): specs 0001/0002/0003/0004 acceptance verified — the audit → transform → check → sync loop is complete; next candidates: launch prep (docs/06)
+- M1-M5 shipped (2026-08-04): specs 0001-0005 acceptance verified — the audit → transform → check → sync loop is complete, and the installed CI workflow hard-gates manifest consistency (drift → red); next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -75,4 +75,5 @@ spooner/
 | `specs/ROADMAP.md` | Planning index: current / next / vision / ideas |
 | `specs/0001-m1-audit-core/spec.md` | M1 audit contract: scoring matrix, report schema, acceptance |
 | `specs/0004-m4-sync/spec.md` | M4 sync contract: templateVersion extension, sync report schema, acceptance |
+| `specs/0005-m5-drift-gate/spec.md` | M5 drift gate contract: CI hard gate job, baked-version rule, acceptance |
 | `skills/spooner/SKILL.md` | The distributable skill entry |
