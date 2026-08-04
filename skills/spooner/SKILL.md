@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) + M6 (multi-stack) shipped — `detect`, `audit`, `transform`, `check`, `sync` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit).**
+> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) + M6 (multi-stack) shipped — `detect`, `audit`, `transform`, `check`, `sync` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit); transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice).**
 
 ## Workflow
 
@@ -81,15 +81,26 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 
 **Agent-driven procedure:**
 
+0. **Probe the context first** (spec 0008): before planning, ask the owner five questions and pick the mode:
+   1. CI platform? (GitHub Actions / GitLab CI / Jenkins / none)
+   2. Is the repo on GitHub? (decides whether `.github/workflows` applies)
+   3. May local git hooks be installed? (commit-msg hook policy)
+   4. Tech-debt constraints? (Spring/Node major upgrades, dependency policy)
+   5. Gate strictness? (warn-only / hard / audit-only)
+   Modes: **full** (GitHub + allowed → the stages below), **no-workflow** (non-GitHub CI → cross-stack gates only; the CI workflow is skipped with an explicit notice — see Stage 2), **audit-only** (nothing written — deliver the Stage 1 report and stop). The scripts stay deterministic; the mode is the agent's call from the probed context. **Transformation permission comes from the owner's situation, not the tool's assumption** — on a legacy repo whose owner cannot touch CI, "just audit" is a valid outcome.
 1. **Stage 1 = the audit** (above): report + plan. Show the user the score and the gap list; agree on the stage order. Default order: Stage 2 (gates) → Stage 3 (agent files) → Stage 4 (SDD).
 2. **Dry-run first, always**: `node <skill-dir>/scripts/transform.ts --root <path> --stage 2 --dry-run` — prints the exact plan (files to write / keep / conflict) and the build command that will be verified. Nothing is written.
 3. **Apply with user confirmation**: `--stage 2` writes the missing gate files and verifies the repo's declared build/test commands **before and after**; if the post-apply check fails, the report lists the files and the rollback command (`git restore …`) and exits non-zero. **Then install the git hooks**: `pre-commit install --hook-type commit-msg` — plain `pre-commit install` installs only the pre-commit stage and leaves the commitlint hook dead (config ≠ enforcement); the commit-msg hook is what actually checks every commit.
 4. **Respect conflicts**: an existing file whose content differs from the template is **never overwritten** — it's reported as `conflict` and left to the user's decision.
 5. **Re-run freely**: applying an already-installed stage is a reported no-op (idempotent). The `.ai-native.yml` manifest records what each stage installed (date, files); `transform.ts --stage all` reports per-stage status plus **manifest consistency** (installed files vs the manifest — the drift seed).
+6. **Verify it took effect — not just that files were written** (the config ≠ enforcement lesson, productized): after each applied stage, prove the gates are real.
+   - Re-run the audit: `cfg-hooks` must now score **1/1** (the git hooks are actually installed — the gate-active check), and the configuration/integrity scores reflect the installed gates.
+   - Run `pre-commit run --all-files` once — the hooks execute; nothing is silently dead.
+   - In full mode, prove commitlint actually rejects: write a deliberately invalid message (e.g. `echo "bad commit message" > .git/COMMIT_EDITMSG`), run `pre-commit run --hook-stage commit-msg --commit-msg-filename .git/COMMIT_EDITMSG` — it must **fail**; restore the file afterwards (`git log -1 --format=%B > .git/COMMIT_EDITMSG`).
 
 | Stage | What it does | Outputs |
 |---|---|---|
-| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red) | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template) |
+| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
 | 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile / stack lifecycle: `mvn`, `go`, `python3 -m unittest`) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
 | 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
 

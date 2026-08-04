@@ -4,12 +4,13 @@ name: ai-native
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   pre-commit:
@@ -22,7 +23,12 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install pre-commit
+      # local hooks (typecheck/test) need node_modules which this job does not
+      # install; typecheck runs in the declared-commands hard gate, test in
+      # lint-test — skip them here
       - run: pre-commit run --all-files
+        env:
+          SKIP: typecheck,test
       # commitlint runs on the commit-msg stage (never run by --all-files);
       # write the last commit into .git/COMMIT_EDITMSG (what the hook reads);
       # --commit-msg-filename is required by pre-commit for this hook stage
@@ -101,7 +107,7 @@ jobs:
             const fs = require("node:fs");
             // baked at install time; must track the spooner TOOL_VERSION that
             // shipped this workflow (docs/08 ledger rule: every bump updates it)
-            const EXPECTED = "0.2.2";
+            const EXPECTED = "0.2.7";
             function parseYaml(text) {
               const lines = text.split("\n").map((l) => ({ indent: l.length - l.trimStart().length, raw: l }));
               let i = 0;

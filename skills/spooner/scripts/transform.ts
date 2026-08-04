@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.2.2";
+export const TOOL_VERSION = "0.2.7";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -216,11 +216,34 @@ export function primaryStack(root: string): string | null {
   return STACK_PRIORITY.find((s) => stacks.includes(s)) ?? null;
 }
 
+/** CI platforms present in the repo (the same file families the audit scans). */
+export function ciPlatforms(root: string): string[] {
+  const out: string[] = [];
+  if (existsSync(join(root, ".github", "workflows"))) out.push("github");
+  if (existsSync(join(root, ".gitlab-ci.yml"))) out.push("gitlab");
+  if (existsSync(join(root, "Jenkinsfile"))) out.push("jenkins");
+  if (existsSync(join(root, "azure-pipelines.yml"))) out.push("azure");
+  if (existsSync(join(root, ".circleci"))) out.push("circleci");
+  if (existsSync(join(root, ".travis.yml"))) out.push("travis");
+  return out;
+}
+
+/**
+ * Whether the GitHub workflow template applies (spec 0008): no CI detected
+ * (greenfield — GitHub assumption holds) or GitHub present (github wins over
+ * a stray non-GitHub file). A non-GitHub platform means the workflow would be
+ * a dead file — cross-stack gates only.
+ */
+export function workflowEligible(root: string): boolean {
+  const platforms = ciPlatforms(root);
+  return platforms.length === 0 || platforms.includes("github");
+}
+
 /** Stage-2 template map for a repo: cross-stack gates + its stack's workflow. */
 export function stage2Templates(root: string): Record<string, string> {
   const stack = primaryStack(root);
   const tpl = { ...STAGE2_COMMON };
-  if (stack) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
+  if (stack && workflowEligible(root)) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
   return tpl;
 }
 
@@ -338,6 +361,14 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
         ? `stack ${detected.join("/")}: transform not supported yet — audit works; supported stacks: node/python/go/java (cross-stack gates installed, CI workflow skipped)`
         : "no recognized stack — cross-stack gates installed, CI workflow skipped (supported stacks: node/python/go/java)";
 
+  // Non-GitHub CI skip notice (spec 0008): the workflow would be a dead file on
+  // GitLab/Jenkins/etc. — cross-stack gates install, the workflow is skipped.
+  const platforms = ciPlatforms(root);
+  const platformNotice =
+    stack !== null && platforms.length > 0 && !platforms.includes("github")
+      ? `CI workflow skipped: detected ${platforms.join("/")} (non-GitHub) — cross-stack gates installed`
+      : null;
+
   // Wrong-stack workflow hint: installed bytes match a different stack's template.
   const workflowFile = ".github/workflows/ai-native.yml";
   let wrongStackHint: string | null = null;
@@ -351,7 +382,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
       }
     }
   }
-  const extra = [notice, wrongStackHint].filter(Boolean).join("; ");
+  const extra = [notice, platformNotice, wrongStackHint].filter(Boolean).join("; ");
 
   if (dryRun) {
     return {

@@ -14,10 +14,11 @@
 | 0004 | m4-sync | shipped | version-aware template re-sync + one-click apply; manifest `templateVersion` extension; check "run sync" suggestion |
 | 0005 | m5-drift-gate | shipped | 5th hard-gate job in the installed CI workflow: manifest file drift + template staleness → CI red |
 | 0006 | m6-multi-stack | shipped | stack-aware transform: node/python/go/java workflows + lifecycle commands + unsupported notice + stage-3 commands + audit credit |
+| 0008 | m8-situational-transform | shipped | context-aware transform: SKILL.md context probe (full / no-workflow / audit-only modes) + CI-platform routing in stage 2 (non-GitHub skips the workflow with an explicit notice) |
 
 ## 🟢 Current (in-progress)
 
-Nothing in progress — 0001-0006 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline as spec 0001/0002 revisions); next: launch prep (docs/06), or vision/ideas.
+Nothing in progress — 0001-0006 + 0008 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline + situational transform); next: launch prep (docs/06), or vision/ideas.
 
 ## 🟡 Next
 
