@@ -20,3 +20,6 @@ out/
 # Internal Chinese design archive (local-only; not suitable for the public repo)
 docs/
 HANDOFF.md
+
+# check baseline ledger (local record, not shared — the manifest .ai-native.yml is tracked)
+.ai-native/

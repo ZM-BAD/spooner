@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) + M2 (transform) shipped — `detect`, `audit`, `transform` available. `check` lands in a later milestone.**
+> **Status: M1 (audit) + M2 (transform) + M3 (check) shipped — `detect`, `audit`, `transform`, `check` available.**
 
 ## Workflow
 
@@ -17,7 +17,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 |---|---|---|
 | audit — detect and score readiness (repeatable health check) | ✅ M1 | `scripts/detect.ts` + `scripts/audit.ts` |
 | transform — incremental, verifiable, rollback-able changes (gates → AGENTS.md → SDD) | ✅ M2 | `scripts/transform.ts` |
-| check — continuously detect drift (repeatable, with records) | ⏳ later | not yet available |
+| check — continuously detect drift (repeatable, with records) | ✅ M3 | `scripts/check.ts` |
 
 ## Prerequisites
 
@@ -33,6 +33,7 @@ Both scripts accept `--root <path>` (default: the current working directory) and
 node <skill-dir>/scripts/detect.ts --root /path/to/repo
 node <skill-dir>/scripts/audit.ts --root /path/to/repo [--format json|markdown]
 node <skill-dir>/scripts/transform.ts --root /path/to/repo [--stage 2|3|4|all] [--dry-run] [--format json|markdown]
+node <skill-dir>/scripts/check.ts --root /path/to/repo [--format json|markdown]
 ```
 
 (When developing this skill inside the spooner repo, `<skill-dir>` is `skills/spooner`.)
@@ -40,6 +41,7 @@ node <skill-dir>/scripts/transform.ts --root /path/to/repo [--stage 2|3|4|all] [
 - `detect.ts` always prints JSON: `{ root, stacks, manifests }` — the detected stacks plus one entry per known manifest (`package.json`, `pyproject.toml`, `go.mod`, …) with an `exists` flag.
 - `audit.ts` defaults to JSON (machine-parseable); `--format markdown` prints the human-readable report.
 - `transform.ts` defaults to `--stage all` status; `--stage 2|3|4` applies one stage, `--dry-run` shows the plan without writing anything.
+- `check.ts` re-runs the audit, compares against the stored baseline and the manifest, and reports drift — defaults to JSON; `--format markdown` for humans.
 
 ## The audit workflow (M1)
 
@@ -87,7 +89,7 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 | 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
 | 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
 
-`check` (drift detection as a repeatable health check) is a later milestone — its seed is the manifest consistency report above.
+`check` (M3) makes the loop repeatable: re-run `scripts/check.ts --root <path>` any time — in CI, before a release, or when the user says "is anything drifting?". First run records a baseline (`.ai-native/baseline.json`); later runs report the score delta, manifest drift (files the manifest declares but that are missing, mapped back to the transform stage that installs them), and fixed suggestions. Check only reports — transform does the fixing (same separation as audit/transform).
 
 ## Examples
 
@@ -198,6 +200,26 @@ All 19 check ids: `agents-md`, `agents-bridge`, `agents-length`, `agents-command
 ```
 
 A stage 2 dry-run on a repo with no gates reports the plan first, e.g. `dry-run: 4 file(s) to write, 0 conflict(s), 0 already installed; verification command: npm run build && npm run test` — only `--stage 2` (without `--dry-run`) writes, and only after the user confirms.
+
+### Check report, first run (real output — the spooner repo itself, 2026-08-04)
+
+```markdown
+# Check Report
+
+- Score: **16/20** · Maturity: stable · Root: .
+
+- Baseline: none (first run)
+
+- Manifest drift: none
+
+- Gaps: agents-commands, cfg-format, cfg-test, struct-layout
+
+## Suggestions
+
+- First check — baseline recorded. Re-run later to see readiness drift.
+```
+
+The second run on the same repo reports `delta: 0` and "Readiness unchanged"; after a gap is fixed (e.g. a lint config added), it reports `delta: +1`; if a manifest-listed file is deleted, it reports `Manifest drift: <file>` and "re-run transform stage N to restore them".
 
 ## Red lines
 

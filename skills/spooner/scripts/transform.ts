@@ -555,7 +555,7 @@ interface ManifestConsistency {
 }
 
 /** Manifest entries vs actual files — the drift seed for the future check command. */
-function checkConsistency(root: string): ManifestConsistency | null {
+export function checkConsistency(root: string): ManifestConsistency | null {
   const mr = readManifest(root);
   if (!mr.present || !mr.manifest) return null;
   const missing = new Set<string>();

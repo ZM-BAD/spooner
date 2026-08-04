@@ -10,16 +10,17 @@
 |---|---|---|---|
 | 0001 | m1-audit-core | shipped | Acceptance passed 2026-08-04 (criteria 1-6; hasCi false positive fixed during the run) — audit: stack detection + scoring/reporting + full SKILL.md instructions |
 | 0002 | m2-transform | shipped | Acceptance passed 2026-08-04 (criteria 1-9, 14 assertions; two dogfood defects fixed) — stages 2-4 (gates → AGENTS.md + symlink → SDD) + `.ai-native.yml` manifest |
+| 0003 | m3-check | shipped | Acceptance passed 2026-08-04 (criteria 1-8, 11 assertions) — re-run audit + baseline delta + manifest drift + fixed suggestions; `.ai-native/baseline.json` ledger |
 
 ## 🟢 Current (in-progress)
 
-Nothing in progress — 0001/0002 shipped; next spec: check (drift), upgrade, or 0002 lessons recap.
+Nothing in progress — 0001/0002/0003 shipped (audit/transform/check complete); next candidates: upgrade, vision/ideas, or launch prep (docs/06).
 
 ## 🟡 Next
 
 | ID | Name | Status | Notes |
 |---|---|---|---|
-| 0002 | m2-transform | shipped | Acceptance passed 2026-08-04 — spec `specs/0002-m2-transform/spec.md`: agent-driven stages 2-4 (gates → AGENTS.md + symlink → SDD) + `.ai-native.yml` manifest; check/upgrade deferred |
+| 0003 | m3-check | shipped | Acceptance passed 2026-08-04 — spec `specs/0003-m3-check/spec.md`: re-run audit + baseline delta + manifest drift + fixed suggestions; `.ai-native/baseline.json` ledger |
 
 ## 🔵 Vision (not yet spec'd)
 

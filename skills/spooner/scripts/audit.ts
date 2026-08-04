@@ -33,7 +33,7 @@ interface CheckResult {
   fix: string;
 }
 
-interface AuditResult {
+export interface AuditResult {
   schemaVersion: number;
   root: string;
   stacks: string[];
@@ -580,7 +580,8 @@ function assessMaturity(root: string, hasBuildCmd: boolean, hasAgent: boolean, h
   return { maturity: "stable", note: null };
 }
 
-function runAudit(root: string): AuditResult {
+/** Full audit pipeline — exported for reuse by check.ts (M3). */
+export function runAudit(root: string): AuditResult {
   const items: CheckResult[] = [
     checkAgentsMd(root),
     checkAgentsBridge(root),
