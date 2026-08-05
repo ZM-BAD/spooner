@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.2.7";
+export const TOOL_VERSION = "0.3.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -193,10 +193,10 @@ export function writeManifest(root: string, stages: Record<string, ManifestStage
 
 // --- stage 2: gates installer ---------------------------------------------------
 
-/** Cross-stack gates (installed for every stack; decision #13). */
+/** Cross-stack gates (installed for every stack; decision #13). The pre-commit
+ *  config is NOT here — it is generated from detected tooling (M10, spec 0010). */
 export const STAGE2_COMMON: Record<string, string> = {
   ".commitlintrc.json": "commitlintrc.json",
-  ".pre-commit-config.yaml": "pre-commit-config.yaml",
   ".markdownlint-cli2.yaml": "markdownlint-cli2.yaml",
 };
 
@@ -239,12 +239,267 @@ export function workflowEligible(root: string): boolean {
   return platforms.length === 0 || platforms.includes("github");
 }
 
-/** Stage-2 template map for a repo: cross-stack gates + its stack's workflow. */
+/** Stage-2 template map for a repo: cross-stack gates + its stack's workflow.
+ *  The pre-commit config is generated (M10) unless the repo keeps another hook
+ *  ecosystem (husky / lefthook — skip + notice, the spec 0008 treatment). */
 export function stage2Templates(root: string): Record<string, string> {
   const stack = primaryStack(root);
   const tpl = { ...STAGE2_COMMON };
   if (stack && workflowEligible(root)) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
+  const ecosystem = hookToolEcosystem(root);
+  if (ecosystem !== "husky" && ecosystem !== "lefthook") tpl[PRE_COMMIT_FILE] = GENERATED;
   return tpl;
+}
+
+// --- M10: stack-aware pre-commit generation + hook-tool routing ------------------
+
+export const PRE_COMMIT_FILE = ".pre-commit-config.yaml";
+
+/** Marker for generated content in stage2Templates (M10). */
+const GENERATED = "@generated";
+
+export type HookTool = "pre-commit" | "husky" | "lefthook" | "none";
+
+/** Existing git-hook ecosystem (M10): husky/lefthook repos keep their own hooks. */
+export function hookToolEcosystem(root: string): HookTool {
+  if (existsSync(join(root, "lefthook.yml"))) return "lefthook";
+  if (existsSync(join(root, PRE_COMMIT_FILE))) return "pre-commit";
+  const pkg = packageJsonOf(root);
+  const all = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) } as Record<string, unknown>;
+  if (existsSync(join(root, ".husky")) || all["husky"] !== undefined) return "husky";
+  return "none";
+}
+
+/** Files at the repo root (M10 detection — the same root boundary as detect). */
+function hasAny(root: string, names: string[]): boolean {
+  return names.some((n) => existsSync(join(root, n)));
+}
+
+function pythonPresent(root: string): boolean {
+  return hasAny(root, ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".pylintrc", "ruff.toml", ".ruff.toml"]);
+}
+
+function pytestPresent(root: string): boolean {
+  if (hasAny(root, ["pytest.ini", "tox.ini", "tests"])) return true;
+  try {
+    return readFileSync(join(root, "pyproject.toml"), "utf8").includes("[tool.pytest.ini_options]");
+  } catch {
+    return false;
+  }
+}
+
+function pipAuditPresent(root: string): boolean {
+  return existsSync(join(root, "requirements.txt"));
+}
+
+function eslintPresent(root: string): boolean {
+  if (hasAny(root, ["eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yml"])) return true;
+  const pkg = packageJsonOf(root);
+  return pkg !== null && pkg["eslintConfig"] !== undefined;
+}
+
+function tsconfigPresent(root: string): boolean {
+  return hasAny(root, ["tsconfig.json"]);
+}
+
+function declaredScript(root: string, key: string): boolean {
+  const pkg = packageJsonOf(root);
+  const scripts = pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
+  return typeof scripts[key] === "string";
+}
+
+/** Declared npm script wrapper (the existing template pattern): runs the script
+ *  when declared, skips with a notice otherwise — never masks a real failure. */
+function declaredWrapper(key: string): string {
+  return `bash -c 'node -e "const{execSync}=require(\\"node:child_process\\");const s=require(\\"./package.json\\").scripts||{};if(typeof s.${key}===\\"string\\"){console.log(\\"> npm run ${key}\\");execSync(\\"npm run ${key}\\",{stdio:\\"inherit\\"})}else console.log(\\"no ${key} script declared — skipped\\")"'`;
+}
+
+/** Cross-stack core (always): hygiene + markdownlint + commitlint + gitleaks. */
+const PRE_COMMIT_CORE = `  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-symlinks
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.2
+    hooks:
+      - id: markdownlint-cli2
+        additional_dependencies:
+          - markdownlint-cli2@0.23.2
+  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: v9.26.0
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        additional_dependencies:
+          - "@commitlint/cli@21.2.1"
+          - "@commitlint/config-conventional@21.2.0"
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks`;
+
+/** Python gates (only when python tooling detected; ruff managed + rev-pinned,
+ *  pytest/pip-audit local — SKIP'd in the python workflow template). */
+function pythonHooks(root: string): string | null {
+  if (!pythonPresent(root)) return null;
+  const lines: string[] = [];
+  lines.push(`  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff
+        files: \\.py$
+      - id: ruff-format
+        args: [--check]
+        files: \\.py$`);
+  if (pytestPresent(root)) {
+    lines.push(`  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest (python)
+        entry: python3 -m pytest -q
+        language: system
+        pass_filenames: false
+        files: \\.py$
+        stages: [pre-commit]`);
+  }
+  if (pipAuditPresent(root)) {
+    lines.push(`  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit (python deps)
+        entry: pip-audit -r requirements.txt
+        language: system
+        pass_filenames: false
+        files: ^requirements\\.txt$
+        stages: [pre-commit]`);
+  }
+  return lines.join("\n");
+}
+
+/** Node gates (only when tooling detected; eslint managed + rev-pinned,
+ *  typecheck/test local — SKIP'd in the node workflow template). */
+function nodeHooks(root: string): string | null {
+  const typecheckable = tsconfigPresent(root) || declaredScript(root, "typecheck");
+  if (!eslintPresent(root) && !typecheckable && !declaredScript(root, "test")) return null;
+  const lines: string[] = [];
+  if (eslintPresent(root)) {
+    lines.push(`  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v10.0.3
+    hooks:
+      - id: eslint
+        args: [--max-warnings, "0"]
+        files: \\.[jt]sx?$
+        additional_dependencies:
+          - eslint@10.0.3`);
+  }
+  // Local hooks share one `repo: local` block — emitted only when at least
+  // one exists (a plain-JS repo with a test script but no tsconfig must not
+  // orphan the test hook under the eslint repo).
+  const local: string[] = [];
+  if (typecheckable) {
+    local.push(`      - id: typecheck
+        name: TypeScript typecheck (${tsconfigPresent(root) ? "tsc" : "declared"})
+        entry: ${tsconfigPresent(root) ? "bash -c 'npx tsc --noEmit'" : declaredWrapper("typecheck")}
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]`);
+  }
+  if (declaredScript(root, "test")) {
+    local.push(`      - id: test
+        name: npm test (declared)
+        entry: ${declaredWrapper("test")}
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]`);
+  }
+  if (local.length > 0) lines.push(`  - repo: local
+    hooks:
+${local.join("\n")}`);
+  return lines.join("\n");
+}
+
+/** Go gates (local system hooks — go toolchain is the repo's own; SKIP'd in the go workflow template). */
+function goHooks(root: string): string | null {
+  if (!hasAny(root, ["go.mod"])) return null;
+  return `  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt (format check)
+        entry: gofmt -l .
+        language: system
+        pass_filenames: false
+        files: \\.go$
+        stages: [pre-commit]
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        pass_filenames: false
+        files: \\.go$
+        stages: [pre-commit]
+      - id: go-test
+        name: go test
+        entry: go test ./...
+        language: system
+        pass_filenames: false
+        files: \\.go$
+        stages: [pre-commit]`;
+}
+
+/** Java gates (local system hook — SKIP'd in the java workflow template). */
+function javaHooks(root: string): string | null {
+  if (!hasAny(root, ["pom.xml", "build.gradle"])) return null;
+  const gradle = existsSync(join(root, "build.gradle"));
+  const entry = gradle
+    ? existsSync(join(root, "gradlew"))
+      ? "./gradlew build"
+      : "gradle build"
+    : existsSync(join(root, "mvnw"))
+      ? "./mvnw -q -B test"
+      : "mvn -q -B test";
+  return `  - repo: local
+    hooks:
+      - id: java-test
+        name: ${gradle ? "gradle build" : "mvn test"} (java)
+        entry: ${entry}
+        language: system
+        pass_filenames: false
+        files: (\\.java$|pom\\.xml$|build\\.gradle$)
+        stages: [pre-commit]`;
+}
+
+/** Deterministic stack-aware pre-commit config (M10, spec 0010): cross-stack
+ *  core always; stack gates only for tooling actually detected (no dead hooks);
+ *  check-only; managed repos rev-pinned; local hooks scoped to pre-commit. */
+export function generatePreCommitConfig(root: string): string {
+  const sections = [
+    "# pre-commit config generated by spooner transform Stage 2 (M10: stack-aware)",
+    "# Install hooks (commitlint runs on the commit-msg stage — both are required):",
+    "#   pre-commit install --hook-type pre-commit --hook-type commit-msg",
+    "# Full run: pre-commit run --all-files",
+    "# Regenerate: delete this file and re-run `transform --stage 2` — the hook set",
+    "# follows the repo's detected tooling (what audit credits, transform installs).",
+    "repos:",
+    PRE_COMMIT_CORE,
+    pythonHooks(root),
+    nodeHooks(root),
+    goHooks(root),
+    javaHooks(root),
+  ].filter((s): s is string => s !== null);
+  return `${sections.join("\n")}\n`;
+}
+
+/** Resolve stage-2 file content: generated (M10) or template bytes. */
+function stage2Content(root: string, file: string, tpl: string): string {
+  return tpl === GENERATED ? generatePreCommitConfig(root) : templateContent(tpl);
 }
 
 export const TEMPLATE_DIR = join(import.meta.dirname, "..", "templates");
@@ -339,12 +594,20 @@ export function manifestWithStage(root: string, stage: string, entry: ManifestSt
   return merged;
 }
 
-function applyStage2(root: string, dryRun: boolean): Stage2Result {
+/** The pre-M10 universal pre-commit template — kept as the upgrade baseline:
+ *  installed bytes equal to it are tool-owned and get upgraded, not conflicted. */
+const LEGACY_PRE_COMMIT_TEMPLATE = "pre-commit-config.yaml";
+
+export function applyStage2(root: string, dryRun: boolean): Stage2Result {
   const templates = stage2Templates(root);
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
-    return readFileSync(target, "utf8") === templateContent(tpl) ? { file, action: "keep" } : { file, action: "conflict" };
+    const current = readFileSync(target, "utf8");
+    if (current === stage2Content(root, file, tpl)) return { file, action: "keep" };
+    // M10 legacy upgrade: bytes from the pre-M10 universal template are tool-owned.
+    if (file === PRE_COMMIT_FILE && current === templateContent(LEGACY_PRE_COMMIT_TEMPLATE)) return { file, action: "write" };
+    return { file, action: "conflict" };
   });
   const toWrite = plans.filter((p) => p.action === "write");
   const conflicts = plans.filter((p) => p.action === "conflict");
@@ -369,6 +632,14 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
       ? `CI workflow skipped: detected ${platforms.join("/")} (non-GitHub) — cross-stack gates installed`
       : null;
 
+  // Hook-tool skip notice (M10, spec 0010): husky/lefthook ecosystems keep their
+  // own hooks — the generated pre-commit config would be a foreign gate file.
+  const ecosystem = hookToolEcosystem(root);
+  const hookNotice =
+    ecosystem === "husky" || ecosystem === "lefthook"
+      ? `pre-commit config skipped: detected ${ecosystem} hook ecosystem — keep your existing git hooks (delete ${ecosystem === "husky" ? ".husky" : "lefthook.yml"} and re-run to install the generated pre-commit gates)`
+      : null;
+
   // Wrong-stack workflow hint: installed bytes match a different stack's template.
   const workflowFile = ".github/workflows/ai-native.yml";
   let wrongStackHint: string | null = null;
@@ -382,7 +653,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
       }
     }
   }
-  const extra = [notice, platformNotice, wrongStackHint].filter(Boolean).join("; ");
+  const extra = [notice, platformNotice, wrongStackHint, hookNotice].filter(Boolean).join("; ");
 
   if (dryRun) {
     return {
@@ -403,7 +674,7 @@ function applyStage2(root: string, dryRun: boolean): Stage2Result {
   const before = command ? runDeclared(root).ok : null;
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
-    writeFileSync(join(root, p.file), templateContent(templates[p.file]), "utf8");
+    writeFileSync(join(root, p.file), stage2Content(root, p.file, templates[p.file]), "utf8");
   }
   const after = command ? runDeclared(root).ok : null;
   // the manifest is the ledger: restore it even when no files are written
@@ -706,6 +977,47 @@ export function checkConsistency(root: string): ManifestConsistency | null {
   return { checked: true, consistent: sorted.length === 0, missing: sorted };
 }
 
+/** Dotted numeric version compare (mirrors sync.ts's versionLt — kept local to
+ *  avoid a transform ↔ sync import cycle). */
+function ltVersion(a: string, b: string): boolean {
+  const pa = a.split(".").map((p) => Number.parseInt(p, 10));
+  const pb = b.split(".").map((p) => Number.parseInt(p, 10));
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (Number.isNaN(x) || Number.isNaN(y)) return a < b;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
+export interface ManifestGateResult {
+  ok: boolean;
+  missing: string[];
+  stale: boolean;
+  version: string | null;
+}
+
+/** Local commit gate (dogfood — mirrors the CI drift-gate job's baked EXPECTED
+ *  compare): manifest present + files exist + version not stale vs the current
+ *  tool. Catches the "stale ledger" failure class locally (the M10 push: local
+ *  pre-commit read the working-tree manifest, CI read the committed one). */
+export function checkManifestGate(root: string): ManifestGateResult {
+  const mr = readManifest(root);
+  if (!mr.present || !mr.manifest) return { ok: false, missing: [], stale: false, version: null };
+  const missing = checkConsistency(root)?.missing ?? [];
+  const version = mr.manifest.version;
+  const stale = ltVersion(version, TOOL_VERSION);
+  return { ok: missing.length === 0 && !stale, missing, stale, version };
+}
+
+/** Which transform stage restores a given manifest file (mirrors check.ts). */
+function gateStageHint(missing: string[]): number {
+  if (missing.some((f) => f.startsWith("docs/sdd") || f.endsWith("sdd.yml"))) return 4;
+  if (missing.some((f) => f === "AGENTS.md" || f === "CLAUDE.md")) return 3;
+  return 2;
+}
+
 // --- stage status -------------------------------------------------------------
 
 function stageStatus(root: string, stage: number): StageReport {
@@ -834,6 +1146,22 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
     // applied but the post-apply build check failed → signal rollback
     if (report.applied && report.buildCheck?.after === false) process.exit(1);
+    // local commit gate (dogfood): manifest present + consistent + not stale —
+    // mirrors the CI drift-gate job so local pre-commit catches ledger drift
+    if (process.argv.includes("--manifest-gate")) {
+      const g = checkManifestGate(root);
+      if (!g.ok) {
+        console.error(
+          g.version === null
+            ? "manifest gate FAILED: no .ai-native.yml — run transform stage 2 first"
+            : g.missing.length > 0
+              ? `manifest gate FAILED: missing ${g.missing.join(", ")} — re-run transform stage ${gateStageHint(g.missing)} to restore them`
+              : `manifest gate FAILED: manifest v${g.version} < current v${TOOL_VERSION} — run sync to apply the current templates`,
+        );
+        process.exit(1);
+      }
+      console.log(`manifest gate: ok (v${g.version})`);
+    }
   } catch (err) {
     console.error(`transform: ${(err as Error).message}`);
     process.exit(1);

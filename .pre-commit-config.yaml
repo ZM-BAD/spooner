@@ -53,8 +53,8 @@ repos:
         always_run: true
         stages: [pre-commit]
       - id: manifest-consistency
-        name: .ai-native.yml consistency (dry-run)
-        entry: node skills/spooner/scripts/transform.ts --stage all --dry-run --format markdown
+        name: .ai-native.yml consistency + version (gate)
+        entry: node skills/spooner/scripts/transform.ts --stage all --dry-run --format markdown --manifest-gate
         language: system
         pass_filenames: false
         always_run: true

@@ -11,7 +11,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only; milestone history lives there + docs/08 + git commits, never here)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- All specs shipped (0001-0006, 0008-0009): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red); transform supports node / python / go / java; the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); transform is context-aware (context probe + CI-platform routing — non-GitHub repos skip the workflow with a notice); the readiness badge matches the README's dominant badge style (5 shields styles); next candidates: launch prep (docs/06)
+- All specs shipped (0001-0006, 0008-0010): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red); transform supports node / python / go / java with stack-aware lifecycle + per-stack CI workflows + generated stack-aware pre-commit gates (husky/lefthook repos skip the config with a notice; non-GitHub CI platforms skip the workflow with a notice); the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); the readiness badge matches the README's dominant badge style (5 shields styles); next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -19,7 +19,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 |---|---|
 | `npm run typecheck` | `tsc --noEmit` (TS 6, zero build) |
 | `npm run lint:md` | markdownlint-cli2 over all Markdown |
-| `npm test` | node:test suite (56 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
+| `npm test` | node:test suite (52 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
 | `npm run check` | typecheck + lint:md + tests (one-shot) |
 | `npm run verify` | check + full pre-commit run (one-shot verification) |
 | `pre-commit run --all-files` | run all pre-commit hooks |
@@ -86,6 +86,7 @@ spooner/
 
 - **`git checkout <commit> -- .` does NOT delete files missing from that tree** — renamed/deleted files linger; after rebuilding a squashed history, force `git diff <backup> HEAD` to be empty and `git rm` leftovers (2026-08-04)
 - **`git add -A` sweeps in untracked local dirs** (`.zcode/`, `.ai-native/`) when their `.gitignore` entries didn't exist yet — restore `--staged` them before committing
+- **The dogfood manifest (`.ai-native.yml`) is tracked and must be committed with each milestone** — `git restore --staged .ai-native.yml` leaves CI's drift gate red: local pre-commit reads the working-tree manifest, CI reads the committed one (the M10 branch push caught this — local green, CI red "v0.2.7 < expected v0.3.0"). Only the `.ai-native/` dir (baseline.json) is local-only (2026-08-05)
 - **`git filter-branch` on a detached HEAD rewrites the commit but leaves the branch ref behind** — `git branch -f main <new-head>` afterwards
 - **Shallow clone (`--depth 1`) makes audit report `skeleton`** — the freshness/maturity signals need real history; clone full for demos
 - **Zsh eats `$(...)` with nested quotes** ("bad substitution") — write verification scripts to a file and `bash` them

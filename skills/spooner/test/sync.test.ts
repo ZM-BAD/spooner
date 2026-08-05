@@ -29,19 +29,19 @@ function statusOf(repo: string, file: string): string {
 
 test("up-to-date: installed bytes == current template", () => {
   const repo = fixture();
-  const tpl = join(repo, ".pre-commit-config.yaml");
-  writeManifest(repo, TOOL_VERSION, ".pre-commit-config.yaml");
-  writeFileSync(tpl, readTemplate("pre-commit-config.yaml"));
-  assert.equal(statusOf(repo, ".pre-commit-config.yaml"), "up-to-date");
+  const tpl = join(repo, ".commitlintrc.json");
+  writeManifest(repo, TOOL_VERSION, ".commitlintrc.json");
+  writeFileSync(tpl, readTemplate("commitlintrc.json"));
+  assert.equal(statusOf(repo, ".commitlintrc.json"), "up-to-date");
   rmSync(repo, { recursive: true, force: true });
 });
 
 test("outdated: older recorded version + differing bytes -> outdated with version pair", () => {
   const repo = fixture();
-  writeManifest(repo, "0.0.9", ".pre-commit-config.yaml");
-  writeFileSync(join(repo, ".pre-commit-config.yaml"), readTemplate("pre-commit-config.yaml") + "# drift\n");
+  writeManifest(repo, "0.0.9", ".commitlintrc.json");
+  writeFileSync(join(repo, ".commitlintrc.json"), readTemplate("commitlintrc.json") + "\n// drift\n");
   const r = run(repo, true);
-  const f = r.files.find((x) => x.file === ".pre-commit-config.yaml");
+  const f = r.files.find((x) => x.file === ".commitlintrc.json");
   assert.equal(f?.status, "outdated");
   assert.equal(f?.from, "0.0.9");
   assert.equal(f?.to, TOOL_VERSION);
@@ -50,24 +50,32 @@ test("outdated: older recorded version + differing bytes -> outdated with versio
 
 test("modified: same-version user edit -> never touched", () => {
   const repo = fixture();
-  writeManifest(repo, TOOL_VERSION, ".pre-commit-config.yaml");
-  writeFileSync(join(repo, ".pre-commit-config.yaml"), readTemplate("pre-commit-config.yaml") + "# user edit\n");
-  assert.equal(statusOf(repo, ".pre-commit-config.yaml"), "modified");
+  writeManifest(repo, TOOL_VERSION, ".commitlintrc.json");
+  writeFileSync(join(repo, ".commitlintrc.json"), readTemplate("commitlintrc.json") + "\n// user edit\n");
+  assert.equal(statusOf(repo, ".commitlintrc.json"), "modified");
   rmSync(repo, { recursive: true, force: true });
 });
 
 test("missing: manifest records it, file gone -> missing", () => {
   const repo = fixture();
-  writeManifest(repo, "0.2.2", ".pre-commit-config.yaml");
-  assert.equal(statusOf(repo, ".pre-commit-config.yaml"), "missing");
+  writeManifest(repo, "0.2.2", ".commitlintrc.json");
+  assert.equal(statusOf(repo, ".commitlintrc.json"), "missing");
   rmSync(repo, { recursive: true, force: true });
 });
 
 test("generated: AGENTS.md is not template-managed (never written)", () => {
   const repo = fixture();
-  writeManifest(repo, "0.2.2", ".pre-commit-config.yaml");
+  writeManifest(repo, "0.2.2", ".commitlintrc.json");
   writeFileSync(join(repo, "AGENTS.md"), "# x\n");
   assert.equal(statusOf(repo, "AGENTS.md"), "generated");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("generated: pre-commit config is generated-class since M10 (never byte-compared)", () => {
+  const repo = fixture();
+  writeManifest(repo, TOOL_VERSION, ".pre-commit-config.yaml");
+  writeFileSync(join(repo, ".pre-commit-config.yaml"), readTemplate("pre-commit-config.yaml"));
+  assert.equal(statusOf(repo, ".pre-commit-config.yaml"), "generated");
   rmSync(repo, { recursive: true, force: true });
 });
 
