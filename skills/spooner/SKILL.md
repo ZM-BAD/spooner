@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) + M6 (multi-stack) + M9 (readiness badge) shipped — `detect`, `audit`, `transform`, `check`, `sync`, `badge` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit); transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice); the badge matches the README's existing badge style (5 shields styles + probe).**
+> **Status: all milestones shipped — `detect`, `audit`, `transform`, `check`, `sync`, `badge` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit); transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice); the badge matches the README's existing badge style (5 shields styles + probe).**
 
 ## Workflow
 
@@ -84,12 +84,13 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 
 **Agent-driven procedure:**
 
-0. **Probe the context first** (spec 0008): before planning, ask the owner five questions and pick the mode:
+0. **Probe the context first** (spec 0008 + spec 0010): before planning, ask the owner six questions and pick the mode:
    1. CI platform? (GitHub Actions / GitLab CI / Jenkins / none)
    2. Is the repo on GitHub? (decides whether `.github/workflows` applies)
    3. May local git hooks be installed? (commit-msg hook policy)
    4. Tech-debt constraints? (Spring/Node major upgrades, dependency policy)
    5. Gate strictness? (warn-only / hard / audit-only)
+   6. Git-hook tool preference? (pre-commit / husky / lefthook / keep the existing setup — decides whether Stage 2 installs the generated pre-commit config or skips with a notice)
    Modes: **full** (GitHub + allowed → the stages below), **no-workflow** (non-GitHub CI → cross-stack gates only; the CI workflow is skipped with an explicit notice — see Stage 2), **audit-only** (nothing written — deliver the Stage 1 report and stop). The scripts stay deterministic; the mode is the agent's call from the probed context. **Transformation permission comes from the owner's situation, not the tool's assumption** — on a legacy repo whose owner cannot touch CI, "just audit" is a valid outcome.
 1. **Stage 1 = the audit** (above): report + plan. Show the user the score and the gap list; agree on the stage order. Default order: Stage 2 (gates) → Stage 3 (agent files) → Stage 4 (SDD).
 2. **Dry-run first, always**: `node <skill-dir>/scripts/transform.ts --root <path> --stage 2 --dry-run` — prints the exact plan (files to write / keep / conflict) and the build command that will be verified. Nothing is written.
@@ -103,7 +104,7 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 
 | Stage | What it does | Outputs |
 |---|---|---|
-| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file | `.commitlintrc.json`, `.pre-commit-config.yaml`, `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
+| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks + **stack-aware generated config**: the pre-commit hook set follows the repo's detected tooling — ruff/pytest for python, eslint/tsc for node, gofmt/vet for go, mvn for java; check-only, rev-pinned; **husky/lefthook ecosystems keep their own hooks — the config is skipped with an explicit notice**) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file | `.commitlintrc.json`, `.pre-commit-config.yaml` (generated — re-run `--stage 2` to regenerate), `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
 | 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile / stack lifecycle: `mvn`, `go`, `python3 -m unittest`) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
 | 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
 
@@ -294,18 +295,18 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 
 | File | Stage | Status | Version |
 |---|---|---|---|
-| .commitlintrc.json | 2 | up-to-date | — |
-| .pre-commit-config.yaml | 2 | outdated | 0.0.9 → 0.1.1 |
+| .commitlintrc.json | 2 | outdated | 0.0.9 → 0.1.1 |
+| .pre-commit-config.yaml | 2 | generated | — |
 | AGENTS.md | 3 | generated | — |
 | CLAUDE.md | 3 | generated | — |
 | docs/sdd/spec.md | 4 | up-to-date | — |
 
 - Manifest consistency: consistent
 
-dry-run: 1 outdated (apply replaces), 0 missing (apply restores), 0 modified (user edits — never touched), 2 generated (not template-managed), 5 tracked file(s)
+dry-run: 1 outdated (apply replaces), 0 missing (apply restores), 0 modified (user edits — never touched), 3 generated (not template-managed), 5 tracked file(s)
 ```
 
-The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed pre-commit rev pin). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion` on the stage, and reports `rollback: git restore .pre-commit-config.yaml`. A user-edited file at the same version reports `modified` and is never touched.
+The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed commitlint config). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion` on the stage, and reports `rollback: git restore .commitlintrc.json`. The pre-commit config is **generated-class since M10** — sync never writes it; re-run `transform --stage 2` to regenerate from the repo's detected tooling. A user-edited file at the same version reports `modified` and is never touched.
 
 ## Red lines
 
@@ -318,3 +319,4 @@ The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed p
 - transform verifies the declared build/test commands before and after each applied stage; on failure it names the rollback command (`git restore …`)
 - Scripts are zero-dependency and only do what they declare (scan + report + install)
 - badge.ts writes only `assets/badge.svg` + `assets/audit-report.md` and never modifies the README — insertion is the agent's step with user confirmation
+- The pre-commit config is **generated from detected tooling** (M10) — re-run `transform --stage 2` to regenerate; `sync` reports it as `generated` and never rewrites it

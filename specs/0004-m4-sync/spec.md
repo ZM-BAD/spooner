@@ -29,7 +29,7 @@ For any repository with a `.ai-native.yml` manifest, compare installed template 
 
 - CI drift gate (HANDOFF candidate #1 — separate feature)
 - Standards/conventions versioning beyond templates (docs/02 §8's "规范" part) — v2
-- Regenerating AGENTS.md / CLAUDE.md (stage 3: generated, user-owned — re-run `transform --stage 3` instead; sync reports them as `generated`, never writes)
+- Regenerating AGENTS.md / CLAUDE.md (stage 3) and the pre-commit config (stage 2, spec 0010): generated, user-owned — re-run `transform --stage 3` / `--stage 2` instead; sync reports them as `generated`, never writes
 - **Upgrading the tool itself** (getting a newer spooner skill package = distribution: git tag + release notes + `npx skills add`, docs/07 — not a workflow command; sync reconciles the *installed artifacts* after the tool advanced)
 - Python / multi-stack templates — v2
 - LLM semantic layer (gates stay deterministic, decision #5)

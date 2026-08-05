@@ -16,10 +16,11 @@
 | 0006 | m6-multi-stack | shipped | stack-aware transform: node/python/go/java workflows + lifecycle commands + unsupported notice + stage-3 commands + audit credit |
 | 0008 | m8-situational-transform | shipped | context-aware transform: SKILL.md context probe (full / no-workflow / audit-only modes) + CI-platform routing in stage 2 (non-GitHub skips the workflow with an explicit notice) |
 | 0009 | m9-badge | shipped | readiness badge: badge.ts zero-dep renderer, 5 shields styles, README style probe (majority decision + `--style` override), pinned tier/color mapping, assets artifacts |
+| 0010 | m10-contextual-gates | shipped | stack-aware pre-commit generation (tooling-detected, check-only, rev-pinned) + hook-tool routing (pre-commit vs husky skip+notice, M8 treatment) |
 
 ## 🟢 Current (in-progress)
 
-Nothing in progress — 0001-0006 + 0008 + 0009 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline + situational transform + readiness badge); next: launch prep (docs/06), or vision/ideas.
+Nothing in progress — 0001-0006 + 0008 + 0009 + 0010 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline + situational transform + readiness badge + contextual gates); next: launch prep (docs/06), or vision/ideas.
 
 ## 🟡 Next
 

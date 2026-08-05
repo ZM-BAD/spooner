@@ -7,12 +7,11 @@
 
 Spooner audits a codebase's **AI coding readiness** (audit), transforms it in place with incremental, verifiable steps (transform: CI gates / AGENTS.md / SDD workflow), continuously detects drift (check), and re-syncs installed templates when the tool advances (sync). Product form = an Agent Skills (SKILL.md) package at `skills/spooner/` — not a CLI. Resume/star-driven; not commercialized.
 
-## Current status (2026-08-04)
+## Current status
 
-- Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only)
+- Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only; milestone history lives there + docs/08 + git commits, never here)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- M1-M6 + M8 shipped (2026-08-04): specs 0001-0006 + 0008 acceptance verified — the audit → transform → check → sync loop is complete, the installed CI workflow hard-gates manifest consistency (drift → red), transform supports node/python/go/java (decision #13), the installed commitlint gate is real (install step + CI commit-msg check + gate-active audit — spec 0001/0002 revisions), and transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice, spec 0008); next candidates: launch prep (docs/06)
-- M9 badge shipped (2026-08-05): spec 0009 — badge.ts renders a shields-style readiness badge (flat / flat-square / plastic / for-the-badge / social) matched to the README's dominant badge style (probe + strict-majority decision chain, `--style` override, consistency > freshness), pinned tier/color mapping, `assets/badge.svg` + `assets/audit-report.md` evidence link; dogfooded on this repo (flat-square matched); test suite 39 cases; next candidates: launch prep (docs/06)
+- All specs shipped (0001-0006, 0008-0009): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red); transform supports node / python / go / java; the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); transform is context-aware (context probe + CI-platform routing — non-GitHub repos skip the workflow with a notice); the readiness badge matches the README's dominant badge style (5 shields styles); next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -20,7 +19,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 |---|---|
 | `npm run typecheck` | `tsc --noEmit` (TS 6, zero build) |
 | `npm run lint:md` | markdownlint-cli2 over all Markdown |
-| `npm test` | node:test suite (39 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
+| `npm test` | node:test suite (56 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
 | `npm run check` | typecheck + lint:md + tests (one-shot) |
 | `npm run verify` | check + full pre-commit run (one-shot verification) |
 | `pre-commit run --all-files` | run all pre-commit hooks |
@@ -60,7 +59,7 @@ spooner/
 
 **Do**
 
-- Specs are living documents (see Development workflow): a fix updates the spec **in place** — no acceptance logs, no fix history, no version transitions in specs (those live in commit messages and `docs/08`/`HANDOFF.md`, local)
+- **Contract docs are current-state only, never history**: specs (a fix updates the spec **in place** — no acceptance logs, no fix history, no version transitions) and the AGENTS.md/SKILL.md status sections (current capability set only — no milestone bullets, no dates, no "shipped" language). History lives in commit messages + `docs/08` + `HANDOFF.md` (local) — never in the contract docs
 - **Template change ⇒ bump `TOOL_VERSION`** + baked `EXPECTED` in all four workflow templates + a `docs/08` ledger row (spec 0004/0005 contract) — then dogfood `sync`
 - Test version assertions import `TOOL_VERSION` dynamically — never hard-code it (a bump will silently rot the tests)
 - Before every squash: create a backup branch; after: verify tree identity (`git diff <backup> HEAD` must be empty) and verify every new commit independently (`pre-commit run --all-files` + commit-msg stage with `--commit-msg-filename`)
@@ -150,4 +149,6 @@ spooner/
 | `specs/0006-m6-multi-stack/spec.md` | M6 multi-stack contract: stack model, per-stack workflows/lifecycle, unsupported notice, acceptance |
 | `specs/0008-m8-situational-transform/spec.md` | M8 situational-transform contract: context probe, CI-platform routing, mode table |
 | `specs/0009-m9-badge/spec.md` | M9 badge contract: 5 shields styles, README style probe + decision chain, tier/color mapping, artifacts |
+| `specs/0010-m10-contextual-gates/spec.md` | M10 contextual gates: generated stack-aware pre-commit config, hook-tool routing, generated sync class |
+| `specs/0011-m11-rust-deep/spec.md` | M11 rust deep: cargo lifecycle + rust workflow + pre-commit gates + audit credit |
 | `skills/spooner/SKILL.md` | The distributable skill entry |

@@ -27,6 +27,7 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
   3. May local git hooks be installed? (commit-msg hook policy)
   4. Tech-debt constraints? (Spring/Node major upgrades, dependency policy)
   5. Gate strictness? (warn-only / hard / audit-only)
+  6. Git-hook tool preference? (pre-commit / husky / lefthook / keep the existing setup — decides whether Stage 2 installs the generated pre-commit config or skips with a notice, spec 0010)
   Mode table: **full** (GitHub + allowed → current behavior) / **no-workflow** (non-GitHub → cross-stack gates only) / **audit-only** (nothing written, report + suggestions).
 - **transform.ts — CI-platform detection + Stage-2 routing**:
   - Detect the repo's CI platform (`.gitlab-ci.yml` → gitlab, `Jenkinsfile` → jenkins, `.github/workflows/*.yml` → github, `azure-pipelines.yml` / `.circleci` → other, none) — the same file families the audit already scans.
