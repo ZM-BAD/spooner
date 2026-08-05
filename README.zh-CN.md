@@ -40,7 +40,8 @@ Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放
 | python | ✅ | ✅ `python3 -m unittest discover` |
 | go | ✅ | ✅ `go build/test ./...` |
 | java（Maven + Gradle） | ✅ | ✅ `mvn test` / `gradle build` |
-| rust / ruby / php / swift / dotnet | ✅（audit 只低估不虚高） | ⚠️ 跨栈门禁 + 明确暂不支持提示 |
+| rust | ✅ | ✅ `cargo build/test`（fmt/clippy 门禁） |
+| ruby / php / swift / dotnet | ✅（audit 只低估不虚高） | ⚠️ 跨栈门禁 + 明确暂不支持提示 |
 
 ## 兼容性
 

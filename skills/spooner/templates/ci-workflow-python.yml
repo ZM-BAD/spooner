@@ -82,7 +82,7 @@ jobs:
             const fs = require("node:fs");
             // baked at install time; must track the spooner TOOL_VERSION that
             // shipped this workflow (docs/08 ledger rule: every bump updates it)
-            const EXPECTED = "0.3.0";
+            const EXPECTED = "0.4.0";
             function parseYaml(text) {
               const lines = text.split("\n").map((l) => ({ indent: l.length - l.trimStart().length, raw: l }));
               let i = 0;

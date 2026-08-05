@@ -1,4 +1,4 @@
-# CI workflow installed by spooner transform Stage 2 (go stack; warn-only
+# CI workflow installed by spooner transform Stage 2 (rust stack; warn-only
 # quality gates; hard gates: declared-command executability + .ai-native.yml consistency)
 name: ai-native
 
@@ -23,12 +23,12 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install pre-commit
-      # local hooks (typecheck/test) need node_modules which this job does not
-      # install; typecheck runs in the declared-commands hard gate, test in
-      # lint-test — skip them here
+      # local hooks (typecheck/test/cargo-*) need repo tooling which this job
+      # does not install; typecheck runs in the declared-commands hard gate,
+      # test in lint-test — skip them here
       - run: pre-commit run --all-files
         env:
-          SKIP: typecheck,test,gofmt,go-vet,go-test
+          SKIP: typecheck,test,cargo-fmt,cargo-clippy,cargo-test
       # commitlint runs on the commit-msg stage (never run by --all-files);
       # write the last commit into .git/COMMIT_EDITMSG (what the hook reads);
       # --commit-msg-filename is required by pre-commit for this hook stage
@@ -43,13 +43,13 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: stable
-      - name: vet
-        run: go vet ./...
+      - uses: dtolnay/rust-toolchain@stable
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --all-targets
       - name: test
-        run: go test ./...
+        run: cargo test
   security:
     name: secret scan (gitleaks, warn-only)
     runs-on: ubuntu-latest
@@ -67,11 +67,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
       - name: Run declared build/test commands
-        run: go build ./... && go test ./...
+        run: cargo build && cargo test
   manifest-consistency:
     name: .ai-native.yml consistency + template version (hard gate)
     runs-on: ubuntu-latest

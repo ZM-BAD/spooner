@@ -161,14 +161,15 @@ function makefileTarget(root: string, name: string): boolean {
 }
 
 /**
- * Per-stack lifecycle command presence (decision #13): standard commands
- * traced to build files — go.mod → go build/test, python → python3 -m unittest,
- * java → mvn/gradle. The CI hard gate verifies them (same trust model as
- * package.json scripts).
+ * Per-stack lifecycle command presence (decision #13 + spec 0011): standard
+ * commands traced to build files — go.mod → go build/test, python → python3 -m
+ * unittest, java → mvn/gradle, Cargo.toml → cargo build/test. The CI hard gate
+ * verifies them (same trust model as package.json scripts).
  */
 function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolean; source: string | null } {
   const stacks = detect(root).stacks;
   if (stacks.includes("go")) return { hasBuild: true, hasTest: true, source: "go.mod (go build/test)" };
+  if (stacks.includes("rust")) return { hasBuild: true, hasTest: true, source: "Cargo.toml (cargo build/test)" };
   if (stacks.includes("python")) return { hasBuild: false, hasTest: true, source: "pyproject.toml (python3 -m unittest)" };
   if (stacks.includes("java")) {
     if (existsSync(join(root, "build.gradle"))) return { hasBuild: true, hasTest: true, source: "build.gradle (gradle build/test)" };

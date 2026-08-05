@@ -38,6 +38,7 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
     - node: eslint (`pre-commit/mirrors-eslint` rev v10.0.3, `--max-warnings 0`, managed, if eslint config) + typecheck (local, `npx tsc --noEmit` when tsconfig exists, else the declared typecheck-script wrapper) + test (local, declared script)
     - go: gofmt -l + go vet ./... + go test (local system hooks, if go.mod)
     - java: local `mvn -q -B test` / `gradle build` hook (if pom.xml / build.gradle)
+    - rust: cargo fmt --check + cargo clippy --all-targets (no `-D warnings` — soft) + cargo test (local system hooks, if Cargo.toml; spec 0011)
     - **local stack hooks are SKIP'd in the stack workflow templates** (CI pre-commit job has no repo toolchain — same mechanism as `typecheck,test`): python adds `pytest,pip-audit`, go adds `gofmt,go-vet,go-test`, java adds `mvn-test`; managed hooks (ruff/eslint) run in CI without SKIP
     - mixed stacks (e.g. python + node at the repo root): file-type scoped `files:` patterns (`\.py$` vs `\.[jt]sx?$`) combining the stacks' hooks; subdirectory scoping (DAG-chat-style `^frontend/`) is a **documented boundary** — consistent with detect's root-only scan (spec 0008), demand-driven later
   - **Routing** (mirrors CI-platform routing): probe answer or detected ecosystem → pre-commit → install the generated config; husky/lefthook/keep → **skip the config with an explicit notice**, manifest records what was actually installed; existing differing config → `conflict` (never overwrite) — **unless the installed bytes equal the pre-M10 universal template (tool-owned) → `write` (upgrade, not conflict)**; unsupported stack → cross-stack core only (current behavior, now generated).
@@ -60,7 +61,7 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 3. **Tool-absent discipline**: fixture with package.json but no eslint/tsconfig → cross-stack core only, **no dead hooks**
 4. **Go routing**: fixture with go.mod → gofmt -l + go vet + go test hooks
 5. **Java routing**: fixture with pom.xml → local `mvn -q -B test` hook
-6. **Unsupported stack**: fixture with Cargo.toml → cross-stack core only + explicit notice
+6. **Unsupported stack**: fixture with a ruby `Gemfile` → cross-stack core only + explicit notice (rust moved to the deep tier in spec 0011)
 7. **Husky routing**: fixture with `.husky/` + `husky` in package.json + probe answer "keep husky" → pre-commit config **not** installed, explicit skip notice, manifest records the decision
 8. **Conflict vs legacy upgrade**: existing `.pre-commit-config.yaml` with user-edited content → `conflict`, never overwritten; existing bytes **equal to the pre-M10 universal template** → `write` (tool-owned upgrade, the dogfood path)
 9. **Determinism**: two runs on the same fixture → byte-identical config

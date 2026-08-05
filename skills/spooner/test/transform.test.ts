@@ -9,12 +9,14 @@ import {
   applyStage2,
   checkManifestGate,
   ciPlatforms,
+  generateAgentsMd,
   generatePreCommitConfig,
   hookToolEcosystem,
   primaryStack,
   stage2Templates,
   workflowEligible,
 } from "../scripts/transform.ts";
+import { runAudit } from "../scripts/audit.ts";
 
 function fixture(): string {
   return mkdtempSync(join(tmpdir(), "spooner-transform-"));
@@ -84,10 +86,19 @@ test("stage2Templates: gitlab -> cross-stack gates only, no workflow (M8 routing
 
 test("stage2Templates: unsupported stack -> cross-stack gates only, no workflow", () => {
   const repo = fixture();
-  writeFileSync(join(repo, "Cargo.toml"), "[package]\n");
+  writeFileSync(join(repo, "Gemfile"), 'source "https://rubygems.org"\n');
   const tpl = stage2Templates(repo);
   assert.ok(tpl[".commitlintrc.json"]);
   assert.equal(tpl[".github/workflows/ai-native.yml"], undefined);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage2Templates: rust picks the rust workflow template", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n");
+  assert.equal(primaryStack(repo), "rust");
+  const tpl = stage2Templates(repo);
+  assert.equal(tpl[".github/workflows/ai-native.yml"], "ci-workflow-rust.yml");
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -160,10 +171,51 @@ test("preCommit: java fixture -> mvn test local hook", () => {
 
 test("preCommit: unsupported stack -> cross-stack core only, no local hooks", () => {
   const repo = fixture();
-  writeFileSync(join(repo, "Cargo.toml"), "[package]\n");
+  writeFileSync(join(repo, "Gemfile"), 'source "https://rubygems.org"\n');
   const cfg = generatePreCommitConfig(repo);
   assert.match(cfg, /id: gitleaks/);
   assert.doesNotMatch(cfg, /repo: local/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage2: unsupported stack notice names the full supported list incl. rust", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Gemfile"), 'source "https://rubygems.org"\n');
+  const r = applyStage2(repo, true);
+  assert.match(r.message ?? "", /not supported yet/);
+  assert.match(r.message ?? "", /node\/python\/go\/java\/rust/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: rust fixture -> cargo fmt/clippy/test, no -D warnings", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n");
+  const cfg = generatePreCommitConfig(repo);
+  assert.match(cfg, /id: cargo-fmt/);
+  assert.match(cfg, /id: cargo-clippy/);
+  assert.match(cfg, /id: cargo-test/);
+  assert.doesNotMatch(cfg, /-D warnings/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage3: rust fixture -> AGENTS.md lists cargo commands", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n");
+  const md = generateAgentsMd(repo);
+  assert.match(md, /cargo build/);
+  assert.match(md, /cargo test/);
+  assert.match(md, /cargo fmt --check/);
+  assert.match(md, /cargo clippy/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("audit: rust fixture credits agents-commands 2/2 from Cargo.toml", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n");
+  const r = runAudit(repo);
+  const cmd = r.items.find((i) => i.id === "agents-commands");
+  assert.equal(cmd?.score, 2);
+  assert.match(cmd?.evidence ?? "", /Cargo.toml \(cargo build\/test\)/);
   rmSync(repo, { recursive: true, force: true });
 });
 

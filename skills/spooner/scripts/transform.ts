@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.3.0";
+export const TOOL_VERSION = "0.4.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -206,11 +206,12 @@ export const STAGE2_WORKFLOWS: Record<string, string> = {
   python: "ci-workflow-python.yml",
   go: "ci-workflow-go.yml",
   java: "ci-workflow-java.yml",
+  rust: "ci-workflow-rust.yml",
 };
 
-const STACK_PRIORITY: string[] = ["node", "python", "go", "java"];
+const STACK_PRIORITY: string[] = ["node", "python", "go", "java", "rust"];
 
-/** First supported stack in the repo (node > python > go > java), else null. */
+/** First supported stack in the repo (node > python > go > java > rust), else null. */
 export function primaryStack(root: string): string | null {
   const stacks = detect(root).stacks;
   return STACK_PRIORITY.find((s) => stacks.includes(s)) ?? null;
@@ -476,6 +477,35 @@ function javaHooks(root: string): string | null {
         stages: [pre-commit]`;
 }
 
+/** Rust gates (local system hooks — cargo/rustfmt/clippy ship with the toolchain;
+ *  clippy without -D warnings keeps style warnings soft; SKIP'd in the rust workflow). */
+function rustHooks(root: string): string | null {
+  if (!hasAny(root, ["Cargo.toml"])) return null;
+  return `  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt (format check)
+        entry: cargo fmt --check
+        language: system
+        pass_filenames: false
+        files: \\.rs$
+        stages: [pre-commit]
+      - id: cargo-clippy
+        name: cargo clippy (lint, soft)
+        entry: cargo clippy --all-targets
+        language: system
+        pass_filenames: false
+        files: \\.rs$
+        stages: [pre-commit]
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test
+        language: system
+        pass_filenames: false
+        files: \\.rs$
+        stages: [pre-commit]`;
+}
+
 /** Deterministic stack-aware pre-commit config (M10, spec 0010): cross-stack
  *  core always; stack gates only for tooling actually detected (no dead hooks);
  *  check-only; managed repos rev-pinned; local hooks scoped to pre-commit. */
@@ -492,6 +522,7 @@ export function generatePreCommitConfig(root: string): string {
     pythonHooks(root),
     nodeHooks(root),
     goHooks(root),
+    rustHooks(root),
     javaHooks(root),
   ].filter((s): s is string => s !== null);
   return `${sections.join("\n")}\n`;
@@ -559,6 +590,7 @@ function declaredNpmLifecycle(root: string): { build: string | null; test: strin
 function stackLifecycle(root: string): { build: string | null; test: string | null } {
   const stack = primaryStack(root);
   if (stack === "go") return { build: "go build ./...", test: "go test ./..." };
+  if (stack === "rust") return { build: "cargo build", test: "cargo test" };
   if (stack === "python") return { build: null, test: "python3 -m unittest discover -q || [ $? -eq 5 ]" };
   if (stack === "java") {
     if (existsSync(join(root, "build.gradle"))) {
@@ -621,8 +653,8 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
     stack !== null
       ? null
       : detected.length > 0
-        ? `stack ${detected.join("/")}: transform not supported yet — audit works; supported stacks: node/python/go/java (cross-stack gates installed, CI workflow skipped)`
-        : "no recognized stack — cross-stack gates installed, CI workflow skipped (supported stacks: node/python/go/java)";
+        ? `stack ${detected.join("/")}: transform not supported yet — audit works; supported stacks: node/python/go/java/rust (cross-stack gates installed, CI workflow skipped)`
+        : "no recognized stack — cross-stack gates installed, CI workflow skipped (supported stacks: node/python/go/java/rust)";
 
   // Non-GitHub CI skip notice (spec 0008): the workflow would be a dead file on
   // GitLab/Jenkins/etc. — cross-stack gates install, the workflow is skipped.
@@ -747,6 +779,14 @@ function stackCommandsOf(root: string): { command: string; purpose: string }[] {
   const out: { command: string; purpose: string }[] = [];
   if (stacks.includes("go")) {
     out.push({ command: "go build ./...", purpose: "build" }, { command: "go test ./...", purpose: "test" }, { command: "go vet ./...", purpose: "vet" });
+  }
+  if (stacks.includes("rust")) {
+    out.push(
+      { command: "cargo build", purpose: "build" },
+      { command: "cargo test", purpose: "test" },
+      { command: "cargo fmt --check", purpose: "format check" },
+      { command: "cargo clippy", purpose: "lint" },
+    );
   }
   if (stacks.includes("python")) out.push({ command: "python3 -m unittest discover", purpose: "test" });
   if (stacks.includes("java")) {

@@ -40,7 +40,8 @@ Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) bu
 | python | ✅ | ✅ `python3 -m unittest discover` |
 | go | ✅ | ✅ `go build/test ./...` |
 | java (Maven + Gradle) | ✅ | ✅ `mvn test` / `gradle build` |
-| rust / ruby / php / swift / dotnet | ✅ (audit under-scores only) | ⚠️ cross-stack gates + explicit notice |
+| rust | ✅ | ✅ `cargo build/test` (fmt/clippy gates) |
+| ruby / php / swift / dotnet | ✅ (audit under-scores only) | ⚠️ cross-stack gates + explicit notice |
 
 ## Compatibility
 

@@ -11,7 +11,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only; milestone history lives there + docs/08 + git commits, never here)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- All specs shipped (0001-0006, 0008-0010): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red); transform supports node / python / go / java with stack-aware lifecycle + per-stack CI workflows + generated stack-aware pre-commit gates (husky/lefthook repos skip the config with a notice; non-GitHub CI platforms skip the workflow with a notice); the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); the readiness badge matches the README's dominant badge style (5 shields styles); next candidates: launch prep (docs/06)
+- All specs shipped (0001-0006, 0008-0011): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red); transform supports node / python / go / java / rust (stack-aware lifecycle + per-stack CI workflows + generated stack-aware pre-commit gates; husky/lefthook repos skip the config with a notice; non-GitHub CI platforms skip the workflow with a notice); the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); the readiness badge matches the README's dominant badge style (5 shields styles); next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -19,7 +19,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 |---|---|
 | `npm run typecheck` | `tsc --noEmit` (TS 6, zero build) |
 | `npm run lint:md` | markdownlint-cli2 over all Markdown |
-| `npm test` | node:test suite (52 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
+| `npm test` | node:test suite (61 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
 | `npm run check` | typecheck + lint:md + tests (one-shot) |
 | `npm run verify` | check + full pre-commit run (one-shot verification) |
 | `pre-commit run --all-files` | run all pre-commit hooks |
