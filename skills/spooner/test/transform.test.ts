@@ -8,6 +8,7 @@ import {
   TEMPLATE_DIR,
   TOOL_VERSION,
   applyStage2,
+  applyStage3,
   checkManifestGate,
   ciPlatforms,
   generateAgentsMd,
@@ -213,12 +214,12 @@ test("stage3: rust fixture -> AGENTS.md lists cargo commands", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("audit: rust fixture credits agents-commands 2/2 from Cargo.toml", () => {
+test("audit: rust fixture credits agents-commands 0.6/1 from Cargo.toml", () => {
   const repo = fixture();
   writeFileSync(join(repo, "Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n");
   const r = runAudit(repo);
   const cmd = r.items.find((i) => i.id === "agents-commands");
-  assert.equal(cmd?.score, 2);
+  assert.equal(cmd?.score, 0.6);
   assert.match(cmd?.evidence ?? "", /Cargo.toml \(cargo build\/test\)/);
   rmSync(repo, { recursive: true, force: true });
 });
@@ -446,5 +447,65 @@ test("manifestGate: no manifest fails", () => {
   const g = checkManifestGate(repo);
   assert.equal(g.ok, false);
   assert.equal(g.version, null);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- M13 slice 3: report truth -------------------------------------------------
+
+test("stage 2: build-verification message is honest when before fails and after passes", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "test -f .pre-commit-config.yaml" } }));
+  const r = applyStage2(repo, false);
+  assert.equal(r.buildCheck.before, false);
+  assert.equal(r.buildCheck.after, true);
+  assert.match(r.message ?? "", /failing before apply \(pre-existing\)/);
+  assert.ok(!r.message?.includes("green before+after"), `message claims green: ${r.message}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: 'green before+after' wording unchanged when both sides pass", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  const r = applyStage2(repo, false);
+  assert.equal(r.buildCheck.before, true);
+  assert.equal(r.buildCheck.after, true);
+  assert.match(r.message ?? "", /green before\+after/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: report prompts hook install when .git/hooks is empty", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const r = applyStage2(repo, false);
+  assert.match(r.message ?? "", /hooks not installed — run: pre-commit install --hook-type pre-commit --hook-type commit-msg/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: no hook prompt when hooks are installed", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+  writeFileSync(join(repo, ".git", "hooks", "pre-commit"), "#!/bin/sh\n");
+  const r = applyStage2(repo, false);
+  assert.ok(!r.message?.includes("pre-commit install"), `prompt present: ${r.message}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: user-written AGENTS.md conflict names both line counts + merge option", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "AGENTS.md"), Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n"));
+  const r = applyStage3(repo, false);
+  const conflict = r.files.find((f) => f.file === "AGENTS.md");
+  assert.equal(conflict?.action, "conflict");
+  assert.match(r.message ?? "", /user-written \(120 lines\)/);
+  assert.match(r.message ?? "", /generated contract is \d+ lines/);
+  assert.match(r.message ?? "", /keep yours or merge/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: no existing AGENTS.md -> plain write, no conflict note", () => {
+  const repo = fixture();
+  const r = applyStage3(repo, false);
+  assert.equal(r.files.find((f) => f.file === "AGENTS.md")?.action, "write");
+  assert.ok(!r.message?.includes("user-written"), `note present: ${r.message}`);
   rmSync(repo, { recursive: true, force: true });
 });

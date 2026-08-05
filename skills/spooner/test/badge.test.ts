@@ -133,25 +133,25 @@ test("run: deterministic — two runs produce identical bytes", () => {
 
 // --- tier/color mapping (spec 0009, pinned) ---------------------------------------
 
-test("tierOf: pinned bands", () => {
-  assert.equal(tierOf(20), "AI-Native");
-  assert.equal(tierOf(17), "AI-Native");
-  assert.equal(tierOf(16), "AI-Friendly");
-  assert.equal(tierOf(13), "AI-Friendly");
-  assert.equal(tierOf(12), "AI-Curious");
-  assert.equal(tierOf(9), "AI-Curious");
-  assert.equal(tierOf(8), "AI-Aware");
-  assert.equal(tierOf(5), "AI-Aware");
-  assert.equal(tierOf(4), "AI-Absent");
+test("tierOf: pinned bands (M13 re-map)", () => {
+  assert.equal(tierOf(10), "AI-Native");
+  assert.equal(tierOf(9), "AI-Native");
+  assert.equal(tierOf(8.9), "AI-Friendly");
+  assert.equal(tierOf(7), "AI-Friendly");
+  assert.equal(tierOf(6.9), "AI-Curious");
+  assert.equal(tierOf(5), "AI-Curious");
+  assert.equal(tierOf(4.9), "AI-Aware");
+  assert.equal(tierOf(3), "AI-Aware");
+  assert.equal(tierOf(2.9), "AI-Absent");
   assert.equal(tierOf(0), "AI-Absent");
 });
 
-test("colorOf: pinned bands", () => {
-  assert.equal(colorOf(20), "#4c1");
-  assert.equal(colorOf(16), "#4c1");
-  assert.equal(colorOf(15), "#dfb317");
-  assert.equal(colorOf(10), "#dfb317");
-  assert.equal(colorOf(9), "#e05d44");
+test("colorOf: pinned bands (M13 re-map)", () => {
+  assert.equal(colorOf(9), "#4c1");
+  assert.equal(colorOf(8), "#4c1");
+  assert.equal(colorOf(7.9), "#dfb317");
+  assert.equal(colorOf(5), "#dfb317");
+  assert.equal(colorOf(4.9), "#e05d44");
   assert.equal(colorOf(0), "#e05d44");
 });
 

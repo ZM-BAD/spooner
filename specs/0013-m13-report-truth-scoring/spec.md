@@ -71,7 +71,7 @@ The audit scores readiness on a 0–10 scale with 0.1 granularity where each of 
 2. **Quality grading**: spooner repo scores 9.0±0.2 with the full matrix (determinism double-run diff empty); a generated-contract fixture scores agents-md/length/bridge at top bands
 3. **Length banding**: 220-line AGENTS.md → `agents-length` 0.3; 42-line → 0.5
 4. **CI depth**: lint-only workflow → cfg-ci 0.2; lint+test → 0.4; +security → 0.5
-5. **Drift quality**: stale manifest → drift 0.3; consistent → 0.5
+5. **Drift quality**: stale manifest (version != tool) → drift 0.2 (existence band, never full); version matching → 0.3; consistent (version + files) → 0.5
 6. **Hook quality**: config without installed hooks → cfg-hooks 0.2; hooks incl. commit-msg → 0.5
 7. **Monorepo note**: root `package.json` + `backend/pyproject.toml` fixture → `subStacks` names python with its directory; flat repo → empty; scan one level deep, vendored dirs excluded, determinism diff empty
 8. **Fix alignment + source audit**: no formatter config → `cfg-format` fix without "transform Stage 2"; no test command → `cfg-test` fix names the manual action without `transform` wording (and a full transform leaves it 0/1 — the hint's honesty); across all 19 checks, no fix copy references `transform` for a check stages 2/3/4 cannot deliver

@@ -32,10 +32,10 @@ export const STYLES = ["flat", "flat-square", "plastic", "for-the-badge", "socia
 export type Style = (typeof STYLES)[number];
 
 const TIERS: readonly { label: string; min: number }[] = [
-  { label: "AI-Native", min: 17 },
-  { label: "AI-Friendly", min: 13 },
-  { label: "AI-Curious", min: 9 },
-  { label: "AI-Aware", min: 5 },
+  { label: "AI-Native", min: 9 },
+  { label: "AI-Friendly", min: 7 },
+  { label: "AI-Curious", min: 5 },
+  { label: "AI-Aware", min: 3 },
   { label: "AI-Absent", min: 0 },
 ];
 
@@ -43,16 +43,16 @@ const COLOR_GREEN = "#4c1";
 const COLOR_YELLOW = "#dfb317";
 const COLOR_RED = "#e05d44";
 
-/** Tier label for a score (spec 0009, pinned). */
+/** Tier label for a score (spec 0009 + M13 re-map, pinned). */
 export function tierOf(score: number): string {
   const tier = TIERS.find((t) => score >= t.min);
   return tier ? tier.label : TIERS[TIERS.length - 1].label;
 }
 
-/** Message-side color for a score (spec 0009, pinned). */
+/** Message-side color for a score (spec 0009 + M13 re-map, pinned). */
 export function colorOf(score: number): string {
-  if (score >= 16) return COLOR_GREEN;
-  if (score >= 10) return COLOR_YELLOW;
+  if (score >= 8) return COLOR_GREEN;
+  if (score >= 5) return COLOR_YELLOW;
   return COLOR_RED;
 }
 

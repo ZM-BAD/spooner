@@ -24,13 +24,19 @@ import { outdatedTemplates } from "./sync.ts";
 
 const BASELINE_DIR = ".ai-native";
 const BASELINE_FILE = "baseline.json";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 interface Baseline {
   schemaVersion: number;
   date: string;
   score: { total: number; max: number; byCategory: Record<string, { score: number; max: number }> };
   gaps: string[];
+}
+
+interface BaselineRead {
+  baseline: Baseline | null;
+  /** v1-scoring-model baseline found — scores are not comparable across models. */
+  migratedFromV1: boolean;
 }
 
 interface CheckReport {
@@ -48,15 +54,22 @@ function baselinePath(root: string): string {
   return join(root, BASELINE_DIR, BASELINE_FILE);
 }
 
-function readBaseline(root: string): Baseline | null {
+function readBaseline(root: string): BaselineRead {
+  let raw: string | null = null;
   try {
-    const parsed = JSON.parse(readFileSync(baselinePath(root), "utf8")) as Baseline;
-    if (parsed.schemaVersion !== SCHEMA_VERSION || typeof parsed.score?.total !== "number" || !Array.isArray(parsed.gaps)) {
-      return null;
-    }
-    return parsed;
+    raw = readFileSync(baselinePath(root), "utf8");
   } catch {
-    return null;
+    return { baseline: null, migratedFromV1: false };
+  }
+  try {
+    const parsed = JSON.parse(raw) as Baseline;
+    if (parsed.schemaVersion === 1) return { baseline: null, migratedFromV1: true };
+    if (parsed.schemaVersion !== SCHEMA_VERSION || typeof parsed.score?.total !== "number" || !Array.isArray(parsed.gaps)) {
+      return { baseline: null, migratedFromV1: false };
+    }
+    return { baseline: parsed, migratedFromV1: false };
+  } catch {
+    return { baseline: null, migratedFromV1: false };
   }
 }
 
@@ -76,18 +89,22 @@ function stageHint(missing: string[]): number {
   return 2;
 }
 
-function run(root: string): CheckReport {
+export function run(root: string): CheckReport {
   const audit = runAudit(root);
-  const prev = readBaseline(root);
+  const { baseline: prev, migratedFromV1 } = readBaseline(root);
   const drift = checkConsistency(root);
   const suggestions: string[] = [];
 
   let baseline: CheckReport["baseline"];
   if (!prev) {
-    // first run: record the baseline, report the note
+    // first run (or v1-model baseline): record the baseline, report the note
     writeBaseline(root, { schemaVersion: SCHEMA_VERSION, date: today(), score: audit.score, gaps: audit.gaps });
     baseline = { present: false, date: null, total: null, delta: null };
-    suggestions.push("First check — baseline recorded. Re-run later to see readiness drift.");
+    suggestions.push(
+      migratedFromV1
+        ? "Baseline from the v1 scoring model re-baselined — v1 and v2 scores are not comparable."
+        : "First check — baseline recorded. Re-run later to see readiness drift.",
+    );
   } else {
     const delta = audit.score.total - prev.score.total;
     writeBaseline(root, { schemaVersion: SCHEMA_VERSION, date: today(), score: audit.score, gaps: audit.gaps });

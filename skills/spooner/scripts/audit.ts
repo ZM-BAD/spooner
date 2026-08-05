@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * audit — Spooner M1 slices 2-3: AI-Readiness scoring engine.
+ * audit — Spooner M1 slices 2-3 + M13: AI-Readiness scoring engine.
  *
- * Scores a repository against the v1 scoring matrix defined in
- * specs/0001-m1-audit-core/spec.md (20 points across 5 categories,
- * 19 checks), plus the maturity gating rules from the internal
- * design archive (local-only).
+ * Scores a repository against the M13 quality matrix (10 points across 5
+ * categories, 19 checks, 0.1 granularity — every score is max × a 0.2-step
+ * coefficient), plus the maturity gating rules from the internal design
+ * archive (local-only).
  *
- * Every check must be backed by real evidence (file paths, git state,
- * or commands traceable to manifests) — no invented facts.
+ * Every check must be backed by real evidence (file paths, git state, or
+ * commands traceable to manifests) — no invented facts. "Quality" means
+ * deterministic signals only (command traceability, CI job depth, hook
+ * installation state, manifest consistency) — never LLM judgment.
  *
  * Zero dependencies (Node builtins + git only); runs natively via Node's
  * type stripping — no build step:
@@ -19,8 +21,9 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { detect } from "./detect.ts";
+import { readManifest, TOOL_VERSION } from "./transform.ts";
 
-const SCORE_MAX = 20;
+const SCORE_MAX = 10;
 
 type Category = "agent-setup" | "configuration" | "integrity" | "freshness" | "structure";
 
@@ -44,6 +47,7 @@ export interface AuditResult {
     max: number;
     byCategory: Record<Category, { score: number; max: number }>;
   };
+  subStacks: { stack: string; dir: string }[];
   items: CheckResult[];
   gaps: string[];
   suggestions: string[];
@@ -58,11 +62,11 @@ const CATEGORY_ORDER: readonly Category[] = [
 ];
 
 const CATEGORY_MAX: Record<Category, number> = {
-  "agent-setup": 6,
-  configuration: 5,
-  integrity: 4,
-  freshness: 3,
-  structure: 2,
+  "agent-setup": 3,
+  configuration: 2.5,
+  integrity: 2,
+  freshness: 1.5,
+  structure: 1,
 };
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -71,15 +75,6 @@ const CATEGORY_LABELS: Record<Category, string> = {
   integrity: "Integrity",
   freshness: "Freshness",
   structure: "Structure",
-};
-
-/** Fixed suggestion copy per category (deterministic — no LLM generation). */
-const SUGGESTIONS: Record<Category, string> = {
-  "agent-setup": "Run transform Stage 3 to generate an AGENTS.md derived from real commands (with a CLAUDE.md symlink).",
-  configuration: "Run transform Stage 2 to install lint/format/CI gates (warn-only; keep the existing build green).",
-  integrity: "Run transform Stage 2 security pass: gitleaks, .env protection, and a CI security job.",
-  freshness: "Freshness reflects maintenance activity and is not fixable by transform.",
-  structure: "Add a README with real content and organize sources under src/, lib/, or packages/.",
 };
 
 // --- small utilities -------------------------------------------------------
@@ -215,7 +210,50 @@ function hasCi(root: string): boolean {
   return ciContent(root).length > 0;
 }
 
-// --- checks: agent-setup (6) ----------------------------------------------
+// --- monorepo sub-stack note (M13) -----------------------------------------
+
+/** Known manifests per stack — mirrors detect.ts, applied to subdirectories. */
+const SUBSTACK_MANIFESTS: readonly [string, string][] = [
+  ["node", "package.json"],
+  ["python", "pyproject.toml"],
+  ["python", "requirements.txt"],
+  ["go", "go.mod"],
+  ["rust", "Cargo.toml"],
+  ["java", "pom.xml"],
+  ["java", "build.gradle"],
+  ["ruby", "Gemfile"],
+  ["php", "composer.json"],
+  ["swift", "Package.swift"],
+];
+
+/** Vendored/build/tooling dirs that must never count as sub-stacks. */
+const VENDORED_DIRS = new Set([
+  "node_modules", ".venv", "venv", ".git", ".idea", ".vscode", ".claude", ".github",
+  "coverage", "dist", "build", ".output", ".next", ".wxt", ".playwright-mcp",
+  ".ruff_cache", ".pytest_cache", "__pycache__",
+]);
+
+/** Bounded one-level sub-stack scan (M13): known manifests in direct child dirs. */
+function subStacksOf(root: string): { stack: string; dir: string }[] {
+  const out: { stack: string; dir: string }[] = [];
+  for (const entry of (entriesOf(root) ?? []).sort()) {
+    const p = join(root, entry);
+    if (!existsSync(p) || !lstatSync(p).isDirectory()) continue;
+    if (entry.startsWith(".") || VENDORED_DIRS.has(entry)) continue;
+    for (const [stack, manifest] of SUBSTACK_MANIFESTS) {
+      if (existsSync(join(p, manifest))) {
+        out.push({ stack, dir: entry });
+        break;
+      }
+    }
+    if (!out.some((s) => s.dir === entry) && (entriesOf(p) ?? []).some((f) => f.endsWith(".csproj"))) {
+      out.push({ stack: "dotnet", dir: entry });
+    }
+  }
+  return out;
+}
+
+// --- checks: agent-setup (3.0) ---------------------------------------------
 
 function agentFile(root: string): string | null {
   for (const name of ["AGENTS.md", "CLAUDE.md"]) {
@@ -225,16 +263,45 @@ function agentFile(root: string): string | null {
   return null;
 }
 
+/** Commands mentioned in a file that trace to real sources (scripts/Makefile/stack). */
+function traceableCommandsOf(content: string, root: string): string[] {
+  const found: string[] = [];
+  const scripts = packageScripts(root);
+  for (const m of content.matchAll(/`npm run ([a-z0-9:_-]+)`/g)) {
+    if (scripts[m[1]]) found.push(`npm run ${m[1]}`);
+  }
+  const targets = makefileTargets(root);
+  for (const m of content.matchAll(/`make ([a-z0-9_.-]+)`/g)) {
+    if (targets.includes(m[1])) found.push(`make ${m[1]}`);
+  }
+  const sc = stackCommandSources(root);
+  if (sc.source !== null && /\b(go|cargo|mvn|gradle|python3 -m unittest)\b/.test(content)) {
+    found.push(sc.source);
+  }
+  return [...new Set(found)];
+}
+
 function checkAgentsMd(root: string): CheckResult {
   const file = agentFile(root);
-  return {
-    id: "agents-md",
-    category: "agent-setup",
-    score: file ? 1 : 0,
-    max: 1,
-    evidence: `agent file: ${file ?? "missing"}`,
-    fix: "transform Stage 3",
-  };
+  if (!file) {
+    return { id: "agents-md", category: "agent-setup", score: 0, max: 0.5, evidence: "agent file: missing", fix: "transform Stage 3" };
+  }
+  const content = readIfExists(join(root, file)) ?? "";
+  const lines = content.split("\n").length;
+  const traceable = traceableCommandsOf(content, root);
+  let score = 0.2;
+  let detail = `${file}: ${lines} lines, no command section`;
+  if (traceable.length >= 2) {
+    score = 0.5;
+    detail = `${file}: ${lines} lines, ${traceable.length} traceable commands`;
+  } else if (traceable.length === 1) {
+    score = 0.4;
+    detail = `${file}: ${lines} lines, 1 command traceable`;
+  } else if (/\bcommands\b|`npm run|`make |\| Command \|/i.test(content)) {
+    score = 0.3;
+    detail = `${file}: ${lines} lines with a command section`;
+  }
+  return { id: "agents-md", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "keep commands in AGENTS.md traceable to real scripts/Makefile" };
 }
 
 function checkAgentsBridge(root: string): CheckResult {
@@ -247,35 +314,47 @@ function checkAgentsBridge(root: string): CheckResult {
     const content = isFile ? readIfExists(claude) ?? "" : "";
     if (isLink) {
       detail = "CLAUDE.md: symlink to AGENTS.md";
-      score = 1;
-    } else if (/@AGENTS\.md|AGENTS\.md/i.test(content)) {
+      score = 0.5;
+    } else if (/^\s*@AGENTS\.md\b/m.test(content)) {
       detail = "CLAUDE.md: @AGENTS.md import bridge";
-      score = 1;
+      score = 0.5;
+    } else if (/\bAGENTS\.md\b/i.test(content)) {
+      detail = "CLAUDE.md: content reference to AGENTS.md only";
+      score = 0.3;
     } else {
       detail = "CLAUDE.md: exists but no bridge to AGENTS.md";
     }
   }
-  return { id: "agents-bridge", category: "agent-setup", score, max: 1, evidence: detail, fix: "transform Stage 3" };
+  return { id: "agents-bridge", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "transform Stage 3" };
 }
 
 function checkAgentsLength(root: string): CheckResult {
   const file = agentFile(root);
   if (!file) {
-    return { id: "agents-length", category: "agent-setup", score: 0, max: 1, evidence: "no agent file", fix: "transform Stage 3" };
+    return { id: "agents-length", category: "agent-setup", score: 0, max: 0.5, evidence: "no agent file", fix: "transform Stage 3" };
   }
   const content = readIfExists(join(root, file)) ?? "";
   const lines = content.split("\n").length;
   const bytes = Buffer.byteLength(content, "utf8");
-  let score = 1;
-  let detail = `${file}: ${lines} lines`;
+  let score: number;
+  let detail: string;
   if (bytes > 40_000) {
-    score = 0;
+    score = 0.1;
     detail = `${file}: ${bytes} chars exceeds the 40K hard block`;
-  } else if (lines > 200) {
+  } else if (lines >= 30 && lines <= 200) {
     score = 0.5;
-    detail = `${file}: ${lines} lines exceeds the 200-line warning threshold`;
+    detail = `${file}: ${lines} lines (optimal band 30-200)`;
+  } else if ((lines >= 20 && lines < 30) || (lines > 200 && lines <= 300)) {
+    score = 0.3;
+    detail = `${file}: ${lines} lines (short or slightly over)`;
+  } else if ((lines >= 10 && lines < 20) || (lines > 300 && lines <= 400)) {
+    score = 0.2;
+    detail = `${file}: ${lines} lines (thin or over)`;
+  } else {
+    score = 0.1;
+    detail = `${file}: ${lines} lines (too thin or too long)`;
   }
-  return { id: "agents-length", category: "agent-setup", score, max: 1, evidence: detail, fix: "trim AGENTS.md" };
+  return { id: "agents-length", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "trim AGENTS.md to ≤200 lines — merge content, don't delete it" };
 }
 
 function checkAgentsCommands(root: string): CheckResult {
@@ -284,6 +363,7 @@ function checkAgentsCommands(root: string): CheckResult {
   const sc = stackCommandSources(root);
   const hasBuild = buildKey !== null || makefileTarget(root, "build") || sc.hasBuild;
   const hasTest = testKey !== null || makefileTarget(root, "test") || sc.hasTest;
+  const hasThird = scriptKey(root, /^lint\b|^vet\b/) !== null || makefileTarget(root, "lint") || makefileTarget(root, "vet");
   const sources: string[] = [];
   if (buildKey || testKey) sources.push("package.json scripts");
   if (makefileTargets(root).length > 0) sources.push("Makefile");
@@ -291,58 +371,123 @@ function checkAgentsCommands(root: string): CheckResult {
   const evidence = sources.length > 0
     ? `commands traceable to ${sources.join(" + ")} (build: ${hasBuild}, test: ${hasTest})`
     : "no build/test commands found in package.json, Makefile, or stack build files";
+
+  // AGENTS.md documentation of the real commands (the 1.0 band).
+  const agentContent = agentFile(root) ? readIfExists(join(root, agentFile(root)!)) ?? "" : "";
+  const documented = traceableCommandsOf(agentContent, root).length >= 2;
+
+  let score: number;
+  if (!hasBuild && !hasTest) {
+    score = /\bnpm (run )?(build|test)\b|`make (build|test)`|`(go|cargo|mvn|gradle) (build|test)/.test(agentContent) ? 0.2 : 0;
+  } else if (hasBuild !== hasTest) {
+    score = 0.4;
+  } else if (!hasThird) {
+    score = 0.6;
+  } else if (!documented) {
+    score = 0.8;
+  } else {
+    score = 1;
+  }
   return {
     id: "agents-commands",
     category: "agent-setup",
-    score: hasBuild && hasTest ? 2 : hasBuild || hasTest ? 1 : 0,
-    max: 2,
+    score,
+    max: 1,
     evidence,
     fix: "add real build/test commands, then document them in AGENTS.md",
   };
+}
+
+/** Markdown files one level deep (specs/ contains numbered spec subdirs). */
+function specFilesOf(dir: string): string[] {
+  const out: string[] = [];
+  for (const f of entriesOf(dir) ?? []) {
+    const p = join(dir, f);
+    if (lstatSync(p).isDirectory()) {
+      for (const g of entriesOf(p) ?? []) if (g.endsWith(".md")) out.push(join(p, g));
+    } else if (f.endsWith(".md")) {
+      out.push(p);
+    }
+  }
+  return out;
 }
 
 function checkAgentsSdd(root: string): CheckResult {
   const file = agentFile(root);
   const content = file ? readIfExists(join(root, file)) ?? "" : "";
   const mentions = /\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(content);
-  return {
-    id: "agents-sdd",
-    category: "agent-setup",
-    score: mentions ? 1 : 0,
-    max: 1,
-    evidence: mentions ? "agent file declares a spec-driven workflow" : "agent file does not declare a spec-driven workflow",
-    fix: "document the spec-driven workflow in AGENTS.md",
-  };
+  const specDir = existsSync(join(root, "specs")) ? join(root, "specs") : existsSync(join(root, "docs", "sdd")) ? join(root, "docs", "sdd") : null;
+  const specFiles = specDir ? specFilesOf(specDir) : [];
+  const hasState = specFiles.some((f) => /^status:\s*(proposed|approved|in-progress|shipped)/m.test(readIfExists(f) ?? ""));
+  const hasCiGate = /\bspec\b|\bsdd\b/i.test(ciContent(root));
+  let score = 0;
+  let detail = "agent file does not declare a spec-driven workflow";
+  if (mentions) {
+    score = 0.2;
+    detail = "agent file declares a spec-driven workflow";
+  }
+  if (mentions && specDir) {
+    score = 0.3;
+    detail = "agent file declares the workflow + spec files exist";
+  }
+  if (mentions && specDir && hasState) {
+    score = 0.4;
+    detail = "agent file declares the workflow + spec files carry state frontmatter";
+  }
+  if (mentions && specDir && hasState && hasCiGate) {
+    score = 0.5;
+    detail = "agent file declares the workflow + state-frontmatter specs + a CI spec gate";
+  }
+  return { id: "agents-sdd", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "document the spec-driven workflow in AGENTS.md" };
 }
 
-// --- checks: configuration (5) ----------------------------------------------
+// --- checks: configuration (2.5) -------------------------------------------
 
 function checkCfgLint(root: string): CheckResult {
   const config = hasPattern(root, [/^\.eslintrc/, /^eslint\.config\./, /^biome\.json/, /^\.golangci/, /^ruff\.toml/, /^\.markdownlint/]);
   const cmd = scriptKey(root, /lint/i) ?? (makefileTarget(root, "lint") ? "lint" : null);
   const ci = /\blint\b/i.test(ciContent(root));
-  const ok = config !== null && (cmd !== null || ci);
+  let score = 0;
+  if (config && cmd && ci) score = 0.5;
+  else if (config && (cmd || ci)) score = 0.4;
+  else if (config || cmd || ci) score = 0.2;
+  const fix = config
+    ? cmd
+      ? "transform Stage 2 (CI lint job)"
+      : "add a lint command (transform never invents commands)"
+    : "add a lint config + command (eslint/biome/ruff)";
   return {
     id: "cfg-lint",
     category: "configuration",
-    score: ok ? 1 : 0,
-    max: 1,
+    score,
+    max: 0.5,
     evidence: config && (cmd ?? (ci ? "CI lint step" : "no command")) ? `${config} + ${cmd ?? "CI lint step"}` : `lint config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
-    fix: "transform Stage 2",
+    fix,
   };
 }
 
 function checkCfgFormat(root: string): CheckResult {
   const config = hasPattern(root, [/^\.prettierrc/, /^prettier\.config\./, /^biome\.json/, /^rustfmt\.toml/]);
   const cmd = scriptKey(root, /^format\b|^fmt\b/) ?? (makefileTarget(root, "format") ? "format" : null);
-  const ok = config !== null && cmd !== null;
+  // Tool names only — the word "format" alone is noise (git log --format=%B
+  // would false-positive on commitlint steps).
+  const ci = /\b(prettier|black|gofmt|rustfmt|dprint)\b/i.test(ciContent(root));
+  let score = 0;
+  if (config && cmd && ci) score = 0.5;
+  else if (config && (cmd || ci)) score = 0.4;
+  else if (config || cmd || ci) score = 0.2;
+  const fix = config
+    ? cmd
+      ? "transform Stage 2 (CI format job)"
+      : "add a format command (transform never invents commands)"
+    : "add a formatter config + format command (prettier/biome)";
   return {
     id: "cfg-format",
     category: "configuration",
-    score: ok ? 1 : 0,
-    max: 1,
-    evidence: ok ? `${config} + format command` : `formatter config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
-    fix: "transform Stage 2",
+    score,
+    max: 0.5,
+    evidence: config && (cmd ?? (ci ? "CI format step" : "no command")) ? `${config} + ${cmd ?? "CI format step"}` : `formatter config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
+    fix,
   };
 }
 
@@ -376,135 +521,204 @@ function checkCfgHooks(root: string): CheckResult {
       existsSync(join(gitDir, "hooks", "commit-msg"))
     );
   })();
+  const commitMsgActive = mechanism === ".husky"
+    ? existsSync(join(root, ".husky", "commit-msg"))
+    : existsSync(join(root, ".git", "hooks", "commit-msg"));
 
-  if (mechanism === null || !discipline) {
-    return {
-      id: "cfg-hooks",
-      category: "configuration",
-      score: 0,
-      max: 1,
-      evidence: `hook mechanism: ${mechanism ?? "missing"}${mechanism ? ", no commitlint/markdownlint found" : ""}`,
-      fix: "transform Stage 2 (commitlint + pre-commit)",
-    };
+  let score = 0;
+  let detail = `hook mechanism: ${mechanism ?? "missing"}`;
+  let fix = "transform Stage 2 (commitlint + pre-commit)";
+  if (mechanism !== null && !discipline) {
+    score = 0.1;
+    detail = `${mechanism} present but no commitlint/markdownlint discipline`;
+    fix = "add a commitlint/markdownlint config";
+  } else if (mechanism !== null && discipline && !hooksActive) {
+    score = 0.2;
+    detail = `${mechanism} config present but git hooks not installed`;
+    fix = "install the hooks: pre-commit install --hook-type pre-commit --hook-type commit-msg";
+  } else if (mechanism !== null && discipline && hooksActive && !commitMsgActive) {
+    score = 0.4;
+    detail = `${mechanism} enforces commit discipline (hooks installed, commit-msg stage missing)`;
+    fix = "install the commit-msg stage: pre-commit install --hook-type commit-msg";
+  } else if (mechanism !== null && discipline && hooksActive && commitMsgActive) {
+    score = 0.5;
+    detail = `${mechanism} enforces commit discipline (hooks installed incl. commit-msg)`;
   }
-  if (!hooksActive) {
-    return {
-      id: "cfg-hooks",
-      category: "configuration",
-      score: 0.5,
-      max: 1,
-      evidence: `${mechanism} config present but git hooks not installed — run: pre-commit install --hook-type commit-msg`,
-      fix: "install the hooks: pre-commit install --hook-type commit-msg",
-    };
-  }
-  return {
-    id: "cfg-hooks",
-    category: "configuration",
-    score: 1,
-    max: 1,
-    evidence: `${mechanism} enforces commit discipline (git hooks installed)`,
-    fix: "transform Stage 2 (commitlint + pre-commit)",
-  };
+  return { id: "cfg-hooks", category: "configuration", score, max: 0.5, evidence: detail, fix };
 }
 
 function checkCfgCi(root: string): CheckResult {
   const content = ciContent(root);
   const hasLint = /\blint\b/i.test(content);
   const hasTest = /\btest\b/i.test(content);
-  const ok = content.length > 0 && hasLint && hasTest;
+  const hasSec = /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content) || /^\s{2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
+  let score = 0;
+  if (content.length === 0) score = 0;
+  else if (!hasLint && !hasTest) score = 0.1;
+  else if (hasLint && !hasTest) score = 0.2;
+  else if (hasLint && hasTest && !hasSec) score = 0.4;
+  else score = 0.5;
+  const fix = content.length === 0
+    ? "transform Stage 2 (installs a CI workflow)"
+    : !hasTest
+      ? "add a test job (transform never invents commands — add a test script first)"
+      : "transform Stage 2 (CI security job)";
   return {
     id: "cfg-ci",
     category: "configuration",
-    score: ok ? 1 : 0,
-    max: 1,
-    evidence: content.length === 0 ? "no CI config found" : `CI present (lint: ${hasLint}, test: ${hasTest})`,
-    fix: "transform Stage 2 (CI lint + test jobs)",
+    score,
+    max: 0.5,
+    evidence: content.length === 0 ? "no CI config found" : `CI present (lint: ${hasLint}, test: ${hasTest}, security: ${hasSec})`,
+    fix,
   };
 }
 
 function checkCfgTest(root: string): CheckResult {
   const cmd = scriptKey(root, /^test\b|^spec\b/) ?? (makefileTarget(root, "test") ? "test" : null);
   const config = hasPattern(root, [/^vitest\.config/, /^jest\.config/, /^playwright\.config/, /^pytest\.ini/, /^conftest\.py/]);
-  const ok = cmd !== null || config !== null;
+  const testFiles = findTestFiles(root);
+  const nonEmpty = testFiles.some((f) => /\b(it|test|describe|assert|expect)\(|self\.assert|@Test|it\s*\(|test\s*\(/i.test(readIfExists(f) ?? ""));
+  let score = 0;
+  if (cmd || config) score = cmd && config ? 0.3 : 0.2;
+  if ((cmd || config) && testFiles.length > 0) score = 0.4;
+  if (nonEmpty) score = 0.5;
   return {
     id: "cfg-test",
     category: "configuration",
-    score: ok ? 1 : 0,
-    max: 1,
-    evidence: ok ? `test: ${cmd ?? config}` : "no test framework or test command found",
-    fix: "transform Stage 2 (add a test command)",
+    score,
+    max: 0.5,
+    evidence: nonEmpty ? `test: ${cmd ?? config} + ${testFiles.length} test file(s) with assertions` : (cmd ?? config) ? `test: ${cmd ?? config}` : testFiles.length > 0 ? `${testFiles.length} test file(s), no test command` : "no test framework or test command found",
+    fix: "add a test framework + test script (transform never invents commands)",
   };
 }
 
-// --- checks: integrity (4) ---------------------------------------------------
+/** Bounded test-file scan: known test dirs (one level) + root-level test files
+ *  + test dirs inside one-level subdirs (monorepo-style, e.g. skills/spooner/test). */
+function findTestFiles(root: string): string[] {
+  const out: string[] = [];
+  const collect = (dir: string) => {
+    for (const f of entriesOf(dir) ?? []) {
+      if (/\.(test|spec)\./i.test(f) || /^(test_|.*_test\.|.*_spec\.)/.test(f) || /\.(ts|js|mjs|py|go|rb|rs)$/.test(f)) out.push(join(dir, f));
+    }
+  };
+  for (const dir of ["test", "tests", "spec"]) {
+    const p = join(root, dir);
+    if (existsSync(p) && lstatSync(p).isDirectory()) collect(p);
+  }
+  for (const f of entriesOf(root) ?? []) {
+    if (/\.(test|spec)\./i.test(f) || /^test_.*\.(py|js|ts)$/.test(f) || /.*_test\.(go|rs|rb)$/.test(f)) out.push(join(root, f));
+  }
+  for (const entry of (entriesOf(root) ?? []).sort()) {
+    const p = join(root, entry);
+    if (!existsSync(p) || !lstatSync(p).isDirectory()) continue;
+    if (entry.startsWith(".") || VENDORED_DIRS.has(entry)) continue;
+    for (const dir of ["test", "tests", "spec"]) {
+      const q = join(p, dir);
+      if (existsSync(q) && lstatSync(q).isDirectory()) collect(q);
+    }
+    // two-level nesting (e.g. skills/spooner/test) — bounded, vendored dirs skipped
+    for (const e2 of entriesOf(p) ?? []) {
+      if (e2.startsWith(".") || VENDORED_DIRS.has(e2)) continue;
+      for (const dir of ["test", "tests", "spec"]) {
+        const q = join(p, e2, dir);
+        if (existsSync(q) && lstatSync(q).isDirectory()) collect(q);
+      }
+    }
+  }
+  return out;
+}
+
+// --- checks: integrity (2.0) ------------------------------------------------
 
 function checkSecEnv(root: string): CheckResult {
   const envFile = join(root, ".env");
   if (!existsSync(envFile)) {
-    return { id: "sec-env", category: "integrity", score: 1, max: 1, evidence: "no .env file present", fix: "keep secrets out of the repo" };
+    return { id: "sec-env", category: "integrity", score: 0.5, max: 0.5, evidence: "no .env file present", fix: "keep secrets out of the repo" };
   }
   if (gitOk(root, ["ls-files", "--error-unmatch", ".env"])) {
-    return { id: "sec-env", category: "integrity", score: 0, max: 1, evidence: ".env is tracked by git", fix: "remove .env from history and ignore it" };
+    return { id: "sec-env", category: "integrity", score: 0, max: 0.5, evidence: ".env is tracked by git", fix: "remove .env from history and ignore it" };
   }
   if (gitOk(root, ["check-ignore", "-q", ".env"])) {
-    return { id: "sec-env", category: "integrity", score: 1, max: 1, evidence: ".env present but ignored via .gitignore", fix: "none" };
+    return { id: "sec-env", category: "integrity", score: 0.5, max: 0.5, evidence: ".env present but ignored via .gitignore", fix: "none" };
   }
-  return { id: "sec-env", category: "integrity", score: 0, max: 1, evidence: ".env present but not ignored", fix: "add .env to .gitignore" };
+  return { id: "sec-env", category: "integrity", score: 0.1, max: 0.5, evidence: ".env present but not ignored", fix: "add .env to .gitignore" };
 }
 
 function checkSecScan(root: string): CheckResult {
   const gitleaksConfig = existsSync(join(root, ".gitleaks.toml"));
-  const mentioned =
-    /\bgitleaks\b/i.test(readIfExists(join(root, ".pre-commit-config.yaml")) ?? "") ||
-    /\bgitleaks\b/i.test(ciContent(root));
-  const ok = gitleaksConfig || mentioned;
-  return {
-    id: "sec-scan",
-    category: "integrity",
-    score: ok ? 1 : 0,
-    max: 1,
-    evidence: ok ? "secret scanning configured (gitleaks)" : "no secret scanning configured",
-    fix: "transform Stage 2 (gitleaks)",
-  };
+  const preCommit = readIfExists(join(root, ".pre-commit-config.yaml")) ?? "";
+  const mentioned = gitleaksConfig || /\bgitleaks\b/i.test(preCommit) || /\bgitleaks\b/i.test(ciContent(root));
+  const declared = /\bgitleaks\b/i.test(preCommit);
+  const installed = existsSync(join(root, ".git", "hooks", "pre-commit")) || existsSync(join(root, ".husky", "pre-commit"));
+  let score = 0;
+  let detail = "no secret scanning configured";
+  if (mentioned) {
+    score = 0.2;
+    detail = "secret scanning mentioned (gitleaks)";
+  }
+  if (declared) {
+    score = 0.3;
+    detail = "gitleaks declared as a pre-commit hook";
+  }
+  if (declared && installed) {
+    score = 0.5;
+    detail = "gitleaks hook declared and installed (actually runs)";
+  }
+  return { id: "sec-scan", category: "integrity", score, max: 0.5, evidence: detail, fix: "transform Stage 2 (gitleaks)" };
 }
 
 function checkSecCi(root: string): CheckResult {
-  const ok = /\bgitleaks\b|\btrivy\b|\bsnyk\b|\bcodeql\b|\bsecurity\b/i.test(ciContent(root));
-  return {
-    id: "sec-ci",
-    category: "integrity",
-    score: ok ? 1 : 0,
-    max: 1,
-    evidence: ok ? "CI contains a security job" : "CI has no security job",
-    fix: "transform Stage 2 (CI security job)",
-  };
+  const content = ciContent(root);
+  const job = /^\s{2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
+  const mentioned = /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content);
+  let score = 0;
+  let detail = "CI has no security job";
+  if (mentioned && !job) {
+    score = 0.2;
+    detail = "CI mentions a security tool, no dedicated job";
+  } else if (job) {
+    score = 0.5;
+    detail = "CI contains a dedicated security job";
+  }
+  return { id: "sec-ci", category: "integrity", score, max: 0.5, evidence: detail, fix: "transform Stage 2 (CI security job)" };
 }
 
 function checkDrift(root: string): CheckResult {
-  const exists = existsSync(join(root, ".ai-native.yml"));
-  return {
-    id: "drift",
-    category: "integrity",
-    score: exists ? 1 : 0,
-    max: 1,
-    evidence: exists ? ".ai-native.yml present (full consistency check lives in the check command, M2)" : ".ai-native.yml manifest missing",
-    fix: "run transform to install the manifest",
-  };
+  const { present, manifest } = readManifest(root);
+  if (!present) {
+    return { id: "drift", category: "integrity", score: 0, max: 0.5, evidence: ".ai-native.yml manifest missing", fix: "run transform to install the manifest" };
+  }
+  const version = typeof manifest?.version === "string" ? manifest.version : "0.0.0";
+  const current = version === TOOL_VERSION;
+  const declared = Object.values(manifest?.stages ?? {}).flatMap((s) => (s && Array.isArray(s.files) ? (s.files as string[]) : []));
+  const allPresent = declared.every((f) => existsSync(join(root, f)));
+  let score = 0.2;
+  let detail = `.ai-native.yml present (v${version})`;
+  if (current) {
+    score = 0.3;
+    detail = `.ai-native.yml present at v${version} == tool v${TOOL_VERSION}`;
+  }
+  if (current && allPresent) {
+    score = 0.5;
+    detail = `.ai-native.yml consistent (v${version}, ${declared.length} declared file(s) present)`;
+  }
+  const fix = current ? "none" : "run sync to apply the current templates";
+  return { id: "drift", category: "integrity", score, max: 0.5, evidence: detail, fix };
 }
 
-// --- checks: freshness (3) ---------------------------------------------------
+// --- checks: freshness (1.5) -------------------------------------------------
 
 function checkFreshRecent(root: string): CheckResult {
   const ts = lastCommitTs(root);
   if (ts === null) {
-    return { id: "fresh-recent", category: "freshness", score: 0, max: 1, evidence: "no git history", fix: "n/a" };
+    return { id: "fresh-recent", category: "freshness", score: 0, max: 0.5, evidence: "no git history", fix: "n/a" };
   }
   const days = daysSince(ts);
   return {
     id: "fresh-recent",
     category: "freshness",
-    score: days <= 90 ? 1 : days <= 180 ? 0.5 : 0,
-    max: 1,
+    score: days <= 90 ? 0.5 : days <= 180 ? 0.2 : 0.1,
+    max: 0.5,
     evidence: `last commit ${Math.floor(days)} days ago`,
     fix: "n/a",
   };
@@ -513,14 +727,14 @@ function checkFreshRecent(root: string): CheckResult {
 function checkFreshActive(root: string): CheckResult {
   const ts = lastCommitTs(root);
   if (ts === null) {
-    return { id: "fresh-active", category: "freshness", score: 0, max: 1, evidence: "no git history", fix: "n/a" };
+    return { id: "fresh-active", category: "freshness", score: 0, max: 0.5, evidence: "no git history", fix: "n/a" };
   }
   const days = daysSince(ts);
   return {
     id: "fresh-active",
     category: "freshness",
-    score: days <= 30 ? 1 : days <= 90 ? 0.5 : 0,
-    max: 1,
+    score: days <= 30 ? 0.5 : days <= 90 ? 0.2 : 0.1,
+    max: 0.5,
     evidence: `last commit ${Math.floor(days)} days ago`,
     fix: "n/a",
   };
@@ -539,33 +753,38 @@ function checkFreshDeps(root: string): CheckResult {
     };
     const wildcard = Object.values(deps).some((v) => String(v).includes("*"));
     const pinned = !wildcard;
-    const score = pinned && lock ? 1 : pinned ? 0.5 : 0;
+    const score = pinned && lock ? 0.5 : pinned ? 0.3 : 0.1;
     const evidence = lock ? `deps pinned + ${lock}` : pinned ? "deps pinned, no lockfile" : "deps use wildcard ranges";
-    return { id: "fresh-deps", category: "freshness", score, max: 1, evidence, fix: "pin versions and commit a lockfile" };
+    return { id: "fresh-deps", category: "freshness", score, max: 0.5, evidence, fix: "pin versions and commit a lockfile" };
   }
   if (pyproject) {
-    const score = lock ? 1 : 0.5;
-    return { id: "fresh-deps", category: "freshness", score, max: 1, evidence: lock ? `pyproject.toml + ${lock}` : "pyproject.toml, no lockfile", fix: "commit a lockfile" };
+    const score = lock ? 0.5 : 0.2;
+    return { id: "fresh-deps", category: "freshness", score, max: 0.5, evidence: lock ? `pyproject.toml + ${lock}` : "pyproject.toml, no lockfile", fix: "commit a lockfile" };
   }
-  return { id: "fresh-deps", category: "freshness", score: 0, max: 1, evidence: "no dependency manifest", fix: "n/a" };
+  return { id: "fresh-deps", category: "freshness", score: 0, max: 0.5, evidence: "no dependency manifest", fix: "n/a" };
 }
 
-// --- checks: structure (2) ----------------------------------------------------
+// --- checks: structure (1.0) --------------------------------------------------
 
 function checkStructReadme(root: string): CheckResult {
   const readme = ["README.md", "README"]
     .map((f) => join(root, f))
     .find((f) => existsSync(f) && lstatSync(f).isFile());
   const content = readme ? readIfExists(readme) ?? "" : "";
-  const ok = content.trim().length > 50;
-  return {
-    id: "struct-readme",
-    category: "structure",
-    score: ok ? 1 : 0,
-    max: 1,
-    evidence: ok ? `${readme}: ${content.trim().length} chars` : `README: ${readme ? "too short (<50 chars)" : "missing"}`,
-    fix: "write a real README",
-  };
+  const chars = content.trim().length;
+  const headings = content.match(/^#{2,3}\s+/gm)?.length ?? 0;
+  let score = 0;
+  let detail = `README: ${readme ? "too short (<50 chars)" : "missing"}`;
+  if (readme && chars > 50 && headings >= 3) {
+    score = 0.5;
+    detail = `${readme}: ${chars} chars with ${headings} section headings`;
+  } else if (readme && chars > 50) {
+    score = 0.3;
+    detail = `${readme}: ${chars} chars, no section headings`;
+  } else if (readme) {
+    score = 0.1;
+  }
+  return { id: "struct-readme", category: "structure", score, max: 0.5, evidence: detail, fix: "write a real README with sections" };
 }
 
 function checkStructLayout(root: string): CheckResult {
@@ -576,10 +795,10 @@ function checkStructLayout(root: string): CheckResult {
   return {
     id: "struct-layout",
     category: "structure",
-    score: organized ? 1 : 0,
-    max: 1,
+    score: organized ? 0.5 : 0,
+    max: 0.5,
     evidence: organized ? "sources organized under src/ lib/ packages/" : "no src/, lib/, or packages/ directory",
-    fix: "organize sources under src/, lib/, or packages/",
+    fix: "organize sources under src/, lib/, or packages/ (not covered by transform)",
   };
 }
 
@@ -636,22 +855,27 @@ export function runAudit(root: string): AuditResult {
 
   const total = CATEGORY_ORDER.reduce((sum, c) => sum + byCategory[c].score, 0);
   const gaps = items.filter((i) => i.score < i.max).map((i) => i.id);
-  const suggestions = CATEGORY_ORDER.filter((c) => items.some((i) => i.category === c && i.score < i.max)).map(
-    (c) => SUGGESTIONS[c],
-  );
+  // Suggestions (M13): per category with below-max checks, the missing
+  // checks' fixes deduped — fully-scoring categories stay silent.
+  const suggestions = CATEGORY_ORDER.filter((c) => items.some((i) => i.category === c && i.score < i.max)).map((c) => {
+    const fixes = [...new Set(items.filter((i) => i.category === c && i.score < i.max).map((i) => i.fix))];
+    return `${CATEGORY_LABELS[c]}: ${fixes.join("; ")}`;
+  });
 
   const stacks = detect(root).stacks;
+  const subStacks = subStacksOf(root);
   const hasBuildCmd =
     scriptKey(root, /^(build|compile|typecheck|check|verify)\b/) !== null || makefileTarget(root, "build");
   const { maturity, note } = assessMaturity(root, hasBuildCmd, agentFile(root) !== null, hasCi(root));
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     root: ".",
     stacks,
     maturity,
     maturityNote: note,
     score: { total, max: SCORE_MAX, byCategory },
+    subStacks,
     items,
     gaps,
     suggestions,
@@ -669,6 +893,9 @@ export function renderMarkdown(r: AuditResult): string {
     "",
   );
   if (r.maturityNote) lines.push(`> ${r.maturityNote}`, "");
+  if (r.subStacks.length > 0) {
+    lines.push(`- Sub-stacks: ${r.subStacks.map((s) => `${s.stack} (${s.dir}/)`).join(", ")} — root detection only; transform installs the root stack's gates; run transform per sub-stack`, "");
+  }
 
   lines.push("## Score by category", "");
   lines.push("| Category | Score | Max |", "|---|---|---|");
