@@ -60,6 +60,7 @@ spooner/
 **Do**
 
 - **Contract docs are current-state only, never history**: specs (a fix updates the spec **in place** — no acceptance logs, no fix history, no version transitions) and the AGENTS.md/SKILL.md status sections (current capability set only — no milestone bullets, no dates, no "shipped" language). History lives in commit messages + `docs/08` + `HANDOFF.md` (local) — never in the contract docs
+- **Every pitfall triggers a skill-incorporation review** (the dogfood → product loop): after recording a gotcha, ask "can the skill prevent this failure class for its users?" — mandatory discussion, optional implementation (scope creep stays a red line). Outcome: implement (new spec / in-place revision), reject with the reason, or park as a roadmap candidate
 - **Template change ⇒ bump `TOOL_VERSION`** + baked `EXPECTED` in all four workflow templates + a `docs/08` ledger row (spec 0004/0005 contract) — then dogfood `sync`
 - Test version assertions import `TOOL_VERSION` dynamically — never hard-code it (a bump will silently rot the tests)
 - Before every squash: create a backup branch; after: verify tree identity (`git diff <backup> HEAD` must be empty) and verify every new commit independently (`pre-commit run --all-files` + commit-msg stage with `--commit-msg-filename`)
@@ -86,7 +87,7 @@ spooner/
 
 - **`git checkout <commit> -- .` does NOT delete files missing from that tree** — renamed/deleted files linger; after rebuilding a squashed history, force `git diff <backup> HEAD` to be empty and `git rm` leftovers (2026-08-04)
 - **`git add -A` sweeps in untracked local dirs** (`.zcode/`, `.ai-native/`) when their `.gitignore` entries didn't exist yet — restore `--staged` them before committing
-- **The dogfood manifest (`.ai-native.yml`) is tracked and must be committed with each milestone** — `git restore --staged .ai-native.yml` leaves CI's drift gate red: local pre-commit reads the working-tree manifest, CI reads the committed one (the M10 branch push caught this — local green, CI red "v0.2.7 < expected v0.3.0"). Only the `.ai-native/` dir (baseline.json) is local-only (2026-08-05)
+- **The dogfood manifest (`.ai-native.yml`) is tracked and must be committed with each milestone** — `git restore --staged .ai-native.yml` leaves CI's drift gate red: local pre-commit reads the working-tree manifest, CI reads the committed one (the M10 branch push caught this — local green, CI red "v0.2.7 < expected v0.3.0"). Only the `.ai-native/` dir (baseline.json) is local-only (2026-08-05). → **skill review**: users hit the same class — the generated pre-commit config lacks CI's version gate (local ⊇ CI breaks at the ledger); a self-contained manifest-gate hook (baked EXPECTED) in the cross-stack core closes it locally → candidate, spec 0012, unscheduled
 - **`git filter-branch` on a detached HEAD rewrites the commit but leaves the branch ref behind** — `git branch -f main <new-head>` afterwards
 - **Shallow clone (`--depth 1`) makes audit report `skeleton`** — the freshness/maturity signals need real history; clone full for demos
 - **Zsh eats `$(...)` with nested quotes** ("bad substitution") — write verification scripts to a file and `bash` them
@@ -131,6 +132,7 @@ spooner/
 ## Red lines (re-check while developing)
 
 - **Never merge to main or push on main without explicit user approval** — develop on feature branches; merges and pushes happen only when the user asks
+- **Never delete branches on origin or clean up remote branches on your own** — remote cleanup (branch deletion, stale-ref removal) happens only when the user asks
 - Commands must be real and executable — derived from actual files, never invented (AGENTS.md command executability is the killer gate)
 - Every step verified and rollback-able — never break an existing build
 - Long docs stay within 100-200 lines (AGENTS.md class); SKILL.md body < 500 lines
