@@ -26,7 +26,11 @@ Nothing in progress — 0001-0006 + 0008 + 0009 + 0010 + 0011 + 0012 shipped (au
 
 ## 🟡 Next
 
-Nothing spec'd as next — launch prep (docs/06) remains the main line, not spec'd.
+| ID | Name | Status | Notes |
+|---|---|---|---|
+| 0013 | m13-report-truth-scoring | proposed | report truth + quality scoring: 10-point scale × 0.1 granularity, 19 checks grade deterministic quality signals (command traceability / CI job depth / hook install state / manifest consistency), fix-hints two-sourced (transform vs manual action), suggestion filtering, monorepo `subStacks` note, stage-2 hook prompt, stage-3 conflict note, build-verification honesty, badge re-map, schemaVersion 2 (from the DAG-chat + headroom + kuan-chat + spooner dogfoods + owner decisions, 2026-08-06) |
+
+Launch prep (docs/06) remains the main line, not spec'd; 0013 is the next spec if approved.
 
 ## 🔵 Vision — the end state (完全态)
 
