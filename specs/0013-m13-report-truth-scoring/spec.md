@@ -1,5 +1,5 @@
 ---
-status: approved
+status: shipped
 target: M13
 date: 2026-08-06
 ---

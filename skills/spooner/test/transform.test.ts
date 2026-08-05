@@ -373,7 +373,7 @@ test("manifestGateScript: unparseable manifest exits non-zero with parse-error w
 
 test("manifestGateScript: schema mismatch exits non-zero with schema wording", () => {
   const repo = fixture();
-  writeFileSync(join(repo, ".ai-native.yml"), 'schemaVersion: 2\ntool: spooner\nversion: "0.5.0"\nstages:\n  2:\n    files: []\n');
+  writeFileSync(join(repo, ".ai-native.yml"), 'schemaVersion: 2\ntool: spooner\nversion: "0.0.1"\nstages:\n  2:\n    files: []\n');
   const r = runGate(repo);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /manifest schema mismatch/);

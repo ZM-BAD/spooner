@@ -12,7 +12,7 @@ M1 goal as defined in the session handoff: stack detection + scoring + report ou
 
 ## Goal (one sentence)
 
-For any repository, output an AI-Readiness score (/20) + gap list + maturity assessment — fully deterministic, zero build.
+For any repository, output an AI-Readiness score (/10) + gap list + maturity assessment — fully deterministic, zero build.
 
 ## Scope
 
@@ -27,53 +27,53 @@ For any repository, output an AI-Readiness score (/20) + gap list + maturity ass
 - Deep non-Node stack support (v1: generic templates + explicit "not supported yet")
 - LLM semantic layer (gates must be deterministic)
 
-## Scoring matrix (v1, AI-Readiness out of 20)
+## Scoring matrix (M13 revision, AI-Readiness out of 10)
 
-Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% / Configuration 25% / Integrity 20% / Agent Setup 15% / Structure 10%, mapped to **6 / 5 / 4 / 3 / 2 = 20 points**; checks re-mapped to audit goals (internal archive docs/02 §1, §5). Steps: 0 / 0.5 / 1 per item (agents-commands 0 / 1 / 2); the total advances in 0.5 steps. **Every item must carry evidence (real file/command); no evidence → 0.**
+Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% / Configuration 25% / Integrity 20% / Agent Setup 15% / Structure 10%, mapped to **3 / 2.5 / 2 / 1.5 / 1 = 10 points**. Scores are **quality-graded, not existence-based** (M13): every check scores `max × coefficient` with coefficients in {0, 0.2, 0.4, 0.6, 0.8, 1.0} — every score is a 0.1 multiple. Quality means **deterministic signals only** (command traceability, CI job depth, hook installation state, manifest consistency, length bands, content structure) — no LLM judgment (determinism red line). Per-check band details are pinned in spec 0013; the table below is the summary. **Every item must carry evidence (real file/command); no evidence → 0.**
 
-### Agent Setup (6) — the product's edge, highest weight
+### Agent Setup (3) — the product's edge, highest weight
 
-| ID | Check | Criteria | Evidence source |
-|---|---|---|---|
-| agents-md | AGENTS.md or CLAUDE.md present | present 1 / missing 0 | filesystem |
-| agents-bridge | CLAUDE.md symlink or @AGENTS.md bridge | yes 1 / no 0 | file type / content |
-| agents-length | Length compliance | ≤200 lines 1; >200 lines 0.5; >40K chars 0 | line/byte counts |
-| agents-commands | Executable build/test commands traceable to real files | commands found in package.json scripts / Makefile / existing CI 2; commands present but untraceable 1; none 0 | command ↔ file cross-check |
-| agents-sdd | Declares a spec/SDD workflow | yes 1 / no 0 | content match |
-
-### Configuration (5) — tools & gates
-
-| ID | Check | Criteria |
+| ID | Max | Quality signal (summary) |
 |---|---|---|
-| cfg-lint | lint config exists and the command is real | 1 / 0 |
-| cfg-format | formatter config exists and the command is real | 1 / 0 |
-| cfg-hooks | local commit gate (pre-commit / lefthook / husky, incl. commitlint or markdownlint) — **gate-active**: config present + discipline + git hooks actually installed | 1 / 0.5 / 0 |
-| cfg-ci | CI exists with lint + test | 1 / 0 |
-| cfg-test | test framework + real test command | 1 / 0 |
+| agents-md | 0.5 | content depth + command traceability (commands trace to scripts/Makefile) |
+| agents-bridge | 0.5 | real symlink / @AGENTS.md import (content reference scores lower) |
+| agents-length | 0.5 | optimal band 30-200 lines; thin/short and over-long drop bands |
+| agents-commands | 1 | build+test traceable → full stack lifecycle → documented in AGENTS.md |
+| agents-sdd | 0.5 | declaration → + spec files → + state frontmatter → + CI spec gate |
 
-### Integrity (4) — security & consistency
+### Configuration (2.5) — tools & gates
 
-| ID | Check | Criteria |
+| ID | Max | Quality signal (summary) |
 |---|---|---|
-| sec-env | .env not committed (ignored via .gitignore or absent) | 1 / 0 |
-| sec-scan | secret scanning configured (gitleaks etc.) | 1 / 0 |
-| sec-ci | CI has a security job | 1 / 0 |
-| drift | .ai-native.yml manifest present and consistent | present & consistent 1; no manifest 0 |
+| cfg-lint | 0.5 | config + command + CI job depth |
+| cfg-format | 0.5 | config + command + CI job depth (tool names only, no --format noise) |
+| cfg-hooks | 0.5 | mechanism → + discipline config → + hooks installed → + commit-msg stage |
+| cfg-ci | 0.5 | lint only / lint+test / lint+test+security job |
+| cfg-test | 0.5 | framework/command → + test files → + assertions |
 
-### Freshness (3) — maintenance activity (transform cannot fix; only 15% weight)
+### Integrity (2) — security & consistency
 
-| ID | Check | Criteria |
+| ID | Max | Quality signal (summary) |
 |---|---|---|
-| fresh-recent | last commit | ≤90d 1; ≤180d 0.5; older 0 |
-| fresh-active | default-branch activity | commits in 30d 1; ≤90d 0.5; older 0 |
-| fresh-deps | dependency declaration | version-pinned + lockfile 1; pinned only 0.5; else 0 |
+| sec-env | 0.5 | .env absent/ignored full; unignored or tracked drop |
+| sec-scan | 0.5 | gitleaks mentioned → declared hook → + actually installed |
+| sec-ci | 0.5 | tool mentioned vs dedicated security job |
+| drift | 0.5 | manifest exists → + version == tool → + declared files present |
 
-### Structure (2) — engineering structure
+### Freshness (1.5) — maintenance activity (transform cannot fix)
 
-| ID | Check | Criteria |
+| ID | Max | Quality signal (summary) |
 |---|---|---|
-| struct-readme | README present with >50 chars of real content (not a placeholder) | 1 / 0 |
-| struct-layout | sources organized (src / lib / packages subdir or equivalent) | 1 / 0 |
+| fresh-recent | 0.5 | last commit ≤90d / ≤180d / older |
+| fresh-active | 0.5 | activity ≤30d / ≤90d / older |
+| fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard |
+
+### Structure (1) — engineering structure
+
+| ID | Max | Quality signal (summary) |
+|---|---|---|
+| struct-readme | 0.5 | content with ≥3 section headings / content only / <50 chars |
+| struct-layout | 0.5 | src / lib / packages subdir or equivalent (human-fixable) |
 
 **Calibration note**: weights are an expert-set first version (kardo-core r=0.828 structure); the calibration loop (cross-check on real repos, see "Calibration status") is the differentiator (internal archive docs/04 insight #1), not a one-off.
 
@@ -91,71 +91,72 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "root": ".",
   "stacks": ["node"],
   "maturity": "stable",
   "maturityNote": null,
   "score": {
     "total": 6,
-    "max": 20,
+    "max": 10,
     "byCategory": {
-      "agent-setup": { "score": 1, "max": 6 },
-      "configuration": { "score": 2, "max": 5 },
-      "integrity": { "score": 1, "max": 4 },
-      "freshness": { "score": 1, "max": 3 },
-      "structure": { "score": 1, "max": 2 }
+      "agent-setup": { "score": 2, "max": 3 },
+      "configuration": { "score": 1.5, "max": 2.5 },
+      "integrity": { "score": 1, "max": 2 },
+      "freshness": { "score": 1, "max": 1.5 },
+      "structure": { "score": 0.5, "max": 1 }
     }
   },
+  "subStacks": [],
   "items": [
     {
       "id": "agents-md",
       "category": "agent-setup",
       "score": 0,
-      "max": 1,
+      "max": 0.5,
       "evidence": "agent file: missing",
       "fix": "transform Stage 3"
     }
   ],
   "gaps": ["agents-md", "agents-commands", "cfg-ci"],
-  "suggestions": ["Run transform Stage 2 to install commit discipline gates (commitlint + pre-commit)."]
+  "suggestions": ["Configuration: add a test framework + test script (transform never invents commands)"]
 }
 ```
 
-Conventions: `items` expands all 19 checks; `gaps` = ids where score < max; `suggestions` = per-category **fixed copy** (deterministic, no LLM generation).
+Conventions: `items` expands all 19 checks; `gaps` = ids where score < max; `suggestions` = per-category, built from the missing checks' fix hints, deduped (deterministic, no LLM generation).
 
 ### Markdown (`--format markdown`, for humans)
 
 ```markdown
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **6/20**
+- Stack: node · Maturity: stable · Score: **9/10**
 
 ## Score by category
 
 | Category | Score | Max |
 |---|---|---|
-| Agent Setup | 1 | 6 |
-| Configuration | 2 | 5 |
-| Integrity | 1 | 4 |
-| Freshness | 1 | 3 |
-| Structure | 1 | 2 |
+| Agent Setup | 3 | 3 |
+| Configuration | 2 | 2.5 |
+| Integrity | 2 | 2 |
+| Freshness | 1.5 | 1.5 |
+| Structure | 0.5 | 1 |
 
 ## Gaps
 
 | Check | Score | Evidence | Fix |
 |---|---|---|---|
-| agents-md | 0/1 | agent file: missing | transform Stage 3 |
+| cfg-format | 0/0.5 | formatter config: missing, command: missing | add a formatter config + format command (prettier/biome) |
 
 ## Suggestions
 
-- Run transform Stage 3 to generate an AGENTS.md derived from real commands (with a CLAUDE.md symlink).
+- Configuration: add a formatter config + format command (prettier/biome)
 ```
 
 ## Acceptance criteria (all commands below must pass for shipped)
 
 1. **Determinism**: `node scripts/audit.ts --root . > /tmp/a.json && node scripts/audit.ts --root . > /tmp/b.json && diff /tmp/a.json /tmp/b.json` → no diff
-2. **Structure assertable**: JSON contains `score.total` / `score.max` / `items` / `gaps`; `jq -e '.score.total <= 20'` passes
+2. **Structure assertable**: JSON contains `score.total` / `score.max` / `items` / `gaps`; `jq -e '.score.total <= 10'` passes
 3. **Demoable**: `node scripts/audit.ts --root <repo> --format markdown` outputs a score table + gap list
 4. **Gaps traceable**: every `gaps` entry has a matching `items[]` `evidence` (real file/command)
 5. **Skeleton note**: empty repo → `maturity == "skeleton"` with a "too early" note

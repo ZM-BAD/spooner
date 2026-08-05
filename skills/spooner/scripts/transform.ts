@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.5.0";
+export const TOOL_VERSION = "0.6.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {

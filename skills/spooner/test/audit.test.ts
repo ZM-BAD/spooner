@@ -301,3 +301,18 @@ test("agents-commands: go.mod -> 0.6 via stack lifecycle (M6)", () => {
   assert.match(r?.evidence ?? "", /go\.mod/);
   rmSync(repo, { recursive: true, force: true });
 });
+
+// --- review regression: cross-platform security jobs --------------------------
+
+test("sec-ci: GitLab top-level security job counts as dedicated (0-indent)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, ".gitlab-ci.yml"), "lint:\n  script: npm run lint\ntest:\n  script: npm test\nsecurity:\n  script: gitleaks scan\n");
+  assert.equal(item(repo, "sec-ci")?.score, 0.5);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("sec-ci: GitHub step named 'security scan' is not a job (deep indent)", () => {
+  const repo = ciFixture("jobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - name: security scan\n        run: trivy fs .\n");
+  assert.equal(item(repo, "sec-ci")?.score, 0.2);
+  rmSync(repo, { recursive: true, force: true });
+});

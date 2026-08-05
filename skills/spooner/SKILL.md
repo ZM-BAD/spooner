@@ -1,6 +1,6 @@
 ---
 name: spooner
-description: Audit a codebase's AI coding readiness — detect the stack, score it out of 20 with a gap list and maturity assessment, using deterministic zero-build scripts. Use when the user asks to audit or improve a repository's readiness for AI coding agents, or to run the audit / transform / check / sync workflow.
+description: Audit a codebase's AI coding readiness — detect the stack, score it out of 10 with a gap list and maturity assessment, using deterministic zero-build scripts. Use when the user asks to audit or improve a repository's readiness for AI coding agents, or to run the audit / transform / check / sync workflow.
 license: MIT
 compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via type stripping — no build step, zero third-party dependencies)
 ---
@@ -55,7 +55,7 @@ node <skill-dir>/scripts/badge.ts --root /path/to/repo [--style flat|flat-square
 1. **Detect the stack** (optional — for context): `node <skill-dir>/scripts/detect.ts --root <path>`. The audit re-runs detection internally, so this is only needed if you want manifest details up front.
 2. **Score the repository**: `node <skill-dir>/scripts/audit.ts --root <path> --format markdown`.
 3. **Read the report**:
-   - **Score out of 20** across five categories: Agent Setup 6 · Configuration 5 · Integrity 4 · Freshness 3 · Structure 2. Checks score 0 / 0.5 / 1 (`agents-commands` 0 / 1 / 2). **Every point carries evidence** — a real file, git state, or a command traceable to the repo. No evidence → 0.
+   - **Score out of 10** across five categories: Agent Setup 3 · Configuration 2.5 · Integrity 2 · Freshness 1.5 · Structure 1. Every check scores `max × coefficient` (0.2 steps → 0.1 granularity), grading **deterministic quality signals** — command traceability, CI job depth, hook installation state, manifest consistency — not bare existence. **Every point carries evidence** — a real file, git state, or a command traceable to the repo. No evidence → 0.
    - **Maturity** decides what to tell the user (below).
    - **Gaps** are the checks scoring below max; each has `evidence` and a `fix` hint. **Suggestions** are fixed copy per category pointing at transform stages.
 4. **Never invent commands**: a command may only be reported as evidence if it exists in the repo (package.json scripts / Makefile / CI config). If it can't be traced, that's a gap — not a reason to fabricate.
@@ -159,97 +159,93 @@ The badge is the recurring-impression asset: pasted once into the README, it ren
 
 ## Examples
 
-### Markdown report (real output — the spooner repo itself, 2026-08-04)
+### Markdown report (real output — the spooner repo itself)
 
 ```markdown
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **16/20**
+- Stack: node · Maturity: stable · Score: **9/10**
 
 ## Score by category
 
 | Category | Score | Max |
 |---|---|---|
-| Agent Setup | 5 | 6 |
-| Configuration | 3 | 5 |
-| Integrity | 4 | 4 |
-| Freshness | 3 | 3 |
-| Structure | 1 | 2 |
+| Agent Setup | 3 | 3 |
+| Configuration | 2 | 2.5 |
+| Integrity | 2 | 2 |
+| Freshness | 1.5 | 1.5 |
+| Structure | 0.5 | 1 |
 
 ## Gaps
 
 | Check | Score | Evidence | Fix |
 |---|---|---|---|
-| agents-commands | 1/2 | commands traceable to package.json scripts (build: true, test: false) | add real build/test commands, then document them in AGENTS.md |
-| cfg-format | 0/1 | formatter config: missing, command: missing | transform Stage 2 |
-| cfg-test | 0/1 | no test framework or test command found | transform Stage 2 (add a test command) |
-| struct-layout | 0/1 | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ |
+| cfg-format | 0/0.5 | formatter config: missing, command: missing | add a formatter config + format command (prettier/biome) |
+| struct-layout | 0/0.5 | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ (not covered by transform) |
 
 ## Suggestions
 
-- Run transform Stage 3 to generate an AGENTS.md derived from real commands (with a CLAUDE.md symlink).
-- Run transform Stage 2 to install lint/format/CI gates (warn-only; keep the existing build green).
-- Add a README with real content and organize sources under src/, lib/, or packages/.
+- Configuration: add a formatter config + format command (prettier/biome)
+- Structure: organize sources under src/, lib/, or packages/ (not covered by transform)
 ```
 
 ### JSON output (abridged — `items` holds all 19 checks; the first three are shown)
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "root": ".",
   "stacks": ["node"],
   "maturity": "stable",
   "maturityNote": null,
   "score": {
-    "total": 16,
-    "max": 20,
+    "total": 9,
+    "max": 10,
     "byCategory": {
-      "agent-setup": { "score": 5, "max": 6 },
-      "configuration": { "score": 3, "max": 5 },
-      "integrity": { "score": 4, "max": 4 },
-      "freshness": { "score": 3, "max": 3 },
-      "structure": { "score": 1, "max": 2 }
+      "agent-setup": { "score": 3, "max": 3 },
+      "configuration": { "score": 2, "max": 2.5 },
+      "integrity": { "score": 2, "max": 2 },
+      "freshness": { "score": 1.5, "max": 1.5 },
+      "structure": { "score": 0.5, "max": 1 }
     }
   },
   "items": [
     {
       "id": "agents-md",
       "category": "agent-setup",
-      "score": 1,
-      "max": 1,
-      "evidence": "agent file: AGENTS.md",
-      "fix": "transform Stage 3"
+      "score": 0.5,
+      "max": 0.5,
+      "evidence": "AGENTS.md: 161 lines, 4 traceable commands",
+      "fix": "keep commands in AGENTS.md traceable to real scripts/Makefile"
     },
     {
       "id": "agents-bridge",
       "category": "agent-setup",
-      "score": 1,
-      "max": 1,
+      "score": 0.5,
+      "max": 0.5,
       "evidence": "CLAUDE.md: symlink to AGENTS.md",
       "fix": "transform Stage 3"
     },
     {
       "id": "agents-length",
       "category": "agent-setup",
-      "score": 1,
-      "max": 1,
-      "evidence": "AGENTS.md: 76 lines",
-      "fix": "trim AGENTS.md"
+      "score": 0.5,
+      "max": 0.5,
+      "evidence": "AGENTS.md: 161 lines (optimal band 30-200)",
+      "fix": "trim AGENTS.md to ≤200 lines — merge content, don't delete it"
     }
   ],
-  "gaps": ["agents-commands", "cfg-format", "cfg-test", "struct-layout"],
+  "gaps": ["cfg-format", "struct-layout"],
   "suggestions": [
-    "Run transform Stage 3 to generate an AGENTS.md derived from real commands (with a CLAUDE.md symlink).",
-    "Run transform Stage 2 to install lint/format/CI gates (warn-only; keep the existing build green).",
-    "Add a README with real content and organize sources under src/, lib/, or packages/."
+    "Configuration: add a formatter config + format command (prettier/biome)",
+    "Structure: organize sources under src/, lib/, or packages/ (not covered by transform)"
   ]
 }
 ```
 
 All 19 check ids: `agents-md`, `agents-bridge`, `agents-length`, `agents-commands`, `agents-sdd`, `cfg-lint`, `cfg-format`, `cfg-hooks`, `cfg-ci`, `cfg-test`, `sec-env`, `sec-scan`, `sec-ci`, `drift`, `fresh-recent`, `fresh-active`, `fresh-deps`, `struct-readme`, `struct-layout`.
 
-### Transform status (real output — the spooner repo itself, 2026-08-04)
+### Transform status (real output — the spooner repo itself)
 
 ```markdown
 # Transform Status
@@ -267,18 +263,18 @@ All 19 check ids: `agents-md`, `agents-bridge`, `agents-length`, `agents-command
 
 A stage 2 dry-run on a repo with no gates reports the plan first, e.g. `dry-run: 4 file(s) to write, 0 conflict(s), 0 already installed; verification command: npm run build && npm run test` — only `--stage 2` (without `--dry-run`) writes, and only after the user confirms.
 
-### Check report, first run (real output — the spooner repo itself, 2026-08-04)
+### Check report, first run (real output — the spooner repo itself)
 
 ```markdown
 # Check Report
 
-- Score: **16/20** · Maturity: stable · Root: .
+- Score: **9/10** · Maturity: stable · Root: .
 
 - Baseline: none (first run)
 
 - Manifest drift: none
 
-- Gaps: agents-commands, cfg-format, cfg-test, struct-layout
+- Gaps: cfg-format, struct-layout
 
 ## Suggestions
 
@@ -287,7 +283,7 @@ A stage 2 dry-run on a repo with no gates reports the plan first, e.g. `dry-run:
 
 The second run on the same repo reports `delta: 0` and "Readiness unchanged"; after a gap is fixed (e.g. a lint config added), it reports `delta: +1`; if a manifest-listed file is deleted, it reports `Manifest drift: <file>` and "re-run transform stage N to restore them".
 
-### Sync report, dry-run (real output — synthetic fixture with a stale install, 2026-08-04)
+### Sync report, dry-run (real output — synthetic fixture with a stale install)
 
 ```markdown
 # Sync Report

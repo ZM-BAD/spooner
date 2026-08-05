@@ -1,25 +1,25 @@
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **18/20**
+- Stack: node · Maturity: stable · Score: **9/10**
 
 ## Score by category
 
 | Category | Score | Max |
 |---|---|---|
-| Agent Setup | 6 | 6 |
-| Configuration | 4 | 5 |
-| Integrity | 4 | 4 |
-| Freshness | 3 | 3 |
-| Structure | 1 | 2 |
+| Agent Setup | 3 | 3 |
+| Configuration | 2 | 2.5 |
+| Integrity | 2 | 2 |
+| Freshness | 1.5 | 1.5 |
+| Structure | 0.5 | 1 |
 
 ## Gaps
 
 | Check | Score | Evidence | Fix |
 |---|---|---|---|
-| cfg-format | 0/1 | formatter config: missing, command: missing | transform Stage 2 |
-| struct-layout | 0/1 | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ |
+| cfg-format | 0/0.5 | formatter config: missing, command: missing | add a formatter config + format command (prettier/biome) |
+| struct-layout | 0/0.5 | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ (not covered by transform) |
 
 ## Suggestions
 
-- Run transform Stage 2 to install lint/format/CI gates (warn-only; keep the existing build green).
-- Add a README with real content and organize sources under src/, lib/, or packages/.
+- Configuration: add a formatter config + format command (prettier/biome)
+- Structure: organize sources under src/, lib/, or packages/ (not covered by transform)

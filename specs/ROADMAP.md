@@ -8,7 +8,7 @@
 
 | ID | Name | Status | Notes |
 |---|---|---|---|
-| 0001 | m1-audit-core | shipped | audit: stack detection (9 stacks) + 20-point readiness scoring (19 checks) + maturity gating + JSON/markdown reports |
+| 0001 | m1-audit-core | shipped | audit: stack detection (9 stacks) + 10-point quality scoring (19 checks) + maturity gating + JSON/markdown reports |
 | 0002 | m2-transform | shipped | transform stages 2-4 (gates → AGENTS.md + CLAUDE.md symlink → SDD) + `.ai-native.yml` manifest; stack-aware lifecycle commands; git-hook install step |
 | 0003 | m3-check | shipped | re-run audit + baseline delta + manifest drift + fixed suggestions; `.ai-native/baseline.json` ledger |
 | 0004 | m4-sync | shipped | version-aware template re-sync + one-click apply; manifest `templateVersion` extension; check "run sync" suggestion |
@@ -19,18 +19,15 @@
 | 0010 | m10-contextual-gates | shipped | stack-aware pre-commit generation (tooling-detected, check-only, rev-pinned) + hook-tool routing (pre-commit vs husky skip+notice, M8 treatment) |
 | 0011 | m11-rust-deep | shipped | rust joins the deep tier: cargo lifecycle (build/test) + ci-workflow-rust.yml + AGENTS.md cargo commands + audit credit + M10 pre-commit gates (fmt/clippy/test) |
 | 0012 | m12-manifest-gate-hook | shipped | self-contained manifest-consistency hook (baked EXPECTED) in the generated pre-commit cross-stack core — mirrors the CI hard gate locally, closes the M10 incident class for users, first manifest gate for no-workflow repos; tool-owned marker rule + gate-script parity test |
+| 0013 | m13-report-truth-scoring | shipped | report truth + quality scoring: 10-point scale × 0.1 granularity, 19 checks grade deterministic quality signals (command traceability / CI job depth / hook install state / manifest consistency), fix-hints two-sourced (transform vs manual action), suggestion filtering, monorepo `subStacks` note, stage-2 hook prompt, stage-3 conflict note, build-verification honesty, badge re-map, schemaVersion 2 (from the DAG-chat + headroom + kuan-chat + spooner dogfoods + owner decisions, 2026-08-06) |
 
 ## 🟢 Current (in-progress)
 
-Nothing in progress — 0001-0006 + 0008 + 0009 + 0010 + 0011 + 0012 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline + situational transform + readiness badge + contextual gates + rust deep + local manifest gate); next: launch prep (docs/06), or vision/ideas.
+Nothing in progress — 0001-0006 + 0008-0013 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline + situational transform + readiness badge + contextual gates + rust deep + local manifest gate + report truth & quality scoring); next: launch prep (docs/06), or vision/ideas.
 
 ## 🟡 Next
 
-| ID | Name | Status | Notes |
-|---|---|---|---|
-| 0013 | m13-report-truth-scoring | proposed | report truth + quality scoring: 10-point scale × 0.1 granularity, 19 checks grade deterministic quality signals (command traceability / CI job depth / hook install state / manifest consistency), fix-hints two-sourced (transform vs manual action), suggestion filtering, monorepo `subStacks` note, stage-2 hook prompt, stage-3 conflict note, build-verification honesty, badge re-map, schemaVersion 2 (from the DAG-chat + headroom + kuan-chat + spooner dogfoods + owner decisions, 2026-08-06) |
-
-Launch prep (docs/06) remains the main line, not spec'd; 0013 is the next spec if approved.
+Nothing spec'd as next — launch prep (docs/06) remains the main line, not spec'd.
 
 ## 🔵 Vision — the end state (完全态)
 

@@ -378,7 +378,7 @@ function checkAgentsCommands(root: string): CheckResult {
 
   let score: number;
   if (!hasBuild && !hasTest) {
-    score = /\bnpm (run )?(build|test)\b|`make (build|test)`|`(go|cargo|mvn|gradle) (build|test)/.test(agentContent) ? 0.2 : 0;
+    score = /\bnpm (run )?(build|test)\b|`make (build|test)`|`(go|cargo|mvn|gradle) (build|test)`/.test(agentContent) ? 0.2 : 0;
   } else if (hasBuild !== hasTest) {
     score = 0.4;
   } else if (!hasThird) {
@@ -551,7 +551,7 @@ function checkCfgCi(root: string): CheckResult {
   const content = ciContent(root);
   const hasLint = /\blint\b/i.test(content);
   const hasTest = /\btest\b/i.test(content);
-  const hasSec = /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content) || /^\s{2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
+  const hasSec = /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content) || /^\s{0,2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
   let score = 0;
   if (content.length === 0) score = 0;
   else if (!hasLint && !hasTest) score = 0.1;
@@ -669,7 +669,9 @@ function checkSecScan(root: string): CheckResult {
 
 function checkSecCi(root: string): CheckResult {
   const content = ciContent(root);
-  const job = /^\s{2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
+  // Job names at GitHub (2-space indent) or GitLab (0-space top-level) depth —
+  // step names sit at deeper indents and don't match.
+  const job = /^\s{0,2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
   const mentioned = /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content);
   let score = 0;
   let detail = "CI has no security job";
