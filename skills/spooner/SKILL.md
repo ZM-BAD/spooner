@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) + M6 (multi-stack) shipped — `detect`, `audit`, `transform`, `check`, `sync` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit); transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice).**
+> **Status: M1 (audit) + M2 (transform) + M3 (check) + M4 (sync) + M5 (CI drift gate) + M6 (multi-stack) + M9 (readiness badge) shipped — `detect`, `audit`, `transform`, `check`, `sync`, `badge` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit); transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice); the badge matches the README's existing badge style (5 shields styles + probe).**
 
 ## Workflow
 
@@ -19,13 +19,14 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 | transform — incremental, verifiable, rollback-able changes (gates → AGENTS.md → SDD) | ✅ M2 | `scripts/transform.ts` |
 | check — continuously detect drift (repeatable, with records) | ✅ M3 | `scripts/check.ts` |
 | sync — re-sync installed templates when the tool advances (versioned, one-click) | ✅ M4 | `scripts/sync.ts` |
+| badge — render a readiness badge matched to the README's existing style | ✅ M9 | `scripts/badge.ts` |
 
 ## Prerequisites
 
 - **Node.js >= 22.18** — the scripts are TypeScript run natively via type stripping; there is no build step. On older Node, `audit.ts` prints an upgrade hint and exits.
 - **git** — freshness checks and maturity gating read commit history.
 - **Stack toolchains** — stage 2's verification and the installed CI gate run the stack's lifecycle commands (`npm` / `python3 -m unittest` / `go build` / `mvn`), so the stack toolchain must be available where `transform` runs (CI sets it up itself via setup-node / setup-python / setup-go / setup-java).
-- The scripts are **zero-dependency** (Node builtins only). `detect` and `audit` are **read-only**; `transform`, `check` and `sync` write only what they declare (installed template files / the `.ai-native.yml` manifest / the `.ai-native/baseline.json` ledger).
+- The scripts are **zero-dependency** (Node builtins only). `detect` and `audit` are **read-only**; `transform`, `check`, `sync` and `badge` write only what they declare (installed template files / the `.ai-native.yml` manifest / the `.ai-native/baseline.json` ledger / `assets/badge.svg` + `assets/audit-report.md`).
 
 ## Running the scripts
 
@@ -37,6 +38,7 @@ node <skill-dir>/scripts/audit.ts --root /path/to/repo [--format json|markdown]
 node <skill-dir>/scripts/transform.ts --root /path/to/repo [--stage 2|3|4|all] [--dry-run] [--format json|markdown]
 node <skill-dir>/scripts/check.ts --root /path/to/repo [--format json|markdown]
 node <skill-dir>/scripts/sync.ts --root /path/to/repo [--dry-run] [--format json|markdown]
+node <skill-dir>/scripts/badge.ts --root /path/to/repo [--style flat|flat-square|plastic|for-the-badge|social] [--format json|markdown]
 ```
 
 (When developing this skill inside the spooner repo, `<skill-dir>` is `skills/spooner`.)
@@ -46,6 +48,7 @@ node <skill-dir>/scripts/sync.ts --root /path/to/repo [--dry-run] [--format json
 - `transform.ts` defaults to `--stage all` status; `--stage 2|3|4` applies one stage, `--dry-run` shows the plan without writing anything.
 - `check.ts` re-runs the audit, compares against the stored baseline and the manifest, and reports drift — defaults to JSON; `--format markdown` for humans.
 - `sync.ts` compares manifest-recorded template files against the current skill templates and re-syncs them — defaults to **apply** (replaces outdated, restores missing); `--dry-run` shows the per-file plan without writing.
+- `badge.ts` re-runs the audit (never a stale score), renders a shields-style readiness badge into `assets/badge.svg`, writes the audit report as `assets/audit-report.md` (the badge links to it), and prints the README insertion snippet — probing the root README and matching the dominant existing badge style (`--style` overrides).
 
 ## The audit workflow (M1)
 
@@ -139,6 +142,18 @@ When spooner itself advances — a new skill version whose templates changed (ne
 | `modified` | same version, bytes differ (user edits) | never touch |
 | `missing` | manifest records it, file is gone | restore from the template |
 | `generated` | AGENTS.md / CLAUDE.md — not template-managed | never touch (re-run `transform --stage 3`) |
+
+## badge — the workflow (M9)
+
+The badge is the recurring-impression asset: pasted once into the README, it renders on every page load and links to the full audit report (every point carries evidence). Run it after transform, once the score reflects the installed gates.
+
+**Agent-driven procedure:**
+
+1. **Generate**: `node <skill-dir>/scripts/badge.ts --root <path>` — re-runs the audit, renders `assets/badge.svg`, writes `assets/audit-report.md`, and prints the README snippet + the probe decision.
+2. **Review the probe decision**: the script matches the root README's dominant existing badge style (strict majority of recognized shields.io `style=` values; no signal or tie → `flat` — one style per row is the ecosystem convention, and consistency > freshness: a dated existing style is matched, not corrected). The evidence line shows what was found and decided.
+3. **Override when the owner prefers another style**: `--style <name>` always wins over the probe.
+4. **Insert with the user's confirmation**: paste the printed snippet into the README badge row (or start a new row when the README has no badges). The badge links to `assets/audit-report.md` — the score's evidence.
+5. **Re-generate after meaningful change**: re-run badge.ts after transform stages or whenever the audit score moves. The badge is a static file regenerated on demand — no external badge service, no data leaves the repo.
 
 ## Examples
 
@@ -302,3 +317,4 @@ The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed p
 - sync never overwrites a `modified` file (user edits at the current template version) — it replaces only `outdated`/`missing` template files and reports the rollback command (`git restore …`)
 - transform verifies the declared build/test commands before and after each applied stage; on failure it names the rollback command (`git restore …`)
 - Scripts are zero-dependency and only do what they declare (scan + report + install)
+- badge.ts writes only `assets/badge.svg` + `assets/audit-report.md` and never modifies the README — insertion is the agent's step with user confirmation

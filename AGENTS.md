@@ -12,6 +12,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
 - M1-M6 + M8 shipped (2026-08-04): specs 0001-0006 + 0008 acceptance verified — the audit → transform → check → sync loop is complete, the installed CI workflow hard-gates manifest consistency (drift → red), transform supports node/python/go/java (decision #13), the installed commitlint gate is real (install step + CI commit-msg check + gate-active audit — spec 0001/0002 revisions), and transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice, spec 0008); next candidates: launch prep (docs/06)
+- M9 badge shipped (2026-08-05): spec 0009 — badge.ts renders a shields-style readiness badge (flat / flat-square / plastic / for-the-badge / social) matched to the README's dominant badge style (probe + strict-majority decision chain, `--style` override, consistency > freshness), pinned tier/color mapping, `assets/badge.svg` + `assets/audit-report.md` evidence link; dogfooded on this repo (flat-square matched); test suite 39 cases; next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -19,7 +20,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 |---|---|
 | `npm run typecheck` | `tsc --noEmit` (TS 6, zero build) |
 | `npm run lint:md` | markdownlint-cli2 over all Markdown |
-| `npm test` | node:test suite (23 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
+| `npm test` | node:test suite (39 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
 | `npm run check` | typecheck + lint:md + tests (one-shot) |
 | `npm run verify` | check + full pre-commit run (one-shot verification) |
 | `pre-commit run --all-files` | run all pre-commit hooks |
@@ -28,6 +29,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 | `node skills/spooner/scripts/check.ts` | drift check (M3: baseline delta + manifest drift; optional `--root <path>` / `--format markdown`) |
 | `node skills/spooner/scripts/transform.ts` | transform workflow (M2: stages 2-4 + manifest consistency; optional `--root <path>` / `--stage 2/3/4/all` / `--dry-run` / `--format markdown`) |
 | `node skills/spooner/scripts/sync.ts` | template re-sync (M4: version-aware diff of installed vs current templates + one-click apply; optional `--root <path>` / `--dry-run` / `--format markdown`) |
+| `node skills/spooner/scripts/badge.ts` | readiness badge (M9: 5 shields styles + README style probe + pinned tier/color mapping; optional `--root <path>` / `--style <name>` / `--format markdown`) |
 | `.venv/bin/agentskills validate skills/spooner` | SKILL.md spec validation (`.venv` via `python3 -m venv .venv && .venv/bin/pip install skills-ref`; CI pins the same version) |
 
 ## Layout
@@ -54,7 +56,7 @@ spooner/
 
 ## Development playbook
 
-**The loop**: change code → `npm run check` (typecheck + lint:md + 23 tests) → `pre-commit run --all-files` (12 hooks, incl. typecheck + tests — a green pre-commit implies a green CI) → push the branch (every branch push runs both workflows) → user approves merge/push to main.
+**The loop**: change code → `npm run check` (typecheck + lint:md + 39 tests) → `pre-commit run --all-files` (12 hooks, incl. typecheck + tests — a green pre-commit implies a green CI) → push the branch (every branch push runs both workflows) → user approves merge/push to main.
 
 **Do**
 
@@ -147,4 +149,5 @@ spooner/
 | `specs/0005-m5-drift-gate/spec.md` | M5 drift gate contract: CI hard gate job, baked-version rule, acceptance |
 | `specs/0006-m6-multi-stack/spec.md` | M6 multi-stack contract: stack model, per-stack workflows/lifecycle, unsupported notice, acceptance |
 | `specs/0008-m8-situational-transform/spec.md` | M8 situational-transform contract: context probe, CI-platform routing, mode table |
+| `specs/0009-m9-badge/spec.md` | M9 badge contract: 5 shields styles, README style probe + decision chain, tier/color mapping, artifacts |
 | `skills/spooner/SKILL.md` | The distributable skill entry |
