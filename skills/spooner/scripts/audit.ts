@@ -599,7 +599,7 @@ function assessMaturity(root: string, hasBuildCmd: boolean, hasAgent: boolean, h
   return { maturity: "stable", note: null };
 }
 
-/** Full audit pipeline — exported for reuse by check.ts (M3). */
+/** Full audit pipeline — exported for reuse by check.ts (M3) / badge.ts (M9). */
 export function runAudit(root: string): AuditResult {
   const items: CheckResult[] = [
     checkAgentsMd(root),
@@ -659,7 +659,8 @@ export function runAudit(root: string): AuditResult {
 
 // --- rendering -----------------------------------------------------------------
 
-function renderMarkdown(r: AuditResult): string {
+/** Human-readable audit report — exported for reuse by badge.ts (M9). */
+export function renderMarkdown(r: AuditResult): string {
   const lines: string[] = [];
   lines.push("# AI-Readiness Report", "");
   lines.push(
