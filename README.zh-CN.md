@@ -17,6 +17,7 @@
   <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
   <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
+  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI 就绪度：AI-Native · 18/20"/></a>
 </p>
 
 Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里给机器人立规矩的警探——Spooner 是给 AI 编码立规矩的。
@@ -29,6 +30,7 @@ Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放
 | `transform` | 渐进化、可验证、可回滚的改造（按栈的 CI 门禁含 manifest 漂移 gate / AGENTS.md / SDD） | 一次性，手术 |
 | `check` | 持续检测漂移（可重复，有记录） | 每次 CI 运行 |
 | `sync` | 已装模板随工具版本重同步（版本感知、一键应用） | 工具升级后 |
+| `badge` | 渲染就绪度徽章，匹配 README 现有徽章风格（5 种 shields 风格，链接审计报告） | 改造之后、分数变动时 |
 
 ## 栈支持
 

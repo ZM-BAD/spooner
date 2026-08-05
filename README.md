@@ -17,6 +17,7 @@
   <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
   <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
+  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI readiness: AI-Native · 18/20"/></a>
 </p>
 
 Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after the detective who keeps robots in line in *I, Robot* (2004) — Spooner keeps AI coding in line.
@@ -29,6 +30,7 @@ Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) bu
 | `transform` | Incremental, verifiable, rollback-able transformations (stack-aware CI gates incl. the manifest drift gate / AGENTS.md / SDD) | Once — the surgery |
 | `check` | Continuously detect drift (repeatable, with records) | Every CI run |
 | `sync` | Re-sync installed templates to the current tool version (version-aware, one-click) | When the tool advances |
+| `badge` | Render a readiness badge matched to your README's badge style (5 shields styles, links to the audit report) | After transform, whenever the score moves |
 
 ## Stack support
 
