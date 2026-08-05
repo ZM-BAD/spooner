@@ -18,14 +18,15 @@
 | 0009 | m9-badge | shipped | readiness badge: badge.ts zero-dep renderer, 5 shields styles, README style probe (majority decision + `--style` override), pinned tier/color mapping, assets artifacts |
 | 0010 | m10-contextual-gates | shipped | stack-aware pre-commit generation (tooling-detected, check-only, rev-pinned) + hook-tool routing (pre-commit vs husky skip+notice, M8 treatment) |
 | 0011 | m11-rust-deep | shipped | rust joins the deep tier: cargo lifecycle (build/test) + ci-workflow-rust.yml + AGENTS.md cargo commands + audit credit + M10 pre-commit gates (fmt/clippy/test) |
+| 0012 | m12-manifest-gate-hook | shipped | self-contained manifest-consistency hook (baked EXPECTED) in the generated pre-commit cross-stack core — mirrors the CI hard gate locally, closes the M10 incident class for users, first manifest gate for no-workflow repos; tool-owned marker rule + gate-script parity test |
 
 ## 🟢 Current (in-progress)
 
-Nothing in progress — 0001-0006 + 0008 + 0009 + 0010 + 0011 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline + situational transform + readiness badge + contextual gates + rust deep); next: launch prep (docs/06), or vision/ideas.
+Nothing in progress — 0001-0006 + 0008 + 0009 + 0010 + 0011 + 0012 shipped (audit/transform/check/sync complete + CI drift gate + multi-stack + gate-active commit discipline + situational transform + readiness badge + contextual gates + rust deep + local manifest gate); next: launch prep (docs/06), or vision/ideas.
 
 ## 🟡 Next
 
-Nothing spec'd as next — candidates: launch prep (docs/06).
+Nothing spec'd as next — launch prep (docs/06) remains the main line, not spec'd.
 
 ## 🔵 Vision — the end state (完全态)
 

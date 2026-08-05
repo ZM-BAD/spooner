@@ -11,7 +11,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only; milestone history lives there + docs/08 + git commits, never here)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- All specs shipped (0001-0006, 0008-0011): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red); transform supports node / python / go / java / rust (stack-aware lifecycle + per-stack CI workflows + generated stack-aware pre-commit gates; husky/lefthook repos skip the config with a notice; non-GitHub CI platforms skip the workflow with a notice); the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); the readiness badge matches the README's dominant badge style (5 shields styles); next candidates: launch prep (docs/06)
+- All specs shipped (0001-0006, 0008-0012): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red) and the generated pre-commit config hard-gates the ledger locally (self-contained manifest-consistency hook, baked EXPECTED); transform supports node / python / go / java / rust (stack-aware lifecycle + per-stack CI workflows + generated stack-aware pre-commit gates; husky/lefthook repos skip the config with a notice; non-GitHub CI platforms skip the workflow with a notice); the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); the readiness badge matches the README's dominant badge style (5 shields styles); next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -19,7 +19,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 |---|---|
 | `npm run typecheck` | `tsc --noEmit` (TS 6, zero build) |
 | `npm run lint:md` | markdownlint-cli2 over all Markdown |
-| `npm test` | node:test suite (61 regression tests; `node --test "skills/spooner/test/*.test.ts"`) |
+| `npm test` | node:test suite (`node --test "skills/spooner/test/*.test.ts"`) |
 | `npm run check` | typecheck + lint:md + tests (one-shot) |
 | `npm run verify` | check + full pre-commit run (one-shot verification) |
 | `pre-commit run --all-files` | run all pre-commit hooks |
@@ -61,7 +61,7 @@ spooner/
 
 - **Contract docs are current-state only, never history**: specs (a fix updates the spec **in place** — no acceptance logs, no fix history, no version transitions) and the AGENTS.md/SKILL.md status sections (current capability set only — no milestone bullets, no dates, no "shipped" language). History lives in commit messages + `docs/08` + `HANDOFF.md` (local) — never in the contract docs
 - **Every pitfall triggers a skill-incorporation review** (the dogfood → product loop): after recording a gotcha, ask "can the skill prevent this failure class for its users?" — mandatory discussion, optional implementation (scope creep stays a red line). Outcome: implement (new spec / in-place revision), reject with the reason, or park as a roadmap candidate
-- **Template change ⇒ bump `TOOL_VERSION`** + baked `EXPECTED` in all four workflow templates + a `docs/08` ledger row (spec 0004/0005 contract) — then dogfood `sync`
+- **Template change ⇒ bump `TOOL_VERSION`** + baked `EXPECTED` in all five workflow templates + a `docs/08` ledger row (spec 0004/0005 contract) — then dogfood `sync`; **mirror content changes (not just EXPECTED/SKIP) to the installed dogfood workflow in the same commit** — `--stage 2` refuses via conflict (the M12 python3 switch missed the installed workflow; the review caught it)
 - Test version assertions import `TOOL_VERSION` dynamically — never hard-code it (a bump will silently rot the tests)
 - Before every squash: create a backup branch; after: verify tree identity (`git diff <backup> HEAD` must be empty) and verify every new commit independently (`pre-commit run --all-files` + commit-msg stage with `--commit-msg-filename`)
 - Fixes get **woven into the introducing commit** (the history reads as "correct from day one") — e.g. commitlint-real-gate into M2, CI fixes into the parity commit
@@ -87,8 +87,11 @@ spooner/
 
 - **`git checkout <commit> -- .` does NOT delete files missing from that tree** — renamed/deleted files linger; after rebuilding a squashed history, force `git diff <backup> HEAD` to be empty and `git rm` leftovers (2026-08-04)
 - **`git add -A` sweeps in untracked local dirs** (`.zcode/`, `.ai-native/`) when their `.gitignore` entries didn't exist yet — restore `--staged` them before committing
-- **The dogfood manifest (`.ai-native.yml`) is tracked and must be committed with each milestone** — `git restore --staged .ai-native.yml` leaves CI's drift gate red: local pre-commit reads the working-tree manifest, CI reads the committed one (the M10 branch push caught this — local green, CI red "v0.2.7 < expected v0.3.0"). Only the `.ai-native/` dir (baseline.json) is local-only (2026-08-05). → **skill review**: users hit the same class — the generated pre-commit config lacks CI's version gate (local ⊇ CI breaks at the ledger); a self-contained manifest-gate hook (baked EXPECTED) in the cross-stack core closes it locally → candidate, spec 0012, unscheduled
+- **The dogfood manifest (`.ai-native.yml`) is tracked and must be committed with each milestone** — `git restore --staged .ai-native.yml` leaves CI's drift gate red: local pre-commit reads the working-tree manifest, CI reads the committed one (the M10 branch push caught this — local green, CI red "v0.2.7 < expected v0.3.0"). Only the `.ai-native/` dir (baseline.json) is local-only (2026-08-05). → **skill review**: users hit the same class — the generated pre-commit config lacks CI's version gate (local ⊇ CI breaks at the ledger); a self-contained manifest-gate hook (baked EXPECTED) in the cross-stack core closes it locally → spec 0012 proposed (2026-08-05)
 - **`git filter-branch` on a detached HEAD rewrites the commit but leaves the branch ref behind** — `git branch -f main <new-head>` afterwards
+- **`fixup` folds into the PREVIOUS `pick`** — grouping intent needs reordering in the rebase todo, not sed-in-place command edits; and **reordering breaks content dependencies** (a later commit's hunk can depend on an earlier commit's line — M10 squash: the skill-review suffix needs the manifest-gotcha line, moving it earlier conflicts). Safest: keep the original commit order and change only pick/fixup/reword commands — patches apply in original order, no conflicts (2026-08-05)
+- **`reword` + `GIT_EDITOR` is unreliable here** — one editor call, message landed on the wrong commit. Fix messages with `git filter-branch -f --msg-filter` (stdin→stdout exact mapping, deterministic); it leaves `refs/original/` backup refs (2026-08-05)
+- **A branch cut from an old milestone tip carries the already-merged commits** — plain `git rebase main` re-applies them and conflicts (M11: carried 3 old M10 commits). Use `git rebase --onto main <old-base>` to replay only the branch's own commits (2026-08-05)
 - **Shallow clone (`--depth 1`) makes audit report `skeleton`** — the freshness/maturity signals need real history; clone full for demos
 - **Zsh eats `$(...)` with nested quotes** ("bad substitution") — write verification scripts to a file and `bash` them
 

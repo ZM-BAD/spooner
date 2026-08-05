@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.4.0";
+export const TOOL_VERSION = "0.5.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -345,6 +345,133 @@ const PRE_COMMIT_CORE = `  - repo: https://github.com/pre-commit/pre-commit-hook
     hooks:
       - id: gitleaks`;
 
+/** Self-contained manifest gate (spec 0012): mirrors the CI hard-gate job's
+ *  python3 script (baked EXPECTED — spec 0005's baked-version rule) so user
+ *  repos get the same local gate spooner dogfoods. Zero deps: no spooner
+ *  scripts required in the target repo; python3 is guaranteed wherever
+ *  pre-commit runs (pre-commit itself is a python tool — node is not).
+ *  The parity test keeps this copy and the five workflow templates'
+ *  copies from drifting. */
+const MANIFEST_GATE_SCRIPT = `import sys, os, re
+# baked at install time; must track the spooner TOOL_VERSION that
+# shipped this workflow (docs/08 ledger rule: every bump updates it)
+EXPECTED = "@EXPECTED@"
+
+def parse_yaml(text):
+    lines = [(len(l) - len(l.lstrip()), l) for l in text.split("\\n")]
+    i = 0
+    def parse_block(indent):
+        nonlocal i
+        obj = {}
+        arr = []
+        is_array = False
+        while i < len(lines):
+            ind, raw = lines[i]
+            trimmed = raw.strip()
+            if not trimmed or trimmed.startswith("#"):
+                i += 1
+                continue
+            if ind < indent:
+                break
+            if ind > indent:
+                raise ValueError("unexpected indent at " + trimmed)
+            if trimmed.startswith("- "):
+                is_array = True
+                arr.append(scalar(trimmed[2:]))
+                i += 1
+                continue
+            if is_array:
+                raise ValueError("mixed map/array at " + trimmed)
+            m = re.match(r"^([^:]+):\\s*(.*)$", trimmed)
+            if not m:
+                raise ValueError("cannot parse line " + trimmed)
+            key = m.group(1).strip()
+            rest = m.group(2).strip()
+            if rest == "":
+                i += 1
+                obj[key] = parse_block(lines[i][0]) if i < len(lines) and lines[i][0] > ind else None
+            else:
+                obj[key] = scalar(rest)
+                i += 1
+        return arr if is_array else obj
+    def scalar(raw):
+        v = raw.strip()
+        if v == "true":
+            return True
+        if v == "false":
+            return False
+        if v == "null" or v == "~":
+            return None
+        q = re.match(r"^\\"([^\\"]*)\\"$", v)
+        if q:
+            return q.group(1)
+        return float(v) if re.match(r"^-?\\d+(\\.\\d+)?$", v) else v
+    return parse_block(0)
+
+def _int(s):
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+def lt(a, b):
+    pa = [_int(p) for p in a.split(".")]
+    pb = [_int(p) for p in b.split(".")]
+    for k in range(max(len(pa), len(pb))):
+        x = pa[k] if k < len(pa) else 0
+        y = pb[k] if k < len(pb) else 0
+        if x is None or y is None:
+            return a < b
+        if x != y:
+            return x < y
+    return False
+
+def stage_hint(missing):
+    if any(f.startswith("docs/sdd") or f.endswith("sdd.yml") for f in missing):
+        return 4
+    if any(f == "AGENTS.md" or f == "CLAUDE.md" for f in missing):
+        return 3
+    return 2
+
+if not os.path.exists(".ai-native.yml"):
+    print("ai-native: no .ai-native.yml manifest — run transform stage 2 first", file=sys.stderr)
+    sys.exit(1)
+try:
+    with open(".ai-native.yml", "r", encoding="utf-8") as fh:
+        m = parse_yaml(fh.read())
+except Exception as e:
+    print("ai-native: manifest parse error — " + str(e), file=sys.stderr)
+    sys.exit(1)
+if not isinstance(m, dict) or m.get("schemaVersion") != 1 or m.get("tool") != "spooner" or not isinstance(m.get("stages"), dict):
+    print("ai-native: manifest schema mismatch (expected schemaVersion 1, tool spooner, stages map)", file=sys.stderr)
+    sys.exit(1)
+missing = []
+for s in m["stages"].values():
+    if isinstance(s, dict) and isinstance(s.get("files"), list):
+        for f in s["files"]:
+            if isinstance(f, str) and not os.path.exists(f):
+                missing.append(f)
+if missing:
+    print("ai-native: manifest drift — missing: " + ", ".join(missing) + " — re-run transform stage " + str(stage_hint(missing)), file=sys.stderr)
+    sys.exit(1)
+version = m.get("version")
+version = version if isinstance(version, str) else "0.0.0"
+if lt(version, EXPECTED):
+    print("ai-native: installed templates v" + version + " < expected v" + EXPECTED + " — run sync to apply the current templates", file=sys.stderr)
+    sys.exit(1)
+print("ai-native: consistent (" + str(len(m["stages"])) + " stage(s) at v" + version + ")")
+`;
+
+/** The gate script with the current TOOL_VERSION baked (spec 0005 rule). */
+export function manifestGateScript(): string {
+  return MANIFEST_GATE_SCRIPT.replace('"@EXPECTED@"', `"${TOOL_VERSION}"`);
+}
+
+/** Escape for a YAML double-quoted scalar (\\, ", \n — the subset we emit). */
+function yamlEscaped(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+}
+
 /** Python gates (only when python tooling detected; ruff managed + rev-pinned,
  *  pytest/pip-audit local — SKIP'd in the python workflow template). */
 function pythonHooks(root: string): string | null {
@@ -511,7 +638,7 @@ function rustHooks(root: string): string | null {
  *  check-only; managed repos rev-pinned; local hooks scoped to pre-commit. */
 export function generatePreCommitConfig(root: string): string {
   const sections = [
-    "# pre-commit config generated by spooner transform Stage 2 (M10: stack-aware)",
+    `${GENERATED_PRE_COMMIT_MARKER} (M10: stack-aware)`,
     "# Install hooks (commitlint runs on the commit-msg stage — both are required):",
     "#   pre-commit install --hook-type pre-commit --hook-type commit-msg",
     "# Full run: pre-commit run --all-files",
@@ -519,6 +646,17 @@ export function generatePreCommitConfig(root: string): string {
     "# follows the repo's detected tooling (what audit credits, transform installs).",
     "repos:",
     PRE_COMMIT_CORE,
+    // M12 (spec 0012): self-contained manifest gate — mirrors the CI hard gate
+    // so a stale/drifting ledger turns local pre-commit red (baked EXPECTED).
+    `  - repo: local
+    hooks:
+      - id: manifest-consistency
+        name: .ai-native.yml consistency + template version (gate)
+        entry: "${yamlEscaped(`python3 -c '${manifestGateScript()}'`)}"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]`,
     pythonHooks(root),
     nodeHooks(root),
     goHooks(root),
@@ -630,6 +768,10 @@ export function manifestWithStage(root: string, stage: string, entry: ManifestSt
  *  installed bytes equal to it are tool-owned and get upgraded, not conflicted. */
 const LEGACY_PRE_COMMIT_TEMPLATE = "pre-commit-config.yaml";
 
+/** Marker header of generated pre-commit configs (spec 0012): installed bytes
+ *  carrying it are tool-owned — upgraded by regeneration, never conflicted. */
+const GENERATED_PRE_COMMIT_MARKER = "# pre-commit config generated by spooner transform Stage 2";
+
 export function applyStage2(root: string, dryRun: boolean): Stage2Result {
   const templates = stage2Templates(root);
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
@@ -637,8 +779,9 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
     if (!existsSync(target)) return { file, action: "write" };
     const current = readFileSync(target, "utf8");
     if (current === stage2Content(root, file, tpl)) return { file, action: "keep" };
-    // M10 legacy upgrade: bytes from the pre-M10 universal template are tool-owned.
-    if (file === PRE_COMMIT_FILE && current === templateContent(LEGACY_PRE_COMMIT_TEMPLATE)) return { file, action: "write" };
+    // M10 legacy upgrade: bytes from the pre-M10 universal template, or any
+    // generated config carrying the marker header (M12), are tool-owned.
+    if (file === PRE_COMMIT_FILE && (current === templateContent(LEGACY_PRE_COMMIT_TEMPLATE) || current.includes(GENERATED_PRE_COMMIT_MARKER))) return { file, action: "write" };
     return { file, action: "conflict" };
   });
   const toWrite = plans.filter((p) => p.action === "write");

@@ -28,7 +28,7 @@ jobs:
       # lint-test — skip them here
       - run: pre-commit run --all-files
         env:
-          SKIP: typecheck,test,mvn-test
+          SKIP: typecheck,test,mvn-test,manifest-consistency
       # commitlint runs on the commit-msg stage (never run by --all-files);
       # write the last commit into .git/COMMIT_EDITMSG (what the hook reads);
       # --commit-msg-filename is required by pre-commit for this hook stage
@@ -89,80 +89,113 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - name: Check manifest consistency and template staleness
         run: |
-          node -e '
-            const fs = require("node:fs");
-            // baked at install time; must track the spooner TOOL_VERSION that
-            // shipped this workflow (docs/08 ledger rule: every bump updates it)
-            const EXPECTED = "0.4.0";
-            function parseYaml(text) {
-              const lines = text.split("\n").map((l) => ({ indent: l.length - l.trimStart().length, raw: l }));
-              let i = 0;
-              function parseBlock(indent) {
-                const obj = {}; const arr = []; let isArray = false;
-                while (i < lines.length) {
-                  const { indent: ind, raw } = lines[i];
-                  const trimmed = raw.trim();
-                  if (!trimmed || trimmed.startsWith("#")) { i++; continue; }
-                  if (ind < indent) break;
-                  if (ind > indent) throw new Error("unexpected indent at " + trimmed);
-                  if (trimmed.startsWith("- ")) { isArray = true; arr.push(scalar(trimmed.slice(2))); i++; continue; }
-                  if (isArray) throw new Error("mixed map/array at " + trimmed);
-                  const m = trimmed.match(/^([^:]+):\s*(.*)$/);
-                  if (!m) throw new Error("cannot parse line " + trimmed);
-                  const key = m[1].trim(); const rest = m[2].trim();
-                  if (rest === "") { i++; obj[key] = i < lines.length && lines[i].indent > ind ? parseBlock(lines[i].indent) : null; }
-                  else { obj[key] = scalar(rest); i++; }
-                }
-                return isArray ? arr : obj;
-              }
-              function scalar(raw) {
-                const v = raw.trim();
-                if (v === "true") return true;
-                if (v === "false") return false;
-                if (v === "null" || v === "~") return null;
-                const q = v.match(/^"([^"]*)"$/);
-                if (q) return q[1];
-                return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v;
-              }
-              return parseBlock(0);
-            }
-            function lt(a, b) {
-              const pa = a.split(".").map((p) => Number.parseInt(p, 10));
-              const pb = b.split(".").map((p) => Number.parseInt(p, 10));
-              for (let k = 0; k < Math.max(pa.length, pb.length); k++) {
-                const x = pa[k] || 0; const y = pb[k] || 0;
-                if (x !== y) return x < y;
-              }
-              return false;
-            }
-            function stageHint(missing) {
-              if (missing.some((f) => f.startsWith("docs/sdd") || f.endsWith("sdd.yml"))) return 4;
-              if (missing.some((f) => f === "AGENTS.md" || f === "CLAUDE.md")) return 3;
-              return 2;
-            }
-            if (!fs.existsSync(".ai-native.yml")) {
-              console.error("ai-native: no .ai-native.yml manifest — run transform stage 2 first");
-              process.exit(1);
-            }
-            let m;
-            try { m = parseYaml(fs.readFileSync(".ai-native.yml", "utf8")); }
-            catch (e) { console.error("ai-native: manifest parse error — " + e.message); process.exit(1); }
-            if (m.schemaVersion !== 1 || m.tool !== "spooner" || typeof m.stages !== "object" || m.stages === null || Array.isArray(m.stages)) {
-              console.error("ai-native: manifest schema mismatch (expected schemaVersion 1, tool spooner, stages map)");
-              process.exit(1);
-            }
-            const missing = [];
-            for (const s of Object.values(m.stages)) {
-              if (s && Array.isArray(s.files)) for (const f of s.files) if (typeof f === "string" && !fs.existsSync(f)) missing.push(f);
-            }
-            if (missing.length > 0) {
-              console.error("ai-native: manifest drift — missing: " + missing.join(", ") + " — re-run transform stage " + stageHint(missing));
-              process.exit(1);
-            }
-            const version = typeof m.version === "string" ? m.version : "0.0.0";
-            if (lt(version, EXPECTED)) {
-              console.error("ai-native: installed templates v" + version + " < expected v" + EXPECTED + " — run sync to apply the current templates");
-              process.exit(1);
-            }
-            console.log("ai-native: consistent (" + Object.keys(m.stages).length + " stage(s) at v" + version + ")");
-          '
+          python3 - <<'PY'
+          import sys, os, re
+          # baked at install time; must track the spooner TOOL_VERSION that
+          # shipped this workflow (docs/08 ledger rule: every bump updates it)
+          EXPECTED = "0.5.0"
+
+          def parse_yaml(text):
+              lines = [(len(l) - len(l.lstrip()), l) for l in text.split("\n")]
+              i = 0
+              def parse_block(indent):
+                  nonlocal i
+                  obj = {}
+                  arr = []
+                  is_array = False
+                  while i < len(lines):
+                      ind, raw = lines[i]
+                      trimmed = raw.strip()
+                      if not trimmed or trimmed.startswith("#"):
+                          i += 1
+                          continue
+                      if ind < indent:
+                          break
+                      if ind > indent:
+                          raise ValueError("unexpected indent at " + trimmed)
+                      if trimmed.startswith("- "):
+                          is_array = True
+                          arr.append(scalar(trimmed[2:]))
+                          i += 1
+                          continue
+                      if is_array:
+                          raise ValueError("mixed map/array at " + trimmed)
+                      m = re.match(r"^([^:]+):\s*(.*)$", trimmed)
+                      if not m:
+                          raise ValueError("cannot parse line " + trimmed)
+                      key = m.group(1).strip()
+                      rest = m.group(2).strip()
+                      if rest == "":
+                          i += 1
+                          obj[key] = parse_block(lines[i][0]) if i < len(lines) and lines[i][0] > ind else None
+                      else:
+                          obj[key] = scalar(rest)
+                          i += 1
+                  return arr if is_array else obj
+              def scalar(raw):
+                  v = raw.strip()
+                  if v == "true":
+                      return True
+                  if v == "false":
+                      return False
+                  if v == "null" or v == "~":
+                      return None
+                  q = re.match(r"^\"([^\"]*)\"$", v)
+                  if q:
+                      return q.group(1)
+                  return float(v) if re.match(r"^-?\d+(\.\d+)?$", v) else v
+              return parse_block(0)
+
+          def _int(s):
+              try:
+                  return int(s)
+              except ValueError:
+                  return None
+
+          def lt(a, b):
+              pa = [_int(p) for p in a.split(".")]
+              pb = [_int(p) for p in b.split(".")]
+              for k in range(max(len(pa), len(pb))):
+                  x = pa[k] if k < len(pa) else 0
+                  y = pb[k] if k < len(pb) else 0
+                  if x is None or y is None:
+                      return a < b
+                  if x != y:
+                      return x < y
+              return False
+
+          def stage_hint(missing):
+              if any(f.startswith("docs/sdd") or f.endswith("sdd.yml") for f in missing):
+                  return 4
+              if any(f == "AGENTS.md" or f == "CLAUDE.md" for f in missing):
+                  return 3
+              return 2
+
+          if not os.path.exists(".ai-native.yml"):
+              print("ai-native: no .ai-native.yml manifest — run transform stage 2 first", file=sys.stderr)
+              sys.exit(1)
+          try:
+              with open(".ai-native.yml", "r", encoding="utf-8") as fh:
+                  m = parse_yaml(fh.read())
+          except Exception as e:
+              print("ai-native: manifest parse error — " + str(e), file=sys.stderr)
+              sys.exit(1)
+          if not isinstance(m, dict) or m.get("schemaVersion") != 1 or m.get("tool") != "spooner" or not isinstance(m.get("stages"), dict):
+              print("ai-native: manifest schema mismatch (expected schemaVersion 1, tool spooner, stages map)", file=sys.stderr)
+              sys.exit(1)
+          missing = []
+          for s in m["stages"].values():
+              if isinstance(s, dict) and isinstance(s.get("files"), list):
+                  for f in s["files"]:
+                      if isinstance(f, str) and not os.path.exists(f):
+                          missing.append(f)
+          if missing:
+              print("ai-native: manifest drift — missing: " + ", ".join(missing) + " — re-run transform stage " + str(stage_hint(missing)), file=sys.stderr)
+              sys.exit(1)
+          version = m.get("version")
+          version = version if isinstance(version, str) else "0.0.0"
+          if lt(version, EXPECTED):
+              print("ai-native: installed templates v" + version + " < expected v" + EXPECTED + " — run sync to apply the current templates", file=sys.stderr)
+              sys.exit(1)
+          print("ai-native: consistent (" + str(len(m["stages"])) + " stage(s) at v" + version + ")")
+          PY
