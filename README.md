@@ -19,6 +19,9 @@
   <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
   <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI readiness: AI-Native · 9/10"/></a>
 </p>
+<p align="center">
+  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI readiness: 4/10 AI-Aware → 9/10 AI-Native after one transform"/></a>
+</p>
 
 Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after the detective who keeps robots in line in *I, Robot* (2004) — Spooner keeps AI coding in line.
 
