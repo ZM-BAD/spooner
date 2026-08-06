@@ -23,7 +23,7 @@
   <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4/10 AI-Aware → 9/10 AI-Native"/></a>
 </p>
 
-Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里给机器人立规矩的警探——Spooner 是给 AI 编码立规矩的。
+**Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里给机器人立规矩的警探——Spooner 是给 AI 编码立规矩的。**
 
 ## 工作流
 
@@ -67,13 +67,49 @@ Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放
 
 ## 安装
 
-把 `skills/spooner/` 整个目录复制到你的 agent 的 skills 目录（见上表），或用 skills CLI：
+skill 就是一个目录（`skills/spooner/`）——无构建步骤，只需 Node.js >= 22.18（脚本是 TypeScript，由 Node 原生 type-stripping 直接运行）。
+
+### 一行安装（skills CLI）
 
 ```sh
-npx skills add <owner>/spooner
+npx skills add ZM-BAD/spooner
 ```
 
-需要 Node.js >= 22.18：脚本是 TypeScript，由 Node 原生 type-stripping 直接运行——**无构建步骤**。
+[skills CLI](https://agentskills.io) 会把 `skills/spooner/` 复制到你的 agent 的 skills 目录，并从环境自动识别 agent。常用参数：
+
+| 参数 | 含义 |
+|---|---|
+| `-g` / `--global` | 装到用户级 skills 目录（所有项目可用） |
+| `-a` / `--agent <agent>` | 指定目标 agent（`claude-code`、`codex`、`opencode`…） |
+| `-s` / `--skill <name>` | 只安装 spooner 这一个 skill |
+
+### 手动安装（任意 agent）
+
+把 `skills/spooner/` 目录复制到你的 agent 的 skills 目录（见上表）。用户级示例：
+
+```sh
+# Claude Code — 所有项目
+mkdir -p ~/.claude/skills
+cp -R skills/spooner ~/.claude/skills/
+
+# OpenAI Codex — 所有项目
+mkdir -p ~/.agents/skills
+cp -R skills/spooner ~/.agents/skills/
+
+# OpenCode — 所有项目
+mkdir -p ~/.config/opencode/skills
+cp -R skills/spooner ~/.config/opencode/skills/
+```
+
+想跟某个仓库共享：复制到上表对应的项目级路径（如 `.claude/skills/spooner/`）。
+
+### 验证
+
+在 agent 会话里列出技能（Claude Code 和 Codex 用 `/skills`），然后对任意仓库跑一次审计：
+
+```sh
+node skills/spooner/scripts/audit.ts
+```
 
 ## 项目结构
 
@@ -105,9 +141,9 @@ node skills/spooner/scripts/detect.ts   # 切片 1：栈识别
 
 **约束：** 只用 TypeScript 6（锁大版本——TS 7.1 前工具链仍需 6.0 API）、只用 erasable syntax（禁 `enum`/`namespace`）、脚本零依赖、Conventional Commits（commitlint 强制）。
 
-## 分发（计划中）
+## 分发
 
-计划：GitHub 分发为默认渠道（git tag + skills CLI），发布里程碑再上 Claude Code 插件市场与社区注册表。打包调研保留在本地内部档案（不入库）。
+本 GitHub 仓库即为分发渠道——`npx skills add ZM-BAD/spooner` 直接安装。下一步计划：Claude Code 插件市场与社区注册表。
 
 ## 文档导航
 

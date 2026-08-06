@@ -23,7 +23,7 @@
   <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI readiness: 4/10 AI-Aware → 9/10 AI-Native after one transform"/></a>
 </p>
 
-Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after the detective who keeps robots in line in *I, Robot* (2004) — Spooner keeps AI coding in line.
+**Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after the detective who keeps robots in line in *I, Robot* (2004) — Spooner keeps AI coding in line.**
 
 ## The workflow
 
@@ -67,13 +67,49 @@ Universal strategy: **AGENTS.md** at repo root holds persistent facts (≤200 li
 
 ## Install
 
-Copy `skills/spooner/` into your agent's skills directory (see the table above), or use the skills CLI:
+The skill is a single directory (`skills/spooner/`) — no build step, just Node.js >= 22.18 (scripts are TypeScript run natively via type stripping).
+
+### One-line install (skills CLI)
 
 ```sh
-npx skills add <owner>/spooner
+npx skills add ZM-BAD/spooner
 ```
 
-Requires Node.js >= 22.18: scripts are TypeScript run natively via type stripping — **no build step**.
+The [skills CLI](https://agentskills.io) copies `skills/spooner/` into your agent's skills directory and detects your agent from the environment. Useful flags:
+
+| Flag | Meaning |
+|---|---|
+| `-g` / `--global` | install to the user-level skills directory (available to all projects) |
+| `-a` / `--agent <agent>` | target a specific agent (`claude-code`, `codex`, `opencode`, …) |
+| `-s` / `--skill <name>` | install only the `spooner` skill |
+
+### Manual install (any agent)
+
+Copy the `skills/spooner/` directory into your agent's skills directory (see the compatibility table above). User-level examples:
+
+```sh
+# Claude Code — all projects
+mkdir -p ~/.claude/skills
+cp -R skills/spooner ~/.claude/skills/
+
+# OpenAI Codex — all projects
+mkdir -p ~/.agents/skills
+cp -R skills/spooner ~/.agents/skills/
+
+# OpenCode — all projects
+mkdir -p ~/.config/opencode/skills
+cp -R skills/spooner ~/.config/opencode/skills/
+```
+
+To share the skill with a specific repo, copy it to the project-level path from the table above (e.g. `.claude/skills/spooner/`).
+
+### Verify
+
+List skills in an agent session (`/skills` in Claude Code and Codex), then run the audit on a repo:
+
+```sh
+node skills/spooner/scripts/audit.ts
+```
 
 ## Project layout
 
@@ -105,9 +141,9 @@ node skills/spooner/scripts/detect.ts   # slice 1: stack detection
 
 **Constraints:** TypeScript 6 only (major locked — the toolchain still requires the 6.0 API until TS 7.1), erasable syntax only (no `enum`/`namespace`), zero-dependency scripts, Conventional Commits (commitlint enforced).
 
-## Distribution (planned)
+## Distribution
 
-Plan: GitHub distribution as the default channel (git tags + the skills CLI), then the Claude Code plugin marketplace and community registries at the launch milestone. Packaging research is kept in the internal archive (local-only).
+Distributed from this GitHub repository — `npx skills add ZM-BAD/spooner` installs the skill directly. The Claude Code plugin marketplace and community registries are planned next.
 
 ## Documentation
 
