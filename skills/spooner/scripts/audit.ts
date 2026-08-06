@@ -685,6 +685,13 @@ function checkSecCi(root: string): CheckResult {
   return { id: "sec-ci", category: "integrity", score, max: 0.5, evidence: detail, fix: "transform Stage 2 (CI security job)" };
 }
 
+/** Which transform stage restores a manifest-listed file (mirrors check.ts). */
+function stageHintOf(missing: string[]): number {
+  if (missing.some((f) => f.startsWith("docs/sdd") || f.endsWith("sdd.yml"))) return 4;
+  if (missing.some((f) => f === "AGENTS.md" || f === "CLAUDE.md")) return 3;
+  return 2;
+}
+
 function checkDrift(root: string): CheckResult {
   const { present, manifest } = readManifest(root);
   if (!present) {
@@ -693,7 +700,8 @@ function checkDrift(root: string): CheckResult {
   const version = typeof manifest?.version === "string" ? manifest.version : "0.0.0";
   const current = version === TOOL_VERSION;
   const declared = Object.values(manifest?.stages ?? {}).flatMap((s) => (s && Array.isArray(s.files) ? (s.files as string[]) : []));
-  const allPresent = declared.every((f) => existsSync(join(root, f)));
+  const missingFiles = declared.filter((f) => !existsSync(join(root, f)));
+  const allPresent = missingFiles.length === 0;
   let score = 0.2;
   let detail = `.ai-native.yml present (v${version})`;
   if (current) {
@@ -704,7 +712,13 @@ function checkDrift(root: string): CheckResult {
     score = 0.5;
     detail = `.ai-native.yml consistent (v${version}, ${declared.length} declared file(s) present)`;
   }
-  const fix = current ? "none" : "run sync to apply the current templates";
+  // Version current but files missing → the fix names the restore stage
+  // (review 2026-08-06: it used to say "none" — misleading at 0.3).
+  const fix = !current
+    ? "run sync to apply the current templates"
+    : allPresent
+      ? "none"
+      : `re-run transform stage ${stageHintOf(missingFiles)} to restore missing files`;
   return { id: "drift", category: "integrity", score, max: 0.5, evidence: detail, fix };
 }
 
@@ -762,6 +776,20 @@ function checkFreshDeps(root: string): CheckResult {
   if (pyproject) {
     const score = lock ? 0.5 : 0.2;
     return { id: "fresh-deps", category: "freshness", score, max: 0.5, evidence: lock ? `pyproject.toml + ${lock}` : "pyproject.toml, no lockfile", fix: "commit a lockfile" };
+  }
+  // go/rust: the checksum lockfiles are the lockfile signal (review 2026-08-06
+  // — these stacks scored 0 forever with the misleading "no dependency manifest").
+  if (existsSync(join(root, "go.mod"))) {
+    const sum = existsSync(join(root, "go.sum"));
+    return { id: "fresh-deps", category: "freshness", score: sum ? 0.5 : 0.2, max: 0.5, evidence: sum ? "go.mod + go.sum (checksum lockfile)" : "go.mod, no go.sum committed", fix: "commit go.sum (module checksums)" };
+  }
+  if (existsSync(join(root, "Cargo.toml"))) {
+    const cargoLock = existsSync(join(root, "Cargo.lock"));
+    return { id: "fresh-deps", category: "freshness", score: cargoLock ? 0.5 : 0.3, max: 0.5, evidence: cargoLock ? "Cargo.toml + Cargo.lock (pinned + lockfile)" : "Cargo.toml declares versions, no Cargo.lock", fix: "commit Cargo.lock for reproducible builds" };
+  }
+  // java pins versions in the manifest itself — no lockfile convention.
+  if (existsSync(join(root, "pom.xml")) || existsSync(join(root, "build.gradle"))) {
+    return { id: "fresh-deps", category: "freshness", score: 0.3, max: 0.5, evidence: "java manifest pins dependency versions (no lockfile convention)", fix: "n/a" };
   }
   return { id: "fresh-deps", category: "freshness", score: 0, max: 0.5, evidence: "no dependency manifest", fix: "n/a" };
 }
@@ -872,7 +900,7 @@ export function runAudit(root: string): AuditResult {
 
   return {
     schemaVersion: 2,
-    root: ".",
+    root,
     stacks,
     maturity,
     maturityNote: note,

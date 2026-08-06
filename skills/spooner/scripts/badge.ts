@@ -256,7 +256,7 @@ export function run(root: string, override: Style | null): BadgeReport {
   const snippet = `[![${tier} ${message}](${badgePath})](${reportPath})`;
   return {
     schemaVersion: SCHEMA_VERSION,
-    root: ".",
+    root,
     score: { total: audit.score.total, max: audit.score.max },
     tier,
     style: { used, source, counts: probe.counts },
@@ -280,13 +280,13 @@ function renderMarkdown(r: BadgeReport): string {
 
 // --- CLI ------------------------------------------------------------------------
 
-function parseArgs(argv: string[]): { root: string; style: Style | null; format: "json" | "markdown" } {
+function parseArgs(argv: string[]): { root: string; format: "json" | "markdown" } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
-  return { root: valueOf("--root") ?? process.cwd(), style: null, format };
+  return { root: valueOf("--root") ?? process.cwd(), format };
 }
 
 function assertNodeVersion(): void {

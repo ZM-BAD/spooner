@@ -144,7 +144,7 @@ export function run(root: string, dryRun: boolean): SyncReport {
   if (!mr.present || !mr.manifest) {
     return {
       schemaVersion: SCHEMA_VERSION,
-      root: ".",
+      root,
       dryRun,
       version: { installed: null, current: TOOL_VERSION },
       files: [],
@@ -162,7 +162,7 @@ export function run(root: string, dryRun: boolean): SyncReport {
   if (dryRun) {
     return {
       schemaVersion: SCHEMA_VERSION,
-      root: ".",
+      root,
       dryRun: true,
       version: { installed: mr.manifest.version, current: TOOL_VERSION },
       files,
@@ -218,7 +218,7 @@ export function run(root: string, dryRun: boolean): SyncReport {
   }
   return {
     schemaVersion: SCHEMA_VERSION,
-    root: ".",
+    root,
     dryRun: false,
     version: { installed: mr.manifest.version, current: TOOL_VERSION },
     files,

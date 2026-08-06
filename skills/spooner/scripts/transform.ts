@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.6.0";
+export const TOOL_VERSION = "0.7.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -1009,13 +1009,39 @@ export function applyStage3(root: string, dryRun: boolean): Stage3Result {
       : { file: "AGENTS.md", action: "conflict" };
 
   const claudeAction: Stage3FilePlan = (() => {
-    if (!existsSync(claudePath)) return { file: "CLAUDE.md", action: "link" };
+    // lstatSync (not existsSync — it follows links and hides broken ones)
+    let claudeStat: ReturnType<typeof lstatSync> | null = null;
     try {
-      if (lstatSync(claudePath).isSymbolicLink() && readlinkSync(claudePath) === "AGENTS.md") return { file: "CLAUDE.md", action: "keep" };
+      claudeStat = lstatSync(claudePath);
     } catch {
-      /* not a symlink — fall through to content check */
+      claudeStat = null; // absent
     }
-    return /@AGENTS\.md|AGENTS\.md/i.test(readFileSync(claudePath, "utf8"))
+    if (claudeStat === null) return { file: "CLAUDE.md", action: "link" };
+    if (claudeStat.isSymbolicLink()) {
+      try {
+        if (readlinkSync(claudePath) === "AGENTS.md") return { file: "CLAUDE.md", action: "keep" };
+      } catch {
+        /* unreadable link — fall through to the content check */
+      }
+      let content = "";
+      try {
+        content = readFileSync(claudePath, "utf8");
+      } catch {
+        // broken symlink / unreadable target (review 2026-08-06): never crash
+        // stage 3 — treat as conflict, the agent decides
+        return { file: "CLAUDE.md", action: "conflict" };
+      }
+      return /@AGENTS\.md|AGENTS\.md/i.test(content)
+        ? { file: "CLAUDE.md", action: "keep" }
+        : { file: "CLAUDE.md", action: "conflict" };
+    }
+    let content = "";
+    try {
+      content = readFileSync(claudePath, "utf8");
+    } catch {
+      return { file: "CLAUDE.md", action: "conflict" };
+    }
+    return /@AGENTS\.md|AGENTS\.md/i.test(content)
       ? { file: "CLAUDE.md", action: "keep" }
       : { file: "CLAUDE.md", action: "conflict" };
   })();
@@ -1260,7 +1286,7 @@ function run(root: string, stage: number | "all", dryRun: boolean): TransformRep
   }
   return {
     schemaVersion: SCHEMA_VERSION,
-    root: ".",
+    root,
     stage,
     dryRun,
     stages: stagesToReport.map((s) => stageStatus(root, s)),

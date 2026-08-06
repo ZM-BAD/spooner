@@ -288,11 +288,11 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 ```markdown
 # Sync Report
 
-- Root: . · Dry-run: true · Templates: installed 0.1.1 → current 0.1.1
+- Root: . · Dry-run: true · Templates: installed 0.6.0 → current 0.7.0
 
 | File | Stage | Status | Version |
 |---|---|---|---|
-| .commitlintrc.json | 2 | outdated | 0.0.9 → 0.1.1 |
+| .commitlintrc.json | 2 | outdated | 0.6.0 → 0.7.0 |
 | .pre-commit-config.yaml | 2 | generated | — |
 | AGENTS.md | 3 | generated | — |
 | CLAUDE.md | 3 | generated | — |
@@ -303,7 +303,7 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 dry-run: 1 outdated (apply replaces), 0 missing (apply restores), 0 modified (user edits — never touched), 3 generated (not template-managed), 5 tracked file(s)
 ```
 
-The fixture simulated an older install (`templateVersion: "0.0.9"` + a changed commitlint config). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion` on the stage, and reports `rollback: git restore .commitlintrc.json`. The pre-commit config is **generated-class since M10** — sync never writes it; re-run `transform --stage 2` to regenerate from the repo's detected tooling. A user-edited file at the same version reports `modified` and is never touched.
+The fixture simulated an older install (`templateVersion: "0.6.0"` + a changed commitlint config). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion` on the stage, and reports `rollback: git restore .commitlintrc.json`. The pre-commit config is **generated-class since M10** — sync never writes it; re-run `transform --stage 2` to regenerate from the repo's detected tooling. A user-edited file at the same version reports `modified` and is never touched.
 
 ## Red lines
 

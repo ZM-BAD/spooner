@@ -15,7 +15,7 @@
  * type stripping — no build step:
  *   node skills/spooner/scripts/check.ts [--root <path>] [--format json|markdown]
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAudit } from "./audit.ts";
@@ -127,7 +127,7 @@ export function run(root: string): CheckReport {
 
   return {
     schemaVersion: SCHEMA_VERSION,
-    root: ".",
+    root,
     score: audit.score,
     maturity: audit.maturity,
     gaps: audit.gaps,

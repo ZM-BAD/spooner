@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runAudit } from "../scripts/audit.ts";
+import { runAudit, renderMarkdown } from "../scripts/audit.ts";
 import { TOOL_VERSION } from "../scripts/transform.ts";
 
 /** Fresh fixture repo (not a git repo — freshness/maturity checks just under-score). */
@@ -152,6 +152,49 @@ test("drift: consistent manifest (version == tool + files present) -> 0.5", () =
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("drift: version current but a declared file missing -> 0.3 with a restore-stage fix", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, ".ai-native.yml"), `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  4:\n    date: "2026-08-06"\n    files:\n      - "docs/sdd/spec.md"\n`);
+  const d = item(repo, "drift");
+  assert.equal(d?.score, 0.3);
+  assert.match(d?.fix ?? "", /stage 4/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- freshness: per-stack dependency locks (review 2026-08-06) -----------------
+
+test("fresh-deps: go.mod + go.sum -> 0.5 (checksum lockfile)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "go.mod"), "module x\n");
+  writeFileSync(join(repo, "go.sum"), "checksum\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.5);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: go.mod without go.sum -> 0.2", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "go.mod"), "module x\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.2);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: Cargo.toml + Cargo.lock -> 0.5; without lock -> 0.3", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Cargo.toml"), '[package]\nname = "x"\n');
+  writeFileSync(join(repo, "Cargo.lock"), "lock\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.5);
+  rmSync(join(repo, "Cargo.lock"));
+  assert.equal(item(repo, "fresh-deps")?.score, 0.3);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: java manifest pins versions -> 0.3 (no lockfile convention)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pom.xml"), "<project/>\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.3);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 // --- acceptance 6: hook quality ----------------------------------------------
 
 test("cfg-hooks: no config -> 0", () => {
@@ -190,7 +233,8 @@ test("subStacks: root node + backend/python -> python named with its dir", () =>
   writeFileSync(join(repo, "backend", "pyproject.toml"), "");
   const r = runAudit(repo);
   assert.deepEqual(r.subStacks, [{ stack: "python", dir: "backend" }]);
-  assert.match(r.suggestions.join(" ") ?? "", /./); // report-level note is markdown-side
+  // the sub-stack note surfaces in the markdown report (rendering side)
+  assert.match(renderMarkdown(r), /Sub-stacks: python \(backend\/\)/);
   rmSync(repo, { recursive: true, force: true });
 });
 

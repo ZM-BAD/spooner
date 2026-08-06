@@ -26,3 +26,6 @@ HANDOFF.md
 
 # ZCode local tool data (plans archive, etc.)
 .zcode/
+
+# Claude Code local settings (user-level state, not shared)
+**/.claude/settings.local.json

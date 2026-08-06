@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -289,6 +289,63 @@ test("parity: installed dogfood workflow stays byte-equal to the node template",
   assert.equal(installed, readTemplate("ci-workflow-node.yml"));
 });
 
+/** Hook ids under `repo: local` blocks in a generated pre-commit config. */
+function localHookIds(config: string): string[] {
+  const ids: string[] = [];
+  let inLocal = false;
+  for (const line of config.split("\n")) {
+    if (/^\s+- repo:/.test(line)) inLocal = line.includes("repo: local");
+    else if (inLocal) {
+      const m = line.match(/^\s+- id: ([a-z0-9-]+)/);
+      if (m) ids.push(m[1]);
+    }
+  }
+  return ids;
+}
+
+/** The SKIP list of a workflow template's pre-commit job. */
+function templateSkip(tpl: string): string[] {
+  const m = tpl.match(/SKIP:\s*([^\n]+)/);
+  return m ? m[1].split(",").map((s) => s.trim()).filter(Boolean) : [];
+}
+
+/** Minimal per-stack fixture that triggers the stack's local hooks. */
+function stackRepo(root: string, stack: "node" | "python" | "go" | "java" | "rust"): string {
+  const repo = join(root, "repo");
+  mkdirSync(repo);
+  const manifests: Record<string, [string, string]> = {
+    node: ["package.json", '{"name":"x","scripts":{"test":"echo t"}}'],
+    go: ["go.mod", "module x\n\ngo 1.21\n"],
+    rust: ["Cargo.toml", '[package]\nname = "x"\nversion = "0.1.0"\n'],
+    java: ["pom.xml", "<project><modelVersion>4.0.0</modelVersion><groupId>x</groupId><artifactId>x</artifactId><version>1</version></project>"],
+  };
+  const manifest = manifests[stack];
+  if (manifest) writeFileSync(join(repo, manifest[0]), manifest[1]);
+  if (stack === "node") writeFileSync(join(repo, "tsconfig.json"), "{}\n");
+  if (stack === "python") {
+    mkdirSync(join(repo, "tests"));
+    writeFileSync(join(repo, "requirements.txt"), "");
+  }
+  return repo;
+}
+
+test("parity: every local hook id the generator emits is SKIP'd in the stack workflow template", () => {
+  // Regression (review 2026-08-06): the java template SKIP'd `mvn-test` while
+  // the generator emits `java-test` — CI's no-toolchain pre-commit job then
+  // ran the java-test local hook for real (mvn missing → always red, masked
+  // by continue-on-error). The SKIP list must cover every local hook.
+  for (const stack of ["node", "python", "go", "java", "rust"] as const) {
+    const root = fixture();
+    const repo = stackRepo(root, stack);
+    const config = generatePreCommitConfig(repo);
+    const skip = templateSkip(readTemplate(`ci-workflow-${stack}.yml`));
+    for (const id of localHookIds(config)) {
+      assert.ok(skip.includes(id), `${stack}: local hook "${id}" must be SKIP'd in ci-workflow-${stack}.yml (CI pre-commit job has no repo toolchain)`);
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("preCommit: deterministic — two runs produce identical config", () => {
   const repo = fixture();
   writeFileSync(join(repo, "package.json"), '{"scripts":{"test":"echo t"}}\n');
@@ -507,5 +564,15 @@ test("stage 3: no existing AGENTS.md -> plain write, no conflict note", () => {
   const r = applyStage3(repo, false);
   assert.equal(r.files.find((f) => f.file === "AGENTS.md")?.action, "write");
   assert.ok(!r.message?.includes("user-written"), `note present: ${r.message}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: broken-symlink CLAUDE.md -> conflict, never crashes", () => {
+  const repo = fixture();
+  // a symlink pointing at a missing target — no AGENTS.md in the repo
+  symlinkSync("does-not-exist.md", join(repo, "CLAUDE.md"));
+  const r = applyStage3(repo, false);
+  assert.equal(r.files.find((f) => f.file === "CLAUDE.md")?.action, "conflict");
+  assert.ok(!r.message?.includes("ENOENT"), `uncaught error leaked: ${r.message}`);
   rmSync(repo, { recursive: true, force: true });
 });

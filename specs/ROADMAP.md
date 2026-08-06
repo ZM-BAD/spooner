@@ -6,6 +6,8 @@
 
 ## ✅ Shipped
 
+> 编号 0007 空缺：M7（commitlint 真实门禁）并入 spec 0001/0002 就地修订，未建 spec 目录——历史编号缺口，说明见 docs/08（2026-08-06）。
+
 | ID | Name | Status | Notes |
 |---|---|---|---|
 | 0001 | m1-audit-core | shipped | audit: stack detection (9 stacks) + 10-point quality scoring (19 checks) + maturity gating + JSON/markdown reports |

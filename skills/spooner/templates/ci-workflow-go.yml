@@ -83,7 +83,7 @@ jobs:
           import sys, os, re
           # baked at install time; must track the spooner TOOL_VERSION that
           # shipped this workflow (docs/08 ledger rule: every bump updates it)
-          EXPECTED = "0.6.0"
+          EXPECTED = "0.7.0"
 
           def parse_yaml(text):
               lines = [(len(l) - len(l.lstrip()), l) for l in text.split("\n")]

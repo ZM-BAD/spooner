@@ -133,7 +133,7 @@ spooner/
 ```sh
 npm run typecheck   # tsc --noEmit（TypeScript 6，零构建）
 npm run lint:md     # markdownlint-cli2
-npm run check       # typecheck + lint:md
+npm run check       # typecheck + lint:md + tests
 pre-commit install --hook-type commit-msg   # 每次 commit 强制 Conventional Commits
 pre-commit run --all-files
 node skills/spooner/scripts/detect.ts   # 切片 1：栈识别

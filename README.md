@@ -133,7 +133,7 @@ spooner/
 ```sh
 npm run typecheck   # tsc --noEmit (TypeScript 6, zero build)
 npm run lint:md     # markdownlint-cli2
-npm run check       # typecheck + lint:md
+npm run check       # typecheck + lint:md + tests
 pre-commit install --hook-type commit-msg   # enforce Conventional Commits on every commit
 pre-commit run --all-files
 node skills/spooner/scripts/detect.ts   # slice 1: stack detection

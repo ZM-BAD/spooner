@@ -55,7 +55,7 @@ spooner/
 
 ## Development playbook
 
-**The loop**: change code → `npm run check` (typecheck + lint:md + 39 tests) → `pre-commit run --all-files` (12 hooks, incl. typecheck + tests — a green pre-commit implies a green CI) → push the branch (every branch push runs both workflows) → user approves merge/push to main.
+**The loop**: change code → `npm run check` (typecheck + lint:md + tests) → `pre-commit run --all-files` (12 hooks, incl. typecheck + tests — a green pre-commit implies a green CI) → push the branch (every branch push runs both workflows) → user approves merge/push to main.
 
 **Do**
 
@@ -150,6 +150,8 @@ spooner/
 | `specs/README.md` | SDD workflow: states, conventions, two-layer structure |
 | `specs/ROADMAP.md` | Planning index: current / next / vision / ideas |
 | `specs/0001-m1-audit-core/spec.md` | M1 audit contract: scoring matrix, report schema, acceptance |
+| `specs/0002-m2-transform/spec.md` | M2 transform contract: stages 2-4, per-stage outputs, manifest model, acceptance |
+| `specs/0003-m3-check/spec.md` | M3 check contract: baseline delta, drift report, suggestions, acceptance |
 | `specs/0004-m4-sync/spec.md` | M4 sync contract: templateVersion extension, sync report schema, acceptance |
 | `specs/0005-m5-drift-gate/spec.md` | M5 drift gate contract: CI hard gate job, baked-version rule, acceptance |
 | `specs/0006-m6-multi-stack/spec.md` | M6 multi-stack contract: stack model, per-stack workflows/lifecycle, unsupported notice, acceptance |
@@ -157,4 +159,6 @@ spooner/
 | `specs/0009-m9-badge/spec.md` | M9 badge contract: 5 shields styles, README style probe + decision chain, tier/color mapping, artifacts |
 | `specs/0010-m10-contextual-gates/spec.md` | M10 contextual gates: generated stack-aware pre-commit config, hook-tool routing, generated sync class |
 | `specs/0011-m11-rust-deep/spec.md` | M11 rust deep: cargo lifecycle + rust workflow + pre-commit gates + audit credit |
+| `specs/0012-m12-manifest-gate-hook/spec.md` | M12 manifest gate: self-contained hook in the generated config, tool-owned marker rule, parity |
+| `specs/0013-m13-report-truth-scoring/spec.md` | M13 report truth + quality scoring: 10-point scale, deterministic signals, two-sourced fixes |
 | `skills/spooner/SKILL.md` | The distributable skill entry |

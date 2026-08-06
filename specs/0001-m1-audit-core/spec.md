@@ -66,7 +66,7 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 |---|---|---|
 | fresh-recent | 0.5 | last commit ≤90d / ≤180d / older |
 | fresh-active | 0.5 | activity ≤30d / ≤90d / older |
-| fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard |
+| fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard; go: go.sum checksum lockfile; rust: Cargo.lock; java: manifest-version pin (no lockfile convention) |
 
 ### Structure (1) — engineering structure
 
