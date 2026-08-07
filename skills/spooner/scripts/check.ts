@@ -64,7 +64,11 @@ function readBaseline(root: string): BaselineRead {
   try {
     const parsed = JSON.parse(raw) as Baseline;
     if (parsed.schemaVersion === 1) return { baseline: null, migratedFromV1: true };
-    if (parsed.schemaVersion !== SCHEMA_VERSION || typeof parsed.score?.total !== "number" || !Array.isArray(parsed.gaps)) {
+    if (
+      parsed.schemaVersion !== SCHEMA_VERSION ||
+      typeof parsed.score?.total !== "number" ||
+      !Array.isArray(parsed.gaps)
+    ) {
       return { baseline: null, migratedFromV1: false };
     }
     return { baseline: parsed, migratedFromV1: false };
@@ -109,20 +113,28 @@ export function run(root: string): CheckReport {
     const delta = audit.score.total - prev.score.total;
     writeBaseline(root, { schemaVersion: SCHEMA_VERSION, date: today(), score: audit.score, gaps: audit.gaps });
     baseline = { present: true, date: prev.date, total: prev.score.total, delta };
-    if (delta < 0) suggestions.push(`Readiness dropped ${-delta} point(s) since ${prev.date} — inspect the gap list (score → fix loop).`);
+    if (delta < 0)
+      suggestions.push(
+        `Readiness dropped ${-delta} point(s) since ${prev.date} — inspect the gap list (score → fix loop).`,
+      );
     else if (delta > 0) suggestions.push(`Readiness improved +${delta} point(s) since ${prev.date}.`);
-    else suggestions.push(`Readiness unchanged since ${prev.date} (${audit.score.total}/${audit.score.max}).`);
+    else
+      suggestions.push(`Readiness unchanged since ${prev.date} (${audit.score.total.toFixed(1)}/${audit.score.max}).`);
   }
 
   if (!drift) {
     suggestions.push("No .ai-native.yml manifest — run transform stage 2 to install the manifest, then re-check.");
   } else if (!drift.consistent) {
-    suggestions.push(`Drift: ${drift.missing.length} manifest file(s) missing (${drift.missing.join(", ")}) — re-run transform stage ${stageHint(drift.missing)} to restore them.`);
+    suggestions.push(
+      `Drift: ${drift.missing.length} manifest file(s) missing (${drift.missing.join(", ")}) — re-run transform stage ${stageHint(drift.missing)} to restore them.`,
+    );
   }
 
   const outdated = outdatedTemplates(root);
   if (outdated.length > 0) {
-    suggestions.push(`Templates outdated: ${outdated.length} file(s) (${outdated.map((f) => f.file).join(", ")}) — run sync to apply the current templates.`);
+    suggestions.push(
+      `Templates outdated: ${outdated.length} file(s) (${outdated.map((f) => f.file).join(", ")}) — run sync to apply the current templates.`,
+    );
   }
 
   return {
@@ -141,10 +153,13 @@ export function run(root: string): CheckReport {
 
 function renderMarkdown(r: CheckReport): string {
   const lines: string[] = ["# Check Report", ""];
-  lines.push(`- Score: **${r.score.total}/${r.score.max}** · Maturity: ${r.maturity} · Root: ${r.root}`, "");
+  lines.push(`- Score: **${r.score.total.toFixed(1)}/${r.score.max}** · Maturity: ${r.maturity} · Root: ${r.root}`, "");
   if (r.baseline.present) {
     const d = r.baseline.delta ?? 0;
-    lines.push(`- Baseline (${r.baseline.date}): ${r.baseline.total}/${r.score.max} · delta: ${d > 0 ? "+" : ""}${d}`, "");
+    lines.push(
+      `- Baseline (${r.baseline.date}): ${r.baseline.total}/${r.score.max} · delta: ${d > 0 ? "+" : ""}${d}`,
+      "",
+    );
   } else {
     lines.push("- Baseline: none (first run)", "");
   }
@@ -174,10 +189,7 @@ function parseArgs(argv: string[]): { root: string; format: "json" | "markdown" 
 function assertNodeVersion(): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
   const ok =
-    major > 24 ||
-    (major === 24 && minor >= 12) ||
-    (major === 23 && minor >= 6) ||
-    (major === 22 && minor >= 18);
+    major > 24 || (major === 24 && minor >= 12) || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
   if (!ok) {
     console.error(
       `check: Node.js >= 22.18 required (native type stripping); found ${process.versions.node}.\n` +

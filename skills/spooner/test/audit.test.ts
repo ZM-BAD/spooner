@@ -32,7 +32,26 @@ test("scale: max 10, category maxima 3/2.5/2/1.5/1, every score is a 0.1 multipl
     const scaled = i.score * 10;
     assert.ok(Math.abs(scaled - Math.round(scaled)) < 1e-9, `${i.id}: ${i.score} is not a 0.1 multiple`);
   }
-  assert.equal(r.score.total, r.items.reduce((s, i) => s + i.score, 0));
+  assert.equal(r.score.total, Math.round(r.items.reduce((s, i) => s + i.score, 0) * 10) / 10);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("scale: totals carry no float tails — 0.1 display granularity (regression: 1.4000000000000001)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x"}\n');
+  writeFileSync(join(repo, "eslint.config.js"), "module.exports = {};\n");
+  writeFileSync(join(repo, ".prettierrc"), "{}\n");
+  writeFileSync(
+    join(repo, ".pre-commit-config.yaml"),
+    "repos:\n  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook\n    rev: v9.26.0\n",
+  );
+  const r = runAudit(repo);
+  for (const [cat, v] of Object.entries(r.score.byCategory)) {
+    assert.ok(Number.isInteger(v.score * 10), `${cat}: ${v.score} has a float tail`);
+  }
+  assert.ok(Number.isInteger(r.score.total * 10), `total ${r.score.total} has a float tail`);
+  assert.equal(r.score.byCategory.configuration.score, 0.6);
+  assert.equal(r.score.total, 1.4);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -40,7 +59,10 @@ test("scale: max 10, category maxima 3/2.5/2/1.5/1, every score is a 0.1 multipl
 
 test("agents: generated-contract fixture scores top bands", () => {
   const repo = fixture();
-  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"build":"echo b","test":"echo t","lint":"echo l"}}\n');
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"name":"x","scripts":{"build":"echo b","test":"echo t","lint":"echo l"}}\n',
+  );
   // 42-line contract with two traceable commands
   const contract = [
     "# x — agent contract",
@@ -63,7 +85,6 @@ test("agents: generated-contract fixture scores top bands", () => {
   } catch {
     /* symlink may fail on some platforms — bridge test is best-effort */
   }
-  const r = runAudit(repo);
   assert.equal(item(repo, "agents-md")?.score, 0.5);
   assert.equal(item(repo, "agents-length")?.score, 0.5);
   const bridge = item(repo, "agents-bridge");
@@ -109,7 +130,9 @@ test("cfg-ci: lint+test -> 0.4", () => {
 });
 
 test("cfg-ci: lint+test+security job -> 0.5", () => {
-  const repo = ciFixture("jobs:\n  lint:\n    runs-on: ubuntu-latest\n  test:\n    runs-on: ubuntu-latest\n  security:\n    runs-on: ubuntu-latest\n");
+  const repo = ciFixture(
+    "jobs:\n  lint:\n    runs-on: ubuntu-latest\n  test:\n    runs-on: ubuntu-latest\n  security:\n    runs-on: ubuntu-latest\n",
+  );
   assert.equal(item(repo, "cfg-ci")?.score, 0.5);
   rmSync(repo, { recursive: true, force: true });
 });
@@ -146,7 +169,10 @@ test("drift: stale manifest (version != tool) -> 0.2, never full", () => {
 
 test("drift: consistent manifest (version == tool + files present) -> 0.5", () => {
   const repo = fixture();
-  writeFileSync(join(repo, ".ai-native.yml"), `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  2:\n    date: "2026-08-06"\n    files:\n      - ".commitlintrc.json"\n`);
+  writeFileSync(
+    join(repo, ".ai-native.yml"),
+    `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  2:\n    date: "2026-08-06"\n    files:\n      - ".commitlintrc.json"\n`,
+  );
   writeFileSync(join(repo, ".commitlintrc.json"), "{}\n");
   assert.equal(item(repo, "drift")?.score, 0.5);
   rmSync(repo, { recursive: true, force: true });
@@ -154,7 +180,10 @@ test("drift: consistent manifest (version == tool + files present) -> 0.5", () =
 
 test("drift: version current but a declared file missing -> 0.3 with a restore-stage fix", () => {
   const repo = fixture();
-  writeFileSync(join(repo, ".ai-native.yml"), `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  4:\n    date: "2026-08-06"\n    files:\n      - "docs/sdd/spec.md"\n`);
+  writeFileSync(
+    join(repo, ".ai-native.yml"),
+    `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  4:\n    date: "2026-08-06"\n    files:\n      - "docs/sdd/spec.md"\n`,
+  );
   const d = item(repo, "drift");
   assert.equal(d?.score, 0.3);
   assert.match(d?.fix ?? "", /stage 4/);
@@ -276,7 +305,18 @@ test("fix-source audit: every 'transform Stage N' fix belongs to a deliverable c
   const repo = fixture();
   const r = runAudit(repo);
   // Checks transform stages 2/3/4 can actually address (M13 matrix).
-  const deliverable = new Set(["agents-md", "agents-bridge", "agents-length", "agents-sdd", "cfg-lint", "cfg-hooks", "cfg-ci", "sec-scan", "sec-ci", "drift"]);
+  const deliverable = new Set([
+    "agents-md",
+    "agents-bridge",
+    "agents-length",
+    "agents-sdd",
+    "cfg-lint",
+    "cfg-hooks",
+    "cfg-ci",
+    "sec-scan",
+    "sec-ci",
+    "drift",
+  ]);
   for (const i of r.items) {
     if (/transform Stage/.test(i.fix)) {
       assert.ok(deliverable.has(i.id), `${i.id} fix references transform but is not deliverable: ${i.fix}`);
@@ -291,7 +331,10 @@ test("suggestions: README with sections silences the README suggestion", () => {
   const repo = fixture();
   writeFileSync(join(repo, "README.md"), "# R\n\n## Install\n\nSteps.\n\n## Usage\n\nMore.\n\n## License\n\nMIT.\n");
   const r = runAudit(repo);
-  assert.ok(!r.suggestions.some((s) => /README/i.test(s)), `README suggestion still present: ${r.suggestions.join(" | ")}`);
+  assert.ok(
+    !r.suggestions.some((s) => /README/i.test(s)),
+    `README suggestion still present: ${r.suggestions.join(" | ")}`,
+  );
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -313,7 +356,10 @@ test("agents-sdd: hyphenated repo name must not false-positive (regression: sdd-
 
 test("agents-sdd: declaration + spec files with state frontmatter -> 0.4", () => {
   const repo = fixture();
-  writeFileSync(join(repo, "AGENTS.md"), "# repo\n\nWe use a spec-driven workflow (SDD): every feature starts as a spec.\n");
+  writeFileSync(
+    join(repo, "AGENTS.md"),
+    "# repo\n\nWe use a spec-driven workflow (SDD): every feature starts as a spec.\n",
+  );
   mkdirSync(join(repo, "specs", "001-x"), { recursive: true });
   writeFileSync(join(repo, "specs", "001-x", "spec.md"), "---\nstatus: proposed\ntarget: M1\n---\n\n# X\n");
   assert.equal(item(repo, "agents-sdd")?.score, 0.4);
@@ -330,9 +376,15 @@ test("agents-commands: package.json build+test -> 0.6 (no third command)", () =>
 
 test("agents-commands: package.json build+test+lint -> 0.8 (documented -> 1.0)", () => {
   const repo = fixture();
-  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"build":"echo b","test":"echo t","lint":"echo l"}}\n');
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"name":"x","scripts":{"build":"echo b","test":"echo t","lint":"echo l"}}\n',
+  );
   assert.equal(item(repo, "agents-commands")?.score, 0.8);
-  writeFileSync(join(repo, "AGENTS.md"), "## Commands (all real and executable)\n\n| Command | Purpose |\n|---|---|\n| `npm run build` | build |\n| `npm run test` | test |\n");
+  writeFileSync(
+    join(repo, "AGENTS.md"),
+    "## Commands (all real and executable)\n\n| Command | Purpose |\n|---|---|\n| `npm run build` | build |\n| `npm run test` | test |\n",
+  );
   assert.equal(item(repo, "agents-commands")?.score, 1);
   rmSync(repo, { recursive: true, force: true });
 });
@@ -350,13 +402,18 @@ test("agents-commands: go.mod -> 0.6 via stack lifecycle (M6)", () => {
 
 test("sec-ci: GitLab top-level security job counts as dedicated (0-indent)", () => {
   const repo = fixture();
-  writeFileSync(join(repo, ".gitlab-ci.yml"), "lint:\n  script: npm run lint\ntest:\n  script: npm test\nsecurity:\n  script: gitleaks scan\n");
+  writeFileSync(
+    join(repo, ".gitlab-ci.yml"),
+    "lint:\n  script: npm run lint\ntest:\n  script: npm test\nsecurity:\n  script: gitleaks scan\n",
+  );
   assert.equal(item(repo, "sec-ci")?.score, 0.5);
   rmSync(repo, { recursive: true, force: true });
 });
 
 test("sec-ci: GitHub step named 'security scan' is not a job (deep indent)", () => {
-  const repo = ciFixture("jobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - name: security scan\n        run: trivy fs .\n");
+  const repo = ciFixture(
+    "jobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - name: security scan\n        run: trivy fs .\n",
+  );
   assert.equal(item(repo, "sec-ci")?.score, 0.2);
   rmSync(repo, { recursive: true, force: true });
 });

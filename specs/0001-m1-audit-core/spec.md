@@ -130,7 +130,7 @@ Conventions: `items` expands all 19 checks; `gaps` = ids where score < max; `sug
 ```markdown
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **9/10**
+- Stack: node · Maturity: stable · Score: **9.4/10**
 
 ## Score by category
 

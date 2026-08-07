@@ -53,13 +53,7 @@ export interface AuditResult {
   suggestions: string[];
 }
 
-const CATEGORY_ORDER: readonly Category[] = [
-  "agent-setup",
-  "configuration",
-  "integrity",
-  "freshness",
-  "structure",
-];
+const CATEGORY_ORDER: readonly Category[] = ["agent-setup", "configuration", "integrity", "freshness", "structure"];
 
 const CATEGORY_MAX: Record<Category, number> = {
   "agent-setup": 3,
@@ -132,9 +126,7 @@ function packageJson(root: string): Record<string, unknown> | null {
 
 function packageScripts(root: string): Record<string, string> {
   const scripts = packageJson(root)?.scripts;
-  return typeof scripts === "object" && scripts !== null
-    ? (scripts as Record<string, string>)
-    : {};
+  return typeof scripts === "object" && scripts !== null ? (scripts as Record<string, string>) : {};
 }
 
 function makefileTargets(root: string): string[] {
@@ -165,9 +157,11 @@ function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolea
   const stacks = detect(root).stacks;
   if (stacks.includes("go")) return { hasBuild: true, hasTest: true, source: "go.mod (go build/test)" };
   if (stacks.includes("rust")) return { hasBuild: true, hasTest: true, source: "Cargo.toml (cargo build/test)" };
-  if (stacks.includes("python")) return { hasBuild: false, hasTest: true, source: "pyproject.toml (python3 -m unittest)" };
+  if (stacks.includes("python"))
+    return { hasBuild: false, hasTest: true, source: "pyproject.toml (python3 -m unittest)" };
   if (stacks.includes("java")) {
-    if (existsSync(join(root, "build.gradle"))) return { hasBuild: true, hasTest: true, source: "build.gradle (gradle build/test)" };
+    if (existsSync(join(root, "build.gradle")))
+      return { hasBuild: true, hasTest: true, source: "build.gradle (gradle build/test)" };
     return { hasBuild: true, hasTest: true, source: "pom.xml (mvn compile/test)" };
   }
   return { hasBuild: false, hasTest: false, source: null };
@@ -192,13 +186,7 @@ function ciContent(root: string): string {
       parts.push(readIfExists(join(workflows, file)) ?? "");
     }
   }
-  for (const file of [
-    ".gitlab-ci.yml",
-    ".circleci/config.yml",
-    ".travis.yml",
-    "Jenkinsfile",
-    "azure-pipelines.yml",
-  ]) {
+  for (const file of [".gitlab-ci.yml", ".circleci/config.yml", ".travis.yml", "Jenkinsfile", "azure-pipelines.yml"]) {
     parts.push(readIfExists(join(root, file)) ?? "");
   }
   // Filter empties: missing CI files must not inflate hasCi (joining
@@ -228,9 +216,24 @@ const SUBSTACK_MANIFESTS: readonly [string, string][] = [
 
 /** Vendored/build/tooling dirs that must never count as sub-stacks. */
 const VENDORED_DIRS = new Set([
-  "node_modules", ".venv", "venv", ".git", ".idea", ".vscode", ".claude", ".github",
-  "coverage", "dist", "build", ".output", ".next", ".wxt", ".playwright-mcp",
-  ".ruff_cache", ".pytest_cache", "__pycache__",
+  "node_modules",
+  ".venv",
+  "venv",
+  ".git",
+  ".idea",
+  ".vscode",
+  ".claude",
+  ".github",
+  "coverage",
+  "dist",
+  "build",
+  ".output",
+  ".next",
+  ".wxt",
+  ".playwright-mcp",
+  ".ruff_cache",
+  ".pytest_cache",
+  "__pycache__",
 ]);
 
 /** Bounded one-level sub-stack scan (M13): known manifests in direct child dirs. */
@@ -284,7 +287,14 @@ function traceableCommandsOf(content: string, root: string): string[] {
 function checkAgentsMd(root: string): CheckResult {
   const file = agentFile(root);
   if (!file) {
-    return { id: "agents-md", category: "agent-setup", score: 0, max: 0.5, evidence: "agent file: missing", fix: "transform Stage 3" };
+    return {
+      id: "agents-md",
+      category: "agent-setup",
+      score: 0,
+      max: 0.5,
+      evidence: "agent file: missing",
+      fix: "transform Stage 3",
+    };
   }
   const content = readIfExists(join(root, file)) ?? "";
   const lines = content.split("\n").length;
@@ -301,7 +311,14 @@ function checkAgentsMd(root: string): CheckResult {
     score = 0.3;
     detail = `${file}: ${lines} lines with a command section`;
   }
-  return { id: "agents-md", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "keep commands in AGENTS.md traceable to real scripts/Makefile" };
+  return {
+    id: "agents-md",
+    category: "agent-setup",
+    score,
+    max: 0.5,
+    evidence: detail,
+    fix: "keep commands in AGENTS.md traceable to real scripts/Makefile",
+  };
 }
 
 function checkAgentsBridge(root: string): CheckResult {
@@ -311,7 +328,7 @@ function checkAgentsBridge(root: string): CheckResult {
   if (existsSync(claude)) {
     const isLink = lstatSync(claude).isSymbolicLink();
     const isFile = lstatSync(claude).isFile();
-    const content = isFile ? readIfExists(claude) ?? "" : "";
+    const content = isFile ? (readIfExists(claude) ?? "") : "";
     if (isLink) {
       detail = "CLAUDE.md: symlink to AGENTS.md";
       score = 0.5;
@@ -331,7 +348,14 @@ function checkAgentsBridge(root: string): CheckResult {
 function checkAgentsLength(root: string): CheckResult {
   const file = agentFile(root);
   if (!file) {
-    return { id: "agents-length", category: "agent-setup", score: 0, max: 0.5, evidence: "no agent file", fix: "transform Stage 3" };
+    return {
+      id: "agents-length",
+      category: "agent-setup",
+      score: 0,
+      max: 0.5,
+      evidence: "no agent file",
+      fix: "transform Stage 3",
+    };
   }
   const content = readIfExists(join(root, file)) ?? "";
   const lines = content.split("\n").length;
@@ -354,7 +378,14 @@ function checkAgentsLength(root: string): CheckResult {
     score = 0.1;
     detail = `${file}: ${lines} lines (too thin or too long)`;
   }
-  return { id: "agents-length", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "trim AGENTS.md to ≤200 lines — merge content, don't delete it" };
+  return {
+    id: "agents-length",
+    category: "agent-setup",
+    score,
+    max: 0.5,
+    evidence: detail,
+    fix: "trim AGENTS.md to ≤200 lines — merge content, don't delete it",
+  };
 }
 
 function checkAgentsCommands(root: string): CheckResult {
@@ -363,22 +394,26 @@ function checkAgentsCommands(root: string): CheckResult {
   const sc = stackCommandSources(root);
   const hasBuild = buildKey !== null || makefileTarget(root, "build") || sc.hasBuild;
   const hasTest = testKey !== null || makefileTarget(root, "test") || sc.hasTest;
-  const hasThird = scriptKey(root, /^lint\b|^vet\b/) !== null || makefileTarget(root, "lint") || makefileTarget(root, "vet");
+  const hasThird =
+    scriptKey(root, /^lint\b|^vet\b/) !== null || makefileTarget(root, "lint") || makefileTarget(root, "vet");
   const sources: string[] = [];
   if (buildKey || testKey) sources.push("package.json scripts");
   if (makefileTargets(root).length > 0) sources.push("Makefile");
   if (sc.source) sources.push(sc.source);
-  const evidence = sources.length > 0
-    ? `commands traceable to ${sources.join(" + ")} (build: ${hasBuild}, test: ${hasTest})`
-    : "no build/test commands found in package.json, Makefile, or stack build files";
+  const evidence =
+    sources.length > 0
+      ? `commands traceable to ${sources.join(" + ")} (build: ${hasBuild}, test: ${hasTest})`
+      : "no build/test commands found in package.json, Makefile, or stack build files";
 
   // AGENTS.md documentation of the real commands (the 1.0 band).
-  const agentContent = agentFile(root) ? readIfExists(join(root, agentFile(root)!)) ?? "" : "";
+  const agentContent = agentFile(root) ? (readIfExists(join(root, agentFile(root)!)) ?? "") : "";
   const documented = traceableCommandsOf(agentContent, root).length >= 2;
 
   let score: number;
   if (!hasBuild && !hasTest) {
-    score = /\bnpm (run )?(build|test)\b|`make (build|test)`|`(go|cargo|mvn|gradle) (build|test)`/.test(agentContent) ? 0.2 : 0;
+    score = /\bnpm (run )?(build|test)\b|`make (build|test)`|`(go|cargo|mvn|gradle) (build|test)`/.test(agentContent)
+      ? 0.2
+      : 0;
   } else if (hasBuild !== hasTest) {
     score = 0.4;
   } else if (!hasThird) {
@@ -414,11 +449,17 @@ function specFilesOf(dir: string): string[] {
 
 function checkAgentsSdd(root: string): CheckResult {
   const file = agentFile(root);
-  const content = file ? readIfExists(join(root, file)) ?? "" : "";
+  const content = file ? (readIfExists(join(root, file)) ?? "") : "";
   const mentions = /\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(content);
-  const specDir = existsSync(join(root, "specs")) ? join(root, "specs") : existsSync(join(root, "docs", "sdd")) ? join(root, "docs", "sdd") : null;
+  const specDir = existsSync(join(root, "specs"))
+    ? join(root, "specs")
+    : existsSync(join(root, "docs", "sdd"))
+      ? join(root, "docs", "sdd")
+      : null;
   const specFiles = specDir ? specFilesOf(specDir) : [];
-  const hasState = specFiles.some((f) => /^status:\s*(proposed|approved|in-progress|shipped)/m.test(readIfExists(f) ?? ""));
+  const hasState = specFiles.some((f) =>
+    /^status:\s*(proposed|approved|in-progress|shipped)/m.test(readIfExists(f) ?? ""),
+  );
   const hasCiGate = /\bspec\b|\bsdd\b/i.test(ciContent(root));
   let score = 0;
   let detail = "agent file does not declare a spec-driven workflow";
@@ -438,13 +479,27 @@ function checkAgentsSdd(root: string): CheckResult {
     score = 0.5;
     detail = "agent file declares the workflow + state-frontmatter specs + a CI spec gate";
   }
-  return { id: "agents-sdd", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "document the spec-driven workflow in AGENTS.md" };
+  return {
+    id: "agents-sdd",
+    category: "agent-setup",
+    score,
+    max: 0.5,
+    evidence: detail,
+    fix: "document the spec-driven workflow in AGENTS.md",
+  };
 }
 
 // --- checks: configuration (2.5) -------------------------------------------
 
 function checkCfgLint(root: string): CheckResult {
-  const config = hasPattern(root, [/^\.eslintrc/, /^eslint\.config\./, /^biome\.json/, /^\.golangci/, /^ruff\.toml/, /^\.markdownlint/]);
+  const config = hasPattern(root, [
+    /^\.eslintrc/,
+    /^eslint\.config\./,
+    /^biome\.json/,
+    /^\.golangci/,
+    /^ruff\.toml/,
+    /^\.markdownlint/,
+  ]);
   const cmd = scriptKey(root, /lint/i) ?? (makefileTarget(root, "lint") ? "lint" : null);
   const ci = /\blint\b/i.test(ciContent(root));
   let score = 0;
@@ -461,7 +516,10 @@ function checkCfgLint(root: string): CheckResult {
     category: "configuration",
     score,
     max: 0.5,
-    evidence: config && (cmd ?? (ci ? "CI lint step" : "no command")) ? `${config} + ${cmd ?? "CI lint step"}` : `lint config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
+    evidence:
+      config && (cmd ?? (ci ? "CI lint step" : "no command"))
+        ? `${config} + ${cmd ?? "CI lint step"}`
+        : `lint config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
     fix,
   };
 }
@@ -486,13 +544,21 @@ function checkCfgFormat(root: string): CheckResult {
     category: "configuration",
     score,
     max: 0.5,
-    evidence: config && (cmd ?? (ci ? "CI format step" : "no command")) ? `${config} + ${cmd ?? "CI format step"}` : `formatter config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
+    evidence:
+      config && (cmd ?? (ci ? "CI format step" : "no command"))
+        ? `${config} + ${cmd ?? "CI format step"}`
+        : `formatter config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
     fix,
   };
 }
 
 function checkCfgHooks(root: string): CheckResult {
-  const mechanism = hasPattern(root, [/^\.pre-commit-config\.ya?ml$/, /^lefthook\.ya?ml$/, /^\.husky$/, /^\.lintstagedrc/]);
+  const mechanism = hasPattern(root, [
+    /^\.pre-commit-config\.ya?ml$/,
+    /^lefthook\.ya?ml$/,
+    /^\.husky$/,
+    /^\.lintstagedrc/,
+  ]);
   let discipline = false;
   if (mechanism) {
     const p = join(root, mechanism);
@@ -509,21 +575,16 @@ function checkCfgHooks(root: string): CheckResult {
   // (or a worktree `.git` file) means no installable hooks — under-score.
   const hooksActive = (() => {
     if (mechanism === ".husky") {
-      return (
-        existsSync(join(root, ".husky", "pre-commit")) ||
-        existsSync(join(root, ".husky", "commit-msg"))
-      );
+      return existsSync(join(root, ".husky", "pre-commit")) || existsSync(join(root, ".husky", "commit-msg"));
     }
     const gitDir = join(root, ".git");
     if (!existsSync(gitDir) || !lstatSync(gitDir).isDirectory()) return false;
-    return (
-      existsSync(join(gitDir, "hooks", "pre-commit")) ||
-      existsSync(join(gitDir, "hooks", "commit-msg"))
-    );
+    return existsSync(join(gitDir, "hooks", "pre-commit")) || existsSync(join(gitDir, "hooks", "commit-msg"));
   })();
-  const commitMsgActive = mechanism === ".husky"
-    ? existsSync(join(root, ".husky", "commit-msg"))
-    : existsSync(join(root, ".git", "hooks", "commit-msg"));
+  const commitMsgActive =
+    mechanism === ".husky"
+      ? existsSync(join(root, ".husky", "commit-msg"))
+      : existsSync(join(root, ".git", "hooks", "commit-msg"));
 
   let score = 0;
   let detail = `hook mechanism: ${mechanism ?? "missing"}`;
@@ -551,33 +612,46 @@ function checkCfgCi(root: string): CheckResult {
   const content = ciContent(root);
   const hasLint = /\blint\b/i.test(content);
   const hasTest = /\btest\b/i.test(content);
-  const hasSec = /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content) || /^\s{0,2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
+  const hasSec =
+    /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content) || /^\s{0,2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
   let score = 0;
   if (content.length === 0) score = 0;
   else if (!hasLint && !hasTest) score = 0.1;
   else if (hasLint && !hasTest) score = 0.2;
   else if (hasLint && hasTest && !hasSec) score = 0.4;
   else score = 0.5;
-  const fix = content.length === 0
-    ? "transform Stage 2 (installs a CI workflow)"
-    : !hasTest
-      ? "add a test job (transform never invents commands — add a test script first)"
-      : "transform Stage 2 (CI security job)";
+  const fix =
+    content.length === 0
+      ? "transform Stage 2 (installs a CI workflow)"
+      : !hasTest
+        ? "add a test job (transform never invents commands — add a test script first)"
+        : "transform Stage 2 (CI security job)";
   return {
     id: "cfg-ci",
     category: "configuration",
     score,
     max: 0.5,
-    evidence: content.length === 0 ? "no CI config found" : `CI present (lint: ${hasLint}, test: ${hasTest}, security: ${hasSec})`,
+    evidence:
+      content.length === 0
+        ? "no CI config found"
+        : `CI present (lint: ${hasLint}, test: ${hasTest}, security: ${hasSec})`,
     fix,
   };
 }
 
 function checkCfgTest(root: string): CheckResult {
   const cmd = scriptKey(root, /^test\b|^spec\b/) ?? (makefileTarget(root, "test") ? "test" : null);
-  const config = hasPattern(root, [/^vitest\.config/, /^jest\.config/, /^playwright\.config/, /^pytest\.ini/, /^conftest\.py/]);
+  const config = hasPattern(root, [
+    /^vitest\.config/,
+    /^jest\.config/,
+    /^playwright\.config/,
+    /^pytest\.ini/,
+    /^conftest\.py/,
+  ]);
   const testFiles = findTestFiles(root);
-  const nonEmpty = testFiles.some((f) => /\b(it|test|describe|assert|expect)\(|self\.assert|@Test|it\s*\(|test\s*\(/i.test(readIfExists(f) ?? ""));
+  const nonEmpty = testFiles.some((f) =>
+    /\b(it|test|describe|assert|expect)\(|self\.assert|@Test|it\s*\(|test\s*\(/i.test(readIfExists(f) ?? ""),
+  );
   let score = 0;
   if (cmd || config) score = cmd && config ? 0.3 : 0.2;
   if ((cmd || config) && testFiles.length > 0) score = 0.4;
@@ -587,7 +661,13 @@ function checkCfgTest(root: string): CheckResult {
     category: "configuration",
     score,
     max: 0.5,
-    evidence: nonEmpty ? `test: ${cmd ?? config} + ${testFiles.length} test file(s) with assertions` : (cmd ?? config) ? `test: ${cmd ?? config}` : testFiles.length > 0 ? `${testFiles.length} test file(s), no test command` : "no test framework or test command found",
+    evidence: nonEmpty
+      ? `test: ${cmd ?? config} + ${testFiles.length} test file(s) with assertions`
+      : (cmd ?? config)
+        ? `test: ${cmd ?? config}`
+        : testFiles.length > 0
+          ? `${testFiles.length} test file(s), no test command`
+          : "no test framework or test command found",
     fix: "add a test framework + test script (transform never invents commands)",
   };
 }
@@ -598,7 +678,8 @@ function findTestFiles(root: string): string[] {
   const out: string[] = [];
   const collect = (dir: string) => {
     for (const f of entriesOf(dir) ?? []) {
-      if (/\.(test|spec)\./i.test(f) || /^(test_|.*_test\.|.*_spec\.)/.test(f) || /\.(ts|js|mjs|py|go|rb|rs)$/.test(f)) out.push(join(dir, f));
+      if (/\.(test|spec)\./i.test(f) || /^(test_|.*_test\.|.*_spec\.)/.test(f) || /\.(ts|js|mjs|py|go|rb|rs)$/.test(f))
+        out.push(join(dir, f));
     }
   };
   for (const dir of ["test", "tests", "spec"]) {
@@ -606,7 +687,8 @@ function findTestFiles(root: string): string[] {
     if (existsSync(p) && lstatSync(p).isDirectory()) collect(p);
   }
   for (const f of entriesOf(root) ?? []) {
-    if (/\.(test|spec)\./i.test(f) || /^test_.*\.(py|js|ts)$/.test(f) || /.*_test\.(go|rs|rb)$/.test(f)) out.push(join(root, f));
+    if (/\.(test|spec)\./i.test(f) || /^test_.*\.(py|js|ts)$/.test(f) || /.*_test\.(go|rs|rb)$/.test(f))
+      out.push(join(root, f));
   }
   for (const entry of (entriesOf(root) ?? []).sort()) {
     const p = join(root, entry);
@@ -633,15 +715,43 @@ function findTestFiles(root: string): string[] {
 function checkSecEnv(root: string): CheckResult {
   const envFile = join(root, ".env");
   if (!existsSync(envFile)) {
-    return { id: "sec-env", category: "integrity", score: 0.5, max: 0.5, evidence: "no .env file present", fix: "keep secrets out of the repo" };
+    return {
+      id: "sec-env",
+      category: "integrity",
+      score: 0.5,
+      max: 0.5,
+      evidence: "no .env file present",
+      fix: "keep secrets out of the repo",
+    };
   }
   if (gitOk(root, ["ls-files", "--error-unmatch", ".env"])) {
-    return { id: "sec-env", category: "integrity", score: 0, max: 0.5, evidence: ".env is tracked by git", fix: "remove .env from history and ignore it" };
+    return {
+      id: "sec-env",
+      category: "integrity",
+      score: 0,
+      max: 0.5,
+      evidence: ".env is tracked by git",
+      fix: "remove .env from history and ignore it",
+    };
   }
   if (gitOk(root, ["check-ignore", "-q", ".env"])) {
-    return { id: "sec-env", category: "integrity", score: 0.5, max: 0.5, evidence: ".env present but ignored via .gitignore", fix: "none" };
+    return {
+      id: "sec-env",
+      category: "integrity",
+      score: 0.5,
+      max: 0.5,
+      evidence: ".env present but ignored via .gitignore",
+      fix: "none",
+    };
   }
-  return { id: "sec-env", category: "integrity", score: 0.1, max: 0.5, evidence: ".env present but not ignored", fix: "add .env to .gitignore" };
+  return {
+    id: "sec-env",
+    category: "integrity",
+    score: 0.1,
+    max: 0.5,
+    evidence: ".env present but not ignored",
+    fix: "add .env to .gitignore",
+  };
 }
 
 function checkSecScan(root: string): CheckResult {
@@ -649,7 +759,8 @@ function checkSecScan(root: string): CheckResult {
   const preCommit = readIfExists(join(root, ".pre-commit-config.yaml")) ?? "";
   const mentioned = gitleaksConfig || /\bgitleaks\b/i.test(preCommit) || /\bgitleaks\b/i.test(ciContent(root));
   const declared = /\bgitleaks\b/i.test(preCommit);
-  const installed = existsSync(join(root, ".git", "hooks", "pre-commit")) || existsSync(join(root, ".husky", "pre-commit"));
+  const installed =
+    existsSync(join(root, ".git", "hooks", "pre-commit")) || existsSync(join(root, ".husky", "pre-commit"));
   let score = 0;
   let detail = "no secret scanning configured";
   if (mentioned) {
@@ -664,7 +775,14 @@ function checkSecScan(root: string): CheckResult {
     score = 0.5;
     detail = "gitleaks hook declared and installed (actually runs)";
   }
-  return { id: "sec-scan", category: "integrity", score, max: 0.5, evidence: detail, fix: "transform Stage 2 (gitleaks)" };
+  return {
+    id: "sec-scan",
+    category: "integrity",
+    score,
+    max: 0.5,
+    evidence: detail,
+    fix: "transform Stage 2 (gitleaks)",
+  };
 }
 
 function checkSecCi(root: string): CheckResult {
@@ -682,7 +800,14 @@ function checkSecCi(root: string): CheckResult {
     score = 0.5;
     detail = "CI contains a dedicated security job";
   }
-  return { id: "sec-ci", category: "integrity", score, max: 0.5, evidence: detail, fix: "transform Stage 2 (CI security job)" };
+  return {
+    id: "sec-ci",
+    category: "integrity",
+    score,
+    max: 0.5,
+    evidence: detail,
+    fix: "transform Stage 2 (CI security job)",
+  };
 }
 
 /** Which transform stage restores a manifest-listed file (mirrors check.ts). */
@@ -695,11 +820,20 @@ function stageHintOf(missing: string[]): number {
 function checkDrift(root: string): CheckResult {
   const { present, manifest } = readManifest(root);
   if (!present) {
-    return { id: "drift", category: "integrity", score: 0, max: 0.5, evidence: ".ai-native.yml manifest missing", fix: "run transform to install the manifest" };
+    return {
+      id: "drift",
+      category: "integrity",
+      score: 0,
+      max: 0.5,
+      evidence: ".ai-native.yml manifest missing",
+      fix: "run transform to install the manifest",
+    };
   }
   const version = typeof manifest?.version === "string" ? manifest.version : "0.0.0";
   const current = version === TOOL_VERSION;
-  const declared = Object.values(manifest?.stages ?? {}).flatMap((s) => (s && Array.isArray(s.files) ? (s.files as string[]) : []));
+  const declared = Object.values(manifest?.stages ?? {}).flatMap((s) =>
+    s && Array.isArray(s.files) ? (s.files as string[]) : [],
+  );
   const missingFiles = declared.filter((f) => !existsSync(join(root, f)));
   const allPresent = missingFiles.length === 0;
   let score = 0.2;
@@ -757,7 +891,15 @@ function checkFreshActive(root: string): CheckResult {
 }
 
 function checkFreshDeps(root: string): CheckResult {
-  const lockfiles = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "uv.lock", "poetry.lock", "pdm.lock"];
+  const lockfiles = [
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lockb",
+    "uv.lock",
+    "poetry.lock",
+    "pdm.lock",
+  ];
   const lock = lockfiles.find((f) => existsSync(join(root, f)));
   const pkg = packageJson(root);
   const pyproject = existsSync(join(root, "pyproject.toml"));
@@ -771,36 +913,78 @@ function checkFreshDeps(root: string): CheckResult {
     const pinned = !wildcard;
     const score = pinned && lock ? 0.5 : pinned ? 0.3 : 0.1;
     const evidence = lock ? `deps pinned + ${lock}` : pinned ? "deps pinned, no lockfile" : "deps use wildcard ranges";
-    return { id: "fresh-deps", category: "freshness", score, max: 0.5, evidence, fix: "pin versions and commit a lockfile" };
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score,
+      max: 0.5,
+      evidence,
+      fix: "pin versions and commit a lockfile",
+    };
   }
   if (pyproject) {
     const score = lock ? 0.5 : 0.2;
-    return { id: "fresh-deps", category: "freshness", score, max: 0.5, evidence: lock ? `pyproject.toml + ${lock}` : "pyproject.toml, no lockfile", fix: "commit a lockfile" };
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score,
+      max: 0.5,
+      evidence: lock ? `pyproject.toml + ${lock}` : "pyproject.toml, no lockfile",
+      fix: "commit a lockfile",
+    };
   }
   // go/rust: the checksum lockfiles are the lockfile signal (review 2026-08-06
   // — these stacks scored 0 forever with the misleading "no dependency manifest").
   if (existsSync(join(root, "go.mod"))) {
     const sum = existsSync(join(root, "go.sum"));
-    return { id: "fresh-deps", category: "freshness", score: sum ? 0.5 : 0.2, max: 0.5, evidence: sum ? "go.mod + go.sum (checksum lockfile)" : "go.mod, no go.sum committed", fix: "commit go.sum (module checksums)" };
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: sum ? 0.5 : 0.2,
+      max: 0.5,
+      evidence: sum ? "go.mod + go.sum (checksum lockfile)" : "go.mod, no go.sum committed",
+      fix: "commit go.sum (module checksums)",
+    };
   }
   if (existsSync(join(root, "Cargo.toml"))) {
     const cargoLock = existsSync(join(root, "Cargo.lock"));
-    return { id: "fresh-deps", category: "freshness", score: cargoLock ? 0.5 : 0.3, max: 0.5, evidence: cargoLock ? "Cargo.toml + Cargo.lock (pinned + lockfile)" : "Cargo.toml declares versions, no Cargo.lock", fix: "commit Cargo.lock for reproducible builds" };
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: cargoLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: cargoLock
+        ? "Cargo.toml + Cargo.lock (pinned + lockfile)"
+        : "Cargo.toml declares versions, no Cargo.lock",
+      fix: "commit Cargo.lock for reproducible builds",
+    };
   }
   // java pins versions in the manifest itself — no lockfile convention.
   if (existsSync(join(root, "pom.xml")) || existsSync(join(root, "build.gradle"))) {
-    return { id: "fresh-deps", category: "freshness", score: 0.3, max: 0.5, evidence: "java manifest pins dependency versions (no lockfile convention)", fix: "n/a" };
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: 0.3,
+      max: 0.5,
+      evidence: "java manifest pins dependency versions (no lockfile convention)",
+      fix: "n/a",
+    };
   }
-  return { id: "fresh-deps", category: "freshness", score: 0, max: 0.5, evidence: "no dependency manifest", fix: "n/a" };
+  return {
+    id: "fresh-deps",
+    category: "freshness",
+    score: 0,
+    max: 0.5,
+    evidence: "no dependency manifest",
+    fix: "n/a",
+  };
 }
 
 // --- checks: structure (1.0) --------------------------------------------------
 
 function checkStructReadme(root: string): CheckResult {
-  const readme = ["README.md", "README"]
-    .map((f) => join(root, f))
-    .find((f) => existsSync(f) && lstatSync(f).isFile());
-  const content = readme ? readIfExists(readme) ?? "" : "";
+  const readme = ["README.md", "README"].map((f) => join(root, f)).find((f) => existsSync(f) && lstatSync(f).isFile());
+  const content = readme ? (readIfExists(readme) ?? "") : "";
   const chars = content.trim().length;
   const headings = content.match(/^#{2,3}\s+/gm)?.length ?? 0;
   let score = 0;
@@ -814,7 +998,14 @@ function checkStructReadme(root: string): CheckResult {
   } else if (readme) {
     score = 0.1;
   }
-  return { id: "struct-readme", category: "structure", score, max: 0.5, evidence: detail, fix: "write a real README with sections" };
+  return {
+    id: "struct-readme",
+    category: "structure",
+    score,
+    max: 0.5,
+    evidence: detail,
+    fix: "write a real README with sections",
+  };
 }
 
 function checkStructLayout(root: string): CheckResult {
@@ -834,19 +1025,36 @@ function checkStructLayout(root: string): CheckResult {
 
 // --- maturity + assembly -------------------------------------------------------
 
-function assessMaturity(root: string, hasBuildCmd: boolean, hasAgent: boolean, hasCi: boolean): { maturity: AuditResult["maturity"]; note: string | null } {
+function assessMaturity(
+  root: string,
+  hasBuildCmd: boolean,
+  hasAgent: boolean,
+  hasCi: boolean,
+): { maturity: AuditResult["maturity"]; note: string | null } {
   const commits = git(root, ["rev-list", "--count", "HEAD"]);
   const count = commits ? Number.parseInt(commits, 10) : 0;
   if (count < 5) {
-    return { maturity: "skeleton", note: "Fewer than 5 commits — too early to transform. Return once the project stabilizes." };
+    return {
+      maturity: "skeleton",
+      note: "Fewer than 5 commits — too early to transform. Return once the project stabilizes.",
+    };
   }
   if (hasBuildCmd) {
     return { maturity: "stable", note: null };
   }
   if (!hasAgent && !hasCi) {
-    return { maturity: "legacy", note: "Established repo without agent files or CI — Stage 2 conservative mode recommended." };
+    return {
+      maturity: "legacy",
+      note: "Established repo without agent files or CI — Stage 2 conservative mode recommended.",
+    };
   }
   return { maturity: "stable", note: null };
+}
+
+/** Round to the display granularity (0.1) — float accumulation must never
+ *  leak tails like 1.4000000000000001 into a report (M13 report truth). */
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
 }
 
 /** Full audit pipeline — exported for reuse by check.ts (M3) / badge.ts (M9). */
@@ -877,13 +1085,13 @@ export function runAudit(root: string): AuditResult {
     CATEGORY_ORDER.map((category) => [
       category,
       {
-        score: items.filter((i) => i.category === category).reduce((sum, i) => sum + i.score, 0),
+        score: round1(items.filter((i) => i.category === category).reduce((sum, i) => sum + i.score, 0)),
         max: CATEGORY_MAX[category],
       },
     ]),
   ) as Record<Category, { score: number; max: number }>;
 
-  const total = CATEGORY_ORDER.reduce((sum, c) => sum + byCategory[c].score, 0);
+  const total = round1(CATEGORY_ORDER.reduce((sum, c) => sum + byCategory[c].score, 0));
   const gaps = items.filter((i) => i.score < i.max).map((i) => i.id);
   // Suggestions (M13): per category with below-max checks, the missing
   // checks' fixes deduped — fully-scoring categories stay silent.
@@ -919,12 +1127,15 @@ export function renderMarkdown(r: AuditResult): string {
   const lines: string[] = [];
   lines.push("# AI-Readiness Report", "");
   lines.push(
-    `- Stack: ${r.stacks.join(", ") || "unknown"} · Maturity: ${r.maturity} · Score: **${r.score.total}/${r.score.max}**`,
+    `- Stack: ${r.stacks.join(", ") || "unknown"} · Maturity: ${r.maturity} · Score: **${r.score.total.toFixed(1)}/${r.score.max}**`,
     "",
   );
   if (r.maturityNote) lines.push(`> ${r.maturityNote}`, "");
   if (r.subStacks.length > 0) {
-    lines.push(`- Sub-stacks: ${r.subStacks.map((s) => `${s.stack} (${s.dir}/)`).join(", ")} — root detection only; transform installs the root stack's gates; run transform per sub-stack`, "");
+    lines.push(
+      `- Sub-stacks: ${r.subStacks.map((s) => `${s.stack} (${s.dir}/)`).join(", ")} — root detection only; transform installs the root stack's gates; run transform per sub-stack`,
+      "",
+    );
   }
 
   lines.push("## Score by category", "");
@@ -966,10 +1177,7 @@ function parseArgs(argv: string[]): { root: string; format: "json" | "markdown" 
 function assertNodeVersion(): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
   const ok =
-    major > 24 ||
-    (major === 24 && minor >= 12) ||
-    (major === 23 && minor >= 6) ||
-    (major === 22 && minor >= 18);
+    major > 24 || (major === 24 && minor >= 12) || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
   if (!ok) {
     console.error(
       `audit: Node.js >= 22.18 required (native type stripping); found ${process.versions.node}.\n` +

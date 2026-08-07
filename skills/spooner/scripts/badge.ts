@@ -150,24 +150,160 @@ const STYLE_SPECS: Record<Style, StyleSpec> = {
   // pixel parity: 20px height, 11px Verdana, pill, grey label + colored
   // message (flat / flat-square / plastic / for-the-badge); social is
   // supported for parity but semantically a count-button style.
-  flat: { height: 20, fontSize: 11, padding: 6, radius: 3, labelColor: "#555", textColor: "#fff", bold: false, uppercase: false, gradient: true, gloss: false, shadowText: true },
-  "flat-square": { height: 20, fontSize: 11, padding: 6, radius: 0, labelColor: "#555", textColor: "#fff", bold: false, uppercase: false, gradient: false, gloss: false, shadowText: false },
-  plastic: { height: 20, fontSize: 11, padding: 6, radius: 3, labelColor: "#555", textColor: "#fff", bold: false, uppercase: false, gradient: true, gloss: true, shadowText: true },
-  "for-the-badge": { height: 28, fontSize: 15, padding: 16, radius: 4, labelColor: "#555", textColor: "#fff", bold: true, uppercase: true, gradient: false, gloss: false, shadowText: false },
-  social: { height: 20, fontSize: 11, padding: 6, radius: 4, labelColor: "#e9e9e9", textColor: "#333", bold: false, uppercase: false, gradient: false, gloss: false, shadowText: false },
+  flat: {
+    height: 20,
+    fontSize: 11,
+    padding: 6,
+    radius: 3,
+    labelColor: "#555",
+    textColor: "#fff",
+    bold: false,
+    uppercase: false,
+    gradient: true,
+    gloss: false,
+    shadowText: true,
+  },
+  "flat-square": {
+    height: 20,
+    fontSize: 11,
+    padding: 6,
+    radius: 0,
+    labelColor: "#555",
+    textColor: "#fff",
+    bold: false,
+    uppercase: false,
+    gradient: false,
+    gloss: false,
+    shadowText: false,
+  },
+  plastic: {
+    height: 20,
+    fontSize: 11,
+    padding: 6,
+    radius: 3,
+    labelColor: "#555",
+    textColor: "#fff",
+    bold: false,
+    uppercase: false,
+    gradient: true,
+    gloss: true,
+    shadowText: true,
+  },
+  "for-the-badge": {
+    height: 28,
+    fontSize: 15,
+    padding: 16,
+    radius: 4,
+    labelColor: "#555",
+    textColor: "#fff",
+    bold: true,
+    uppercase: true,
+    gradient: false,
+    gloss: false,
+    shadowText: false,
+  },
+  social: {
+    height: 20,
+    fontSize: 11,
+    padding: 6,
+    radius: 4,
+    labelColor: "#e9e9e9",
+    textColor: "#333",
+    bold: false,
+    uppercase: false,
+    gradient: false,
+    gloss: false,
+    shadowText: false,
+  },
 };
 
 /** Approximate per-character widths for Verdana 11px (shields conventions). */
 const FONT_WIDTHS: Record<string, number> = {
-  " ": 3.4, "!": 4.2, "\"": 4.9, "#": 8.2, "$": 6.6, "%": 10.2, "&": 8.3, "'": 3.0, "(": 4.3, ")": 4.3,
-  "*": 4.6, "+": 7.0, ",": 3.4, "-": 4.2, ".": 3.4, "/": 4.2, ":": 3.4, ";": 3.4, "<": 7.0, "=": 7.0,
-  ">": 7.0, "?": 6.2, "@": 11.5, "[": 4.3, "\\": 4.2, "]": 4.3, "^": 6.4, "_": 6.6, "`": 4.6,
-  "A": 8.0, "B": 7.9, "C": 8.1, "D": 8.6, "E": 7.5, "F": 7.0, "G": 8.8, "H": 8.8, "I": 4.1, "J": 4.8,
-  "K": 8.1, "L": 6.8, "M": 10.1, "N": 8.8, "O": 9.0, "P": 7.6, "Q": 9.0, "R": 8.0, "S": 7.0, "T": 7.4,
-  "U": 8.3, "V": 8.0, "W": 11.4, "X": 8.0, "Y": 8.0, "Z": 7.4,
-  "a": 6.6, "b": 6.9, "c": 5.9, "d": 6.9, "e": 6.5, "f": 4.1, "g": 6.9, "h": 7.0, "i": 3.2, "j": 3.2,
-  "k": 6.3, "l": 3.2, "m": 10.8, "n": 7.0, "o": 6.9, "p": 6.9, "q": 6.9, "r": 4.7, "s": 5.7, "t": 4.1,
-  "u": 7.0, "v": 6.5, "w": 9.6, "x": 6.3, "y": 6.5, "z": 5.8, "{": 5.0, "|": 4.2, "}": 5.0, "~": 7.0,
+  " ": 3.4,
+  "!": 4.2,
+  '"': 4.9,
+  "#": 8.2,
+  $: 6.6,
+  "%": 10.2,
+  "&": 8.3,
+  "'": 3.0,
+  "(": 4.3,
+  ")": 4.3,
+  "*": 4.6,
+  "+": 7.0,
+  ",": 3.4,
+  "-": 4.2,
+  ".": 3.4,
+  "/": 4.2,
+  ":": 3.4,
+  ";": 3.4,
+  "<": 7.0,
+  "=": 7.0,
+  ">": 7.0,
+  "?": 6.2,
+  "@": 11.5,
+  "[": 4.3,
+  "\\": 4.2,
+  "]": 4.3,
+  "^": 6.4,
+  _: 6.6,
+  "`": 4.6,
+  A: 8.0,
+  B: 7.9,
+  C: 8.1,
+  D: 8.6,
+  E: 7.5,
+  F: 7.0,
+  G: 8.8,
+  H: 8.8,
+  I: 4.1,
+  J: 4.8,
+  K: 8.1,
+  L: 6.8,
+  M: 10.1,
+  N: 8.8,
+  O: 9.0,
+  P: 7.6,
+  Q: 9.0,
+  R: 8.0,
+  S: 7.0,
+  T: 7.4,
+  U: 8.3,
+  V: 8.0,
+  W: 11.4,
+  X: 8.0,
+  Y: 8.0,
+  Z: 7.4,
+  a: 6.6,
+  b: 6.9,
+  c: 5.9,
+  d: 6.9,
+  e: 6.5,
+  f: 4.1,
+  g: 6.9,
+  h: 7.0,
+  i: 3.2,
+  j: 3.2,
+  k: 6.3,
+  l: 3.2,
+  m: 10.8,
+  n: 7.0,
+  o: 6.9,
+  p: 6.9,
+  q: 6.9,
+  r: 4.7,
+  s: 5.7,
+  t: 4.1,
+  u: 7.0,
+  v: 6.5,
+  w: 9.6,
+  x: 6.3,
+  y: 6.5,
+  z: 5.8,
+  "{": 5.0,
+  "|": 4.2,
+  "}": 5.0,
+  "~": 7.0,
 };
 
 /** Approximate rendered width in px (11px base; scales with font size). */
@@ -200,10 +336,14 @@ export function renderBadge(label: string, message: string, style: Style, messag
   );
   parts.push(`<title>${escapeXml(label)}: ${escapeXml(message)}</title>`);
   if (spec.gradient) {
-    parts.push('<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>');
+    parts.push(
+      '<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>',
+    );
   }
   if (spec.gloss) {
-    parts.push('<linearGradient id="g" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".15"/><stop offset="1" stop-opacity="0"/></linearGradient>');
+    parts.push(
+      '<linearGradient id="g" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".15"/><stop offset="1" stop-opacity="0"/></linearGradient>',
+    );
   }
   parts.push(`<clipPath id="r"><rect width="${width}" height="${height}" rx="${spec.radius}" fill="#fff"/></clipPath>`);
   parts.push('<g clip-path="url(#r)">');
@@ -215,8 +355,12 @@ export function renderBadge(label: string, message: string, style: Style, messag
   const font = `font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="${spec.fontSize}"${spec.bold ? ' font-weight="bold"' : ""}`;
   parts.push(`<g fill="${spec.textColor}" text-anchor="middle" ${font}>`);
   if (spec.shadowText) {
-    parts.push(`<text aria-hidden="true" x="${labelX}" y="${textY + 1}" fill="#010101" fill-opacity=".3">${escapeXml(displayLabel)}</text>`);
-    parts.push(`<text aria-hidden="true" x="${msgX}" y="${textY + 1}" fill="#010101" fill-opacity=".3">${escapeXml(displayMsg)}</text>`);
+    parts.push(
+      `<text aria-hidden="true" x="${labelX}" y="${textY + 1}" fill="#010101" fill-opacity=".3">${escapeXml(displayLabel)}</text>`,
+    );
+    parts.push(
+      `<text aria-hidden="true" x="${msgX}" y="${textY + 1}" fill="#010101" fill-opacity=".3">${escapeXml(displayMsg)}</text>`,
+    );
   }
   parts.push(`<text x="${labelX}" y="${textY}">${escapeXml(displayLabel)}</text>`);
   parts.push(`<text x="${msgX}" y="${textY}">${escapeXml(displayMsg)}</text>`);
@@ -244,7 +388,8 @@ export function run(root: string, override: Style | null): BadgeReport {
   const used = override ?? probe.decided;
   const source: BadgeReport["style"]["source"] = override ? "override" : probe.source;
   const tier = tierOf(audit.score.total);
-  const message = `${audit.score.total}/${audit.score.max}`;
+  // one decimal always (9.0/10) — a bare integer would suggest whole-point scoring
+  const message = `${audit.score.total.toFixed(1)}/${audit.score.max}`;
   const svg = renderBadge(tier, message, used, colorOf(audit.score.total));
 
   mkdirSync(join(root, ARTIFACT_DIR), { recursive: true });
@@ -270,7 +415,10 @@ export function run(root: string, override: Style | null): BadgeReport {
 
 function renderMarkdown(r: BadgeReport): string {
   const lines: string[] = ["# Badge Report", ""];
-  lines.push(`- Score: **${r.score.total}/${r.score.max}** · Tier: ${r.tier} · Style: ${r.style.used} (${r.style.source})`, "");
+  lines.push(
+    `- Score: **${r.score.total.toFixed(1)}/${r.score.max}** · Tier: ${r.tier} · Style: ${r.style.used} (${r.style.source})`,
+    "",
+  );
   lines.push(`- Probe: ${r.probe.evidence}`, "");
   lines.push(`- Badge: \`${r.files.badge}\` · Report: \`${r.files.report}\``, "");
   lines.push("", "## README snippet", "");
@@ -292,10 +440,7 @@ function parseArgs(argv: string[]): { root: string; format: "json" | "markdown" 
 function assertNodeVersion(): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
   const ok =
-    major > 24 ||
-    (major === 24 && minor >= 12) ||
-    (major === 23 && minor >= 6) ||
-    (major === 22 && minor >= 18);
+    major > 24 || (major === 24 && minor >= 12) || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
   if (!ok) {
     console.error(
       `badge: Node.js >= 22.18 required (native type stripping); found ${process.versions.node}.\n` +
