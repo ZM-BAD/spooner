@@ -1,16 +1,16 @@
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **9.4/10**
+- Stack: node · Maturity: stable · Score: **9.2/10**
 
 ## Score by category
 
 | Category | Score | Max |
 |---|---|---|
-| Agent Setup | 3 | 3 |
-| Configuration | 2.4 | 2.5 |
-| Integrity | 2 | 2 |
-| Freshness | 1.5 | 1.5 |
-| Structure | 0.5 | 1 |
+| Agent Setup | 4.5 | 4.5 |
+| Configuration | 1.9 | 2 |
+| Integrity | 1.5 | 1.5 |
+| Freshness | 0.5 | 0.5 |
+| Structure | 0.8 | 1.5 |
 
 ## Gaps
 

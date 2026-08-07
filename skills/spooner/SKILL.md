@@ -55,7 +55,7 @@ node <skill-dir>/scripts/badge.ts --root /path/to/repo [--style flat|flat-square
 1. **Detect the stack** (optional — for context): `node <skill-dir>/scripts/detect.ts --root <path>`. The audit re-runs detection internally, so this is only needed if you want manifest details up front.
 2. **Score the repository**: `node <skill-dir>/scripts/audit.ts --root <path> --format markdown`.
 3. **Read the report**:
-   - **Score out of 10** across five categories: Agent Setup 3 · Configuration 2.5 · Integrity 2 · Freshness 1.5 · Structure 1. Every check scores `max × coefficient` (0.2 steps → 0.1 granularity), grading **deterministic quality signals** — command traceability, CI job depth, hook installation state, manifest consistency — not bare existence. **Every point carries evidence** — a real file, git state, or a command traceable to the repo. No evidence → 0.
+   - **Score out of 10** — full marks is 10, but a 10 requires every one of the 17 checks to max out (existence + quality signals + per-stack attainable ceilings), which makes it almost unreachable in practice — the pylint case: the standard library scores 9.x, never 10. **A 9.5 is the excellent benchmark; 8 = good.** Weighted categories: Agent Setup 4.5 (AI-specific core) · Configuration 2 · Integrity 1.5 (generic devops — helpful to AI but not AI-specific, deliberately weighted lower) · Freshness 0.5 (deps-locking only — code activity is **not** scored: a dormant repo is not worse than an active one) · Structure 1.5. Every check scores `max × coefficient` (0.2 steps → 0.1 granularity), grading **deterministic quality signals** — command traceability, CI job depth, hook installation state, manifest consistency — not bare existence. **Every point carries evidence** — a real file, git state, or a command traceable to the repo. No evidence → 0.
    - **Maturity** decides what to tell the user (below).
    - **Gaps** are the checks scoring below max; each has `evidence` and a `fix` hint. **Suggestions** are fixed copy per category pointing at transform stages.
 4. **Never invent commands**: a command may only be reported as evidence if it exists in the repo (package.json scripts / Makefile / CI config). If it can't be traced, that's a gap — not a reason to fabricate.
@@ -164,49 +164,49 @@ The badge is the recurring-impression asset: pasted once into the README, it ren
 ```markdown
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **9.4/10**
+- Stack: node · Maturity: stable · Score: **9.2/10**
 
 ## Score by category
 
 | Category | Score | Max |
 |---|---|---|
-| Agent Setup | 3 | 3 |
-| Configuration | 2 | 2.5 |
-| Integrity | 2 | 2 |
-| Freshness | 1.5 | 1.5 |
-| Structure | 0.5 | 1 |
+| Agent Setup | 4.5 | 4.5 |
+| Configuration | 1.9 | 2 |
+| Integrity | 1.5 | 1.5 |
+| Freshness | 0.5 | 0.5 |
+| Structure | 0.8 | 1.5 |
 
 ## Gaps
 
 | Check | Score | Evidence | Fix |
 |---|---|---|---|
-| cfg-format | 0/0.5 | formatter config: missing, command: missing | add a formatter config + format command (prettier/biome) |
+| cfg-format | 0.4/0.5 | .prettierrc + format | transform Stage 2 (CI format job) |
 | struct-layout | 0/0.5 | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ (not covered by transform) |
 
 ## Suggestions
 
-- Configuration: add a formatter config + format command (prettier/biome)
+- Configuration: transform Stage 2 (CI format job)
 - Structure: organize sources under src/, lib/, or packages/ (not covered by transform)
 ```
 
-### JSON output (abridged — `items` holds all 19 checks; the first three are shown)
+### JSON output (abridged — `items` holds all 17 checks; the first three are shown)
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "root": ".",
   "stacks": ["node"],
   "maturity": "stable",
   "maturityNote": null,
   "score": {
-    "total": 9,
+    "total": 9.2,
     "max": 10,
     "byCategory": {
-      "agent-setup": { "score": 3, "max": 3 },
-      "configuration": { "score": 2, "max": 2.5 },
-      "integrity": { "score": 2, "max": 2 },
-      "freshness": { "score": 1.5, "max": 1.5 },
-      "structure": { "score": 0.5, "max": 1 }
+      "agent-setup": { "score": 4.5, "max": 4.5 },
+      "configuration": { "score": 1.9, "max": 2 },
+      "integrity": { "score": 1.5, "max": 1.5 },
+      "freshness": { "score": 0.5, "max": 0.5 },
+      "structure": { "score": 0.8, "max": 1.5 }
     }
   },
   "items": [
@@ -215,7 +215,7 @@ The badge is the recurring-impression asset: pasted once into the README, it ren
       "category": "agent-setup",
       "score": 0.5,
       "max": 0.5,
-      "evidence": "AGENTS.md: 161 lines, 4 traceable commands",
+      "evidence": "AGENTS.md: 166 lines, 5 traceable commands",
       "fix": "keep commands in AGENTS.md traceable to real scripts/Makefile"
     },
     {
@@ -231,19 +231,19 @@ The badge is the recurring-impression asset: pasted once into the README, it ren
       "category": "agent-setup",
       "score": 0.5,
       "max": 0.5,
-      "evidence": "AGENTS.md: 161 lines (optimal band 30-200)",
+      "evidence": "AGENTS.md: 166 lines (optimal band 30-200)",
       "fix": "trim AGENTS.md to ≤200 lines — merge content, don't delete it"
     }
   ],
   "gaps": ["cfg-format", "struct-layout"],
   "suggestions": [
-    "Configuration: add a formatter config + format command (prettier/biome)",
+    "Configuration: transform Stage 2 (CI format job)",
     "Structure: organize sources under src/, lib/, or packages/ (not covered by transform)"
   ]
 }
 ```
 
-All 19 check ids: `agents-md`, `agents-bridge`, `agents-length`, `agents-commands`, `agents-sdd`, `cfg-lint`, `cfg-format`, `cfg-hooks`, `cfg-ci`, `cfg-test`, `sec-env`, `sec-scan`, `sec-ci`, `drift`, `fresh-recent`, `fresh-active`, `fresh-deps`, `struct-readme`, `struct-layout`.
+All 17 check ids: `agents-md`, `agents-bridge`, `agents-length`, `agents-commands`, `agents-sdd`, `cfg-lint`, `cfg-format`, `cfg-hooks`, `cfg-ci`, `cfg-test`, `sec-env`, `sec-scan`, `sec-ci`, `drift`, `fresh-deps`, `struct-readme`, `struct-layout`.
 
 ### Transform status (real output — the spooner repo itself)
 
@@ -268,7 +268,7 @@ A stage 2 dry-run on a repo with no gates reports the plan first, e.g. `dry-run:
 ```markdown
 # Check Report
 
-- Score: **9.4/10** · Maturity: stable · Root: .
+- Score: **9.2/10** · Maturity: stable · Root: .
 
 - Baseline: none (first run)
 

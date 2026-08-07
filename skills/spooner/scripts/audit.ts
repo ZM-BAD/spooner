@@ -23,6 +23,14 @@ import { fileURLToPath } from "node:url";
 import { detect } from "./detect.ts";
 import { readManifest, TOOL_VERSION } from "./transform.ts";
 
+/**
+ * Full marks is 10 — but a 10 requires every one of the 17 checks to max out,
+ * which the check design (existence + quality signals + per-stack attainable
+ * ceilings) makes almost unreachable in practice, the same way pylint's
+ * standard library scores 9.x, never 10. A 9.5 is the realistic "excellent"
+ * benchmark (8 = good); scores near 10 are not artificially capped — they
+ * just don't happen.
+ */
 const SCORE_MAX = 10;
 
 type Category = "agent-setup" | "configuration" | "integrity" | "freshness" | "structure";
@@ -55,12 +63,21 @@ export interface AuditResult {
 
 const CATEGORY_ORDER: readonly Category[] = ["agent-setup", "configuration", "integrity", "freshness", "structure"];
 
-const CATEGORY_MAX: Record<Category, number> = {
-  "agent-setup": 3,
-  configuration: 2.5,
-  integrity: 2,
-  freshness: 1.5,
-  structure: 1,
+/**
+ * Category weights — the single adjustable knob for the score distribution
+ * (2026-08-07 normalization layer, decoupled from the check structure: raw
+ * check scores scale to these weights per category). Agent Setup is the
+ * AI-specific core and carries the most weight; Configuration / Integrity are
+ * generic devops practices (helpful to AI but not AI-specific) and are
+ * deliberately weighted lower; Freshness holds deps-locking only — code
+ * activity is not scored (a dormant repo is not worse than an active one).
+ */
+const CATEGORY_WEIGHTS: Record<Category, number> = {
+  "agent-setup": 4.5,
+  configuration: 2,
+  integrity: 1.5,
+  freshness: 0.5,
+  structure: 1.5,
 };
 
 const CATEGORY_LABELS: Record<Category, string> = {
@@ -165,16 +182,6 @@ function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolea
     return { hasBuild: true, hasTest: true, source: "pom.xml (mvn compile/test)" };
   }
   return { hasBuild: false, hasTest: false, source: null };
-}
-
-function daysSince(epochSeconds: number): number {
-  return (Date.now() / 1000 - epochSeconds) / 86400;
-}
-
-function lastCommitTs(root: string): number | null {
-  const out = git(root, ["log", "-1", "--format=%ct"]);
-  const ts = out ? Number.parseInt(out, 10) : Number.NaN;
-  return Number.isNaN(ts) ? null : ts;
 }
 
 /** CI configuration files (GitHub Actions + common providers). */
@@ -858,38 +865,6 @@ function checkDrift(root: string): CheckResult {
 
 // --- checks: freshness (1.5) -------------------------------------------------
 
-function checkFreshRecent(root: string): CheckResult {
-  const ts = lastCommitTs(root);
-  if (ts === null) {
-    return { id: "fresh-recent", category: "freshness", score: 0, max: 0.5, evidence: "no git history", fix: "n/a" };
-  }
-  const days = daysSince(ts);
-  return {
-    id: "fresh-recent",
-    category: "freshness",
-    score: days <= 90 ? 0.5 : days <= 180 ? 0.2 : 0.1,
-    max: 0.5,
-    evidence: `last commit ${Math.floor(days)} days ago`,
-    fix: "n/a",
-  };
-}
-
-function checkFreshActive(root: string): CheckResult {
-  const ts = lastCommitTs(root);
-  if (ts === null) {
-    return { id: "fresh-active", category: "freshness", score: 0, max: 0.5, evidence: "no git history", fix: "n/a" };
-  }
-  const days = daysSince(ts);
-  return {
-    id: "fresh-active",
-    category: "freshness",
-    score: days <= 30 ? 0.5 : days <= 90 ? 0.2 : 0.1,
-    max: 0.5,
-    evidence: `last commit ${Math.floor(days)} days ago`,
-    fix: "n/a",
-  };
-}
-
 function checkFreshDeps(root: string): CheckResult {
   const lockfiles = [
     "package-lock.json",
@@ -1074,21 +1049,28 @@ export function runAudit(root: string): AuditResult {
     checkSecScan(root),
     checkSecCi(root),
     checkDrift(root),
-    checkFreshRecent(root),
-    checkFreshActive(root),
     checkFreshDeps(root),
     checkStructReadme(root),
     checkStructLayout(root),
   ];
 
+  // Normalization layer (2026-08-07, decoupled): each category's raw check
+  // scores scale from the check maxima to the category weight — the weights
+  // table is the single knob, the check structure stays untouched. Full marks
+  // = 10 (every check maxed); 9.5 is the excellent benchmark, not a cap.
   const byCategory = Object.fromEntries(
-    CATEGORY_ORDER.map((category) => [
-      category,
-      {
-        score: round1(items.filter((i) => i.category === category).reduce((sum, i) => sum + i.score, 0)),
-        max: CATEGORY_MAX[category],
-      },
-    ]),
+    CATEGORY_ORDER.map((category) => {
+      const checks = items.filter((i) => i.category === category);
+      const checkSum = checks.reduce((s, i) => s + i.max, 0);
+      const raw = checks.reduce((s, i) => s + i.score, 0);
+      return [
+        category,
+        {
+          score: round1(checkSum > 0 ? (raw * CATEGORY_WEIGHTS[category]) / checkSum : 0),
+          max: CATEGORY_WEIGHTS[category],
+        },
+      ];
+    }),
   ) as Record<Category, { score: number; max: number }>;
 
   const total = round1(CATEGORY_ORDER.reduce((sum, c) => sum + byCategory[c].score, 0));
@@ -1107,7 +1089,7 @@ export function runAudit(root: string): AuditResult {
   const { maturity, note } = assessMaturity(root, hasBuildCmd, agentFile(root) !== null, hasCi(root));
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     root,
     stacks,
     maturity,

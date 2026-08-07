@@ -10,14 +10,14 @@ function fixture(): string {
   return mkdtempSync(join(tmpdir(), "spooner-check-"));
 }
 
-test("check: first run records a v2 baseline with the note", () => {
+test("check: first run records a v3 baseline with the note", () => {
   const repo = fixture();
   const r1 = run(repo);
-  assert.equal(r1.schemaVersion, 2);
+  assert.equal(r1.schemaVersion, 3);
   assert.equal(r1.baseline.present, false);
   assert.match(r1.suggestions.join(" "), /First check — baseline recorded/);
   const baseline = JSON.parse(readFileSync(join(repo, ".ai-native", "baseline.json"), "utf8"));
-  assert.equal(baseline.schemaVersion, 2);
+  assert.equal(baseline.schemaVersion, 3);
   assert.equal(baseline.score.max, 10);
   rmSync(repo, { recursive: true, force: true });
 });
@@ -41,9 +41,25 @@ test("check: v1-model baseline is re-baselined with an explicit notice", () => {
   );
   const r = run(repo);
   assert.equal(r.baseline.present, false);
-  assert.match(r.suggestions.join(" "), /v1 scoring model re-baselined/);
+  assert.match(r.suggestions.join(" "), /older scoring model \(v1\/v2\) re-baselined/);
   const baseline = JSON.parse(readFileSync(join(repo, ".ai-native", "baseline.json"), "utf8"));
-  assert.equal(baseline.schemaVersion, 2);
+  assert.equal(baseline.schemaVersion, 3);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("check: v2-model baseline is re-baselined too (9.5 normalization, 2026-08-07)", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, ".ai-native"), { recursive: true });
+  writeFileSync(
+    join(repo, ".ai-native", "baseline.json"),
+    JSON.stringify({ schemaVersion: 2, date: "2026-08-06", score: { total: 9.4, max: 10, byCategory: {} }, gaps: [] }) +
+      "\n",
+  );
+  const r = run(repo);
+  assert.equal(r.baseline.present, false);
+  assert.match(r.suggestions.join(" "), /older scoring model \(v1\/v2\) re-baselined/);
+  const baseline = JSON.parse(readFileSync(join(repo, ".ai-native", "baseline.json"), "utf8"));
+  assert.equal(baseline.schemaVersion, 3);
   rmSync(repo, { recursive: true, force: true });
 });
 

@@ -27,11 +27,11 @@ For any repository, output an AI-Readiness score (/10) + gap list + maturity ass
 - Deep non-Node stack support (v1: generic templates + explicit "not supported yet")
 - LLM semantic layer (gates must be deterministic)
 
-## Scoring matrix (M13 revision, AI-Readiness out of 10)
+## Scoring matrix (M13 + 2026-08-07 revision, AI-Readiness out of 10)
 
-Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% / Configuration 25% / Integrity 20% / Agent Setup 15% / Structure 10%, mapped to **3 / 2.5 / 2 / 1.5 / 1 = 10 points**. Scores are **quality-graded, not existence-based** (M13): every check scores `max × coefficient` with coefficients in {0, 0.2, 0.4, 0.6, 0.8, 1.0} — every score is a 0.1 multiple. Quality means **deterministic signals only** (command traceability, CI job depth, hook installation state, manifest consistency, length bands, content structure) — no LLM judgment (determinism red line). Per-check band details are pinned in spec 0013; the table below is the summary. **Every item must carry evidence (real file/command); no evidence → 0.**
+Weight structure (2026-08-07 revision): Agent Setup 45% (the AI-specific core) / Configuration 20% / Integrity 15% (generic devops practices — helpful to AI but not AI-specific, deliberately weighted lower) / Freshness 5% (deps-locking only — code activity is not scored: a dormant repo is not worse than an active one) / Structure 15%, mapped to **4.5 / 2 / 1.5 / 0.5 / 1.5**. **Normalization layer (decoupled)**: category scores scale from the raw check maxima to the category weight (the weights table is the single adjustment knob, independent of the check structure). Full marks = **10** — but a 10 requires every check to max out (existence + quality signals + per-stack attainable ceilings), which is almost unreachable in practice (the pylint case: the standard library scores 9.x, never 10); **9.5 is the excellent benchmark, 8 = good** — the score is not artificially capped. Scores are **quality-graded, not existence-based** (M13): every check scores `max × coefficient` with coefficients in {0, 0.2, 0.4, 0.6, 0.8, 1.0} — every score is a 0.1 multiple. Quality means **deterministic signals only** (command traceability, CI job depth, hook installation state, manifest consistency, length bands, content structure) — no LLM judgment (determinism red line). Per-check band details are pinned in spec 0013; the table below is the summary. **Every item must carry evidence (real file/command); no evidence → 0.** Evidence must name files that actually exist — a python repo detected via `requirements.txt` alone is credited with `requirements.txt`, never `pyproject.toml` (regression 2026-08-07).
 
-### Agent Setup (3) — the product's edge, highest weight
+### Agent Setup (4.5) — the product's edge, highest weight
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
@@ -41,7 +41,7 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 | agents-commands | 1 | build+test traceable → full stack lifecycle → documented in AGENTS.md |
 | agents-sdd | 0.5 | declaration → + spec files → + state frontmatter → + CI spec gate |
 
-### Configuration (2.5) — tools & gates
+### Configuration (2) — tools & gates
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
@@ -51,7 +51,7 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 | cfg-ci | 0.5 | lint only / lint+test / lint+test+security job |
 | cfg-test | 0.5 | framework/command → + test files → + assertions |
 
-### Integrity (2) — security & consistency
+### Integrity (1.5) — security & consistency
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
@@ -60,15 +60,13 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 | sec-ci | 0.5 | tool mentioned vs dedicated security job |
 | drift | 0.5 | manifest exists → + version == tool → + declared files present |
 
-### Freshness (1.5) — maintenance activity (transform cannot fix)
+### Freshness (0.5) — dependency locking (time-independent; activity is not scored)
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
-| fresh-recent | 0.5 | last commit ≤90d / ≤180d / older |
-| fresh-active | 0.5 | activity ≤30d / ≤90d / older |
 | fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard; go: go.sum checksum lockfile; rust: Cargo.lock; java: manifest-version pin (no lockfile convention) |
 
-### Structure (1) — engineering structure
+### Structure (1.5) — engineering structure
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
@@ -123,34 +121,34 @@ Weight structure follows kardo-core (r=0.828 expert-calibrated): Freshness 30% /
 }
 ```
 
-Conventions: `items` expands all 19 checks; `gaps` = ids where score < max; `suggestions` = per-category, built from the missing checks' fix hints, deduped (deterministic, no LLM generation).
+Conventions: `items` expands all 17 checks; `gaps` = ids where score < max; `suggestions` = per-category, built from the missing checks' fix hints, deduped (deterministic, no LLM generation).
 
 ### Markdown (`--format markdown`, for humans)
 
 ```markdown
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **9.4/10**
+- Stack: node · Maturity: stable · Score: **9.2/10**
 
 ## Score by category
 
 | Category | Score | Max |
 |---|---|---|
-| Agent Setup | 3 | 3 |
-| Configuration | 2 | 2.5 |
-| Integrity | 2 | 2 |
-| Freshness | 1.5 | 1.5 |
-| Structure | 0.5 | 1 |
+| Agent Setup | 4.5 | 4.5 |
+| Configuration | 1.9 | 2 |
+| Integrity | 1.5 | 1.5 |
+| Freshness | 0.5 | 0.5 |
+| Structure | 0.8 | 1.5 |
 
 ## Gaps
 
 | Check | Score | Evidence | Fix |
 |---|---|---|---|
-| cfg-format | 0/0.5 | formatter config: missing, command: missing | add a formatter config + format command (prettier/biome) |
+| cfg-format | 0.4/0.5 | .prettierrc + format | transform Stage 2 (CI format job) |
 
 ## Suggestions
 
-- Configuration: add a formatter config + format command (prettier/biome)
+- Configuration: transform Stage 2 (CI format job)
 ```
 
 ## Acceptance criteria (all commands below must pass for shipped)

@@ -31,6 +31,9 @@ const SCHEMA_VERSION = 1;
 export const STYLES = ["flat", "flat-square", "plastic", "for-the-badge", "social"] as const;
 export type Style = (typeof STYLES)[number];
 
+// 10-scale tiers (spec 0009 + 2026-08-07 re-map): full marks = 10 but 10 is
+// almost unreachable (every check must max out — the pylint case); 9.5 = the
+// excellent benchmark, 8 = good.
 const TIERS: readonly { label: string; min: number }[] = [
   { label: "AI-Native", min: 9 },
   { label: "AI-Friendly", min: 7 },

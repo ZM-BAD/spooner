@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runAudit, renderMarkdown } from "../scripts/audit.ts";
 import { TOOL_VERSION } from "../scripts/transform.ts";
 
-/** Fresh fixture repo (not a git repo — freshness/maturity checks just under-score). */
+/** Fresh fixture repo (not a git repo — maturity checks just under-score). */
 function fixture(): string {
   return mkdtempSync(join(tmpdir(), "spooner-audit-"));
 }
@@ -15,24 +16,34 @@ function item(repo: string, id: string) {
   return runAudit(repo).items.find((i) => i.id === id);
 }
 
+function git(repo: string, args: string[], env?: Record<string, string>): void {
+  execFileSync("git", args, { cwd: repo, stdio: "ignore", env: env ? { ...process.env, ...env } : undefined });
+}
+
 // --- acceptance 1: scale ----------------------------------------------------
 
-test("scale: max 10, category maxima 3/2.5/2/1.5/1, every score is a 0.1 multiple", () => {
+test("scale: full marks = 10 (9.5 is the excellent benchmark, not a cap), maxima 4.5/2/1.5/0.5/1.5, every score is a 0.1 multiple", () => {
   const repo = fixture();
   const r = runAudit(repo);
-  assert.equal(r.schemaVersion, 2);
+  assert.equal(r.schemaVersion, 3);
   assert.equal(r.score.max, 10);
-  assert.equal(r.score.byCategory["agent-setup"].max, 3);
-  assert.equal(r.score.byCategory.configuration.max, 2.5);
-  assert.equal(r.score.byCategory.integrity.max, 2);
-  assert.equal(r.score.byCategory.freshness.max, 1.5);
-  assert.equal(r.score.byCategory.structure.max, 1);
+  assert.equal(r.score.byCategory["agent-setup"].max, 4.5);
+  assert.equal(r.score.byCategory.configuration.max, 2);
+  assert.equal(r.score.byCategory.integrity.max, 1.5);
+  assert.equal(r.score.byCategory.freshness.max, 0.5);
+  assert.equal(r.score.byCategory.structure.max, 1.5);
   for (const i of r.items) {
     assert.ok(i.score <= i.max, `${i.id}: score ${i.score} > max ${i.max}`);
     const scaled = i.score * 10;
     assert.ok(Math.abs(scaled - Math.round(scaled)) < 1e-9, `${i.id}: ${i.score} is not a 0.1 multiple`);
   }
-  assert.equal(r.score.total, Math.round(r.items.reduce((s, i) => s + i.score, 0) * 10) / 10);
+  for (const [cat, v] of Object.entries(r.score.byCategory)) {
+    assert.ok(v.score <= v.max, `${cat}: ${v.score} > max ${v.max}`);
+  }
+  // no ×0.95 scaling — total is the plain weighted sum (max 10)
+  const raw = Object.values(r.score.byCategory).reduce((s, v) => s + v.score, 0);
+  assert.equal(r.score.total, Math.round(raw * 10) / 10);
+  assert.ok(r.score.total <= 10, `total ${r.score.total} exceeds max`);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -50,9 +61,31 @@ test("scale: totals carry no float tails — 0.1 display granularity (regression
     assert.ok(Number.isInteger(v.score * 10), `${cat}: ${v.score} has a float tail`);
   }
   assert.ok(Number.isInteger(r.score.total * 10), `total ${r.score.total} has a float tail`);
-  assert.equal(r.score.byCategory.configuration.score, 0.6);
-  assert.equal(r.score.total, 1.4);
+  assert.equal(r.score.byCategory.configuration.score, 0.5);
+  assert.equal(r.score.total, 1.2);
   rmSync(repo, { recursive: true, force: true });
+});
+
+test("freshness: activity is not scored — a dormant repo matches an active one (2026-08-07)", () => {
+  const build = (commitDate: string) => {
+    const repo = fixture();
+    git(repo, ["init", "-q"]);
+    writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"test":"true"}}\n');
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-q", "-m", "init"], { GIT_AUTHOR_DATE: commitDate, GIT_COMMITTER_DATE: commitDate });
+    return repo;
+  };
+  const active = build("2026-08-01T00:00:00Z");
+  const dormant = build("2024-01-01T00:00:00Z");
+  const ra = runAudit(active);
+  const rd = runAudit(dormant);
+  assert.equal(rd.score.total, ra.score.total, "dormant repo must score identically to an active one");
+  assert.ok(
+    !rd.items.some((i) => i.id.startsWith("fresh-") && i.id !== "fresh-deps"),
+    "activity checks (fresh-recent/fresh-active) must not exist",
+  );
+  rmSync(active, { recursive: true, force: true });
+  rmSync(dormant, { recursive: true, force: true });
 });
 
 // --- acceptance 2: quality grading (generated-contract fixture) --------------

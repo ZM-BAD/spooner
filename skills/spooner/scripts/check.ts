@@ -24,7 +24,7 @@ import { outdatedTemplates } from "./sync.ts";
 
 const BASELINE_DIR = ".ai-native";
 const BASELINE_FILE = "baseline.json";
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 interface Baseline {
   schemaVersion: number;
@@ -35,8 +35,8 @@ interface Baseline {
 
 interface BaselineRead {
   baseline: Baseline | null;
-  /** v1-scoring-model baseline found — scores are not comparable across models. */
-  migratedFromV1: boolean;
+  /** Older-scoring-model baseline found (v1 20-point / v2 10-point) — scores are not comparable across models. */
+  oldModel: boolean;
 }
 
 interface CheckReport {
@@ -59,21 +59,21 @@ function readBaseline(root: string): BaselineRead {
   try {
     raw = readFileSync(baselinePath(root), "utf8");
   } catch {
-    return { baseline: null, migratedFromV1: false };
+    return { baseline: null, oldModel: false };
   }
   try {
     const parsed = JSON.parse(raw) as Baseline;
-    if (parsed.schemaVersion === 1) return { baseline: null, migratedFromV1: true };
+    if (parsed.schemaVersion < SCHEMA_VERSION) return { baseline: null, oldModel: true };
     if (
       parsed.schemaVersion !== SCHEMA_VERSION ||
       typeof parsed.score?.total !== "number" ||
       !Array.isArray(parsed.gaps)
     ) {
-      return { baseline: null, migratedFromV1: false };
+      return { baseline: null, oldModel: false };
     }
-    return { baseline: parsed, migratedFromV1: false };
+    return { baseline: parsed, oldModel: false };
   } catch {
-    return { baseline: null, migratedFromV1: false };
+    return { baseline: null, oldModel: false };
   }
 }
 
@@ -95,18 +95,18 @@ function stageHint(missing: string[]): number {
 
 export function run(root: string): CheckReport {
   const audit = runAudit(root);
-  const { baseline: prev, migratedFromV1 } = readBaseline(root);
+  const { baseline: prev, oldModel } = readBaseline(root);
   const drift = checkConsistency(root);
   const suggestions: string[] = [];
 
   let baseline: CheckReport["baseline"];
   if (!prev) {
-    // first run (or v1-model baseline): record the baseline, report the note
+    // first run (or an older-model baseline): record the baseline, report the note
     writeBaseline(root, { schemaVersion: SCHEMA_VERSION, date: today(), score: audit.score, gaps: audit.gaps });
     baseline = { present: false, date: null, total: null, delta: null };
     suggestions.push(
-      migratedFromV1
-        ? "Baseline from the v1 scoring model re-baselined — v1 and v2 scores are not comparable."
+      oldModel
+        ? "Baseline from an older scoring model (v1/v2) re-baselined — scores are not comparable across models."
         : "First check — baseline recorded. Re-run later to see readiness drift.",
     );
   } else {

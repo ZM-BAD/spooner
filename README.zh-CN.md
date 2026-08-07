@@ -17,10 +17,10 @@
   <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
   <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
-  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI 就绪度：AI-Native · 9.4/10"/></a>
+  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI 就绪度：AI-Native · 9.2/10"/></a>
 </p>
 <p align="center">
-  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4/10 AI-Aware → 9.4/10 AI-Native"/></a>
+  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4/10 AI-Aware → 9.2/10 AI-Native"/></a>
 </p>
 
 一个 AI 原生（AI-Native）驱动的仓库，一般要具备完备的质量检测与 AI 引导设施，比如：**pre-commit 门禁**、真正会跑的 **lint / formatter 检查**、与本地门禁**一致的 CI**、告诉 agent 怎么干活的 **AGENTS.md**、**spec 驱动的契约**（SDD 模板）等等——未来涌现的同类质量检测设施，也会纳入 Spooner 的就绪度考核。

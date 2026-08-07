@@ -133,7 +133,7 @@ test("run: deterministic — two runs produce identical bytes", () => {
 
 // --- tier/color mapping (spec 0009, pinned) ---------------------------------------
 
-test("tierOf: pinned bands (M13 re-map)", () => {
+test("tierOf: pinned bands (10-scale; 9.5 = excellent benchmark, 10 almost unreachable)", () => {
   assert.equal(tierOf(10), "AI-Native");
   assert.equal(tierOf(9), "AI-Native");
   assert.equal(tierOf(8.9), "AI-Friendly");

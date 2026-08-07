@@ -34,17 +34,17 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
   - Known style signal = a shields.io URL with `?style=<name>`; everything else (badgen, custom SVG, GitHub-native workflow badges) = unknown.
   - Decision chain: any known styles present → majority wins; tie or no known styles → `flat`. Report the decision with evidence (e.g. "matched flat-square: 5 shields.io badges").
   - `--style` always overrides the probe.
-- **Pinned tier/color mapping** (label = tier, message = `N/20`; message-side colors follow the shields convention):
+- **Pinned tier/color mapping** (label = tier, message = `x/10`; 10-scale with 9.5 as the excellent benchmark — a 10 is almost unreachable; message-side colors follow the shields convention):
 
   | Score | Tier label | Color |
   |---|---|---|
-  | 17-20 | AI-Native | `#4c1` (green) |
-  | 13-16 | AI-Friendly | `#4c1` (green) |
-  | 9-12 | AI-Curious | `#dfb317` (yellow) |
-  | 5-8 | AI-Aware | `#e05d44` (red) |
-  | 0-4 | AI-Absent | `#e05d44` (red) |
+  | 9-10 | AI-Native | `#4c1` (green) |
+  | 7-8.9 | AI-Friendly | `#4c1` (green) |
+  | 5-6.9 | AI-Curious | `#dfb317` (yellow) |
+  | 3-4.9 | AI-Aware | `#e05d44` (red) |
+  | 0-2.9 | AI-Absent | `#e05d44` (red) |
 
-  Color bands: >= 16 green, 10-15 yellow, < 10 red. Fixed hex colors only (renders correctly in both GitHub themes).
+  Color bands: >= 8 green, 5-7.9 yellow, < 5 red. Fixed hex colors only (renders correctly in both GitHub themes).
 - **SKILL.md**: a badge step (after transform) — run badge.ts, review the snippet + probe report, insert into the README badge row with user confirmation.
 - No TOOL_VERSION bump (no workflow-template bytes change — new script + SKILL.md instructions only, same precedent as spec 0008).
 

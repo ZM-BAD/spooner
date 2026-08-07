@@ -10,7 +10,7 @@
 
 | ID | Name | Status | Notes |
 |---|---|---|---|
-| 0001 | m1-audit-core | shipped | audit: stack detection (9 stacks) + 10-point quality scoring (19 checks) + maturity gating + JSON/markdown reports |
+| 0001 | m1-audit-core | shipped | audit: stack detection (9 stacks) + 10-point quality scoring (17 checks, weighted categories + normalization layer; 9.5 = excellent benchmark, 10 almost unreachable) + maturity gating + JSON/markdown reports |
 | 0002 | m2-transform | shipped | transform stages 2-4 (gates → AGENTS.md + CLAUDE.md symlink → SDD) + `.ai-native.yml` manifest; stack-aware lifecycle commands; git-hook install step |
 | 0003 | m3-check | shipped | re-run audit + baseline delta + manifest drift + fixed suggestions; `.ai-native/baseline.json` ledger |
 | 0004 | m4-sync | shipped | version-aware template re-sync + one-click apply; manifest `templateVersion` extension; check "run sync" suggestion |
@@ -21,7 +21,7 @@
 | 0010 | m10-contextual-gates | shipped | stack-aware pre-commit generation (tooling-detected, check-only, rev-pinned) + hook-tool routing (pre-commit vs husky skip+notice, M8 treatment) |
 | 0011 | m11-rust-deep | shipped | rust joins the deep tier: cargo lifecycle (build/test) + ci-workflow-rust.yml + AGENTS.md cargo commands + audit credit + M10 pre-commit gates (fmt/clippy/test) |
 | 0012 | m12-manifest-gate-hook | shipped | self-contained manifest-consistency hook (baked EXPECTED) in the generated pre-commit cross-stack core — mirrors the CI hard gate locally, closes the M10 incident class for users, first manifest gate for no-workflow repos; tool-owned marker rule + gate-script parity test |
-| 0013 | m13-report-truth-scoring | shipped | report truth + quality scoring: 10-point scale × 0.1 granularity, 19 checks grade deterministic quality signals (command traceability / CI job depth / hook install state / manifest consistency), fix-hints two-sourced (transform vs manual action), suggestion filtering, monorepo `subStacks` note, stage-2 hook prompt, stage-3 conflict note, build-verification honesty, badge re-map, schemaVersion 2 (from the DAG-chat + headroom + kuan-chat + spooner dogfoods + owner decisions, 2026-08-06) |
+| 0013 | m13-report-truth-scoring | shipped | report truth + quality scoring: 10-point scale × 0.1 granularity (full marks 10, almost unreachable — 9.5 is the excellent benchmark, 8 = good), 17 checks grade deterministic quality signals (command traceability / CI job depth / hook install state / manifest consistency), fix-hints two-sourced (transform vs manual action), suggestion filtering, monorepo `subStacks` note, stage-2 hook prompt, stage-3 conflict note, build-verification honesty, badge re-map, schemaVersion 3 (weighted category normalization + activity checks removed, 2026-08-07; from the DAG-chat + headroom + kuan-chat + spooner dogfoods + owner decisions) |
 
 ## 🟢 Current (in-progress)
 
