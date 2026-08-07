@@ -182,7 +182,11 @@ function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolea
     return { hasBuild: false, hasTest: true, source: `${manifest} (python3 -m unittest)` };
   }
   if (stacks.includes("java")) {
-    if (existsSync(join(root, "build.gradle")))
+    if (
+      ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"].some((f) =>
+        existsSync(join(root, f)),
+      )
+    )
       return { hasBuild: true, hasTest: true, source: "build.gradle (gradle build/test)" };
     return { hasBuild: true, hasTest: true, source: "pom.xml (mvn compile/test)" };
   }
@@ -233,6 +237,7 @@ const SUBSTACK_MANIFESTS: readonly [string, string][] = [
   ["rust", "Cargo.toml"],
   ["java", "pom.xml"],
   ["java", "build.gradle"],
+  ["java", "build.gradle.kts"],
   ["ruby", "Gemfile"],
   ["php", "composer.json"],
   ["swift", "Package.swift"],
@@ -557,17 +562,18 @@ function checkAgentsSdd(root: string): CheckResult {
 // --- checks: configuration (2.5) -------------------------------------------
 
 function checkCfgLint(root: string): CheckResult {
-  const config = hasPattern(root, [
-    /^\.eslintrc/,
-    /^eslint\.config\./,
-    /^biome\.json/,
-    /^\.golangci/,
-    /^ruff\.toml/,
-    /^\.markdownlint/,
-    /^phpcs\.xml/,
-    /^phpstan\.neon/,
-    /^psalm\.xml/,
-  ]);
+  const config =
+    hasPattern(root, [
+      /^\.eslintrc/,
+      /^eslint\.config\./,
+      /^biome\.json/,
+      /^\.golangci/,
+      /^ruff\.toml/,
+      /^\.markdownlint/,
+      /^phpcs\.xml/,
+      /^phpstan\.neon/,
+      /^psalm\.xml/,
+    ]) ?? ktlintConfigOf(root);
   const cmd = scriptKey(root, /lint/i) ?? (makefileTarget(root, "lint") ? "lint" : null);
   const ci = /\blint\b/i.test(ciContent(root));
   let score = 0;
@@ -592,18 +598,28 @@ function checkCfgLint(root: string): CheckResult {
   };
 }
 
+/** ktlint config signal (kotlin): ktlint.toml, or the .editorconfig `ktlint_*`
+ *  keys (ktlint's standard configuration — kotlin/Android, 2026-08-07). */
+function ktlintConfigOf(root: string): string | null {
+  if (existsSync(join(root, "ktlint.toml"))) return "ktlint.toml";
+  if (/ktlint_/i.test(readIfExists(join(root, ".editorconfig")) ?? "")) return ".editorconfig (ktlint)";
+  return null;
+}
+
 function checkCfgFormat(root: string): CheckResult {
   // ruff provides both lint and format — a ruff.toml counts as a formatter
   // config exactly as it counts as a lint config (symmetry review 2026-08-07);
-  // php-cs-fixer is the php formatter config.
-  const config = hasPattern(root, [
-    /^\.prettierrc/,
-    /^prettier\.config\./,
-    /^biome\.json/,
-    /^rustfmt\.toml/,
-    /^ruff\.toml/,
-    /^\.php-cs-fixer/,
-  ]);
+  // php-cs-fixer is the php formatter config; ktlint is the kotlin linter +
+  // formatter (lint and format both count its config — 2026-08-07).
+  const config =
+    hasPattern(root, [
+      /^\.prettierrc/,
+      /^prettier\.config\./,
+      /^biome\.json/,
+      /^rustfmt\.toml/,
+      /^ruff\.toml/,
+      /^\.php-cs-fixer/,
+    ]) ?? ktlintConfigOf(root);
   const cmd = scriptKey(root, /^format\b|^fmt\b/) ?? (makefileTarget(root, "format") ? "format" : null);
   // Tool names only — the word "format" alone is noise (git log --format=%B
   // would false-positive on commitlint steps).
@@ -630,23 +646,68 @@ function checkCfgFormat(root: string): CheckResult {
   };
 }
 
+/** package.json-field hook mechanisms — husky v4 / yorkie (vue-cli default)
+ *  configure their hooks in package.json, not in a directory. */
+function pkgHookFieldOf(root: string): string | null {
+  const pkg = packageJson(root);
+  if (!pkg) return null;
+  const v = (name: string): unknown => (pkg as Record<string, unknown>)[name];
+  // yorkie reads the legacy `gitHooks` field too (vue-cli 2/3 schema)
+  if (v("yorkie") !== undefined && (typeof v("yorkie") === "object" || typeof v("gitHooks") === "object"))
+    return "yorkie (package.json)";
+  if (v("husky") !== undefined && typeof v("husky") === "object") return "husky (package.json)";
+  return null;
+}
+
 function checkCfgHooks(root: string): CheckResult {
-  const mechanism = hasPattern(root, [
-    /^\.pre-commit-config\.ya?ml$/,
-    /^lefthook\.ya?ml$/,
-    /^\.husky$/,
-    /^\.lintstagedrc/,
-  ]);
+  // Host mechanisms first (pre-commit config / lefthook / .husky), then
+  // package.json fields (yorkie / husky v4 — the actual hook installers),
+  // then lint-staged's config last: .lintstagedrc is NOT a hook mechanism,
+  // it runs via a host hook — a yorkie repo with .lintstagedrc must be
+  // recognized as yorkie (2026-08-07).
+  const mechanism =
+    hasPattern(root, [/^\.pre-commit-config\.ya?ml$/, /^lefthook\.ya?ml$/, /^\.husky$/]) ??
+    pkgHookFieldOf(root) ??
+    hasPattern(root, [/^\.lintstagedrc/]);
   let discipline = false;
   if (mechanism) {
-    const p = join(root, mechanism);
-    if (lstatSync(p).isFile()) {
-      discipline = /\bcommitlint\b|\bmarkdownlint\b/i.test(readIfExists(p) ?? "");
+    const disciplineConfig = hasPattern(root, [/^\.commitlintrc/, /^commitlint\.config/, /^\.markdownlint/]) !== null;
+    if (mechanism.endsWith("(package.json)")) {
+      // field mechanisms (husky v4 / yorkie): the field names lint-staged etc.,
+      // the commit discipline lives in the separate commitlint/markdownlint
+      // config — a .commitlintrc was falsely reported "no commitlint discipline"
+      // because only the mechanism file content was read (2026-08-07)
+      discipline = disciplineConfig;
     } else {
-      // directory mechanism (.husky): discipline requires a commitlint/markdownlint config
-      discipline = hasPattern(root, [/^\.commitlintrc/, /^commitlint\.config/, /^\.markdownlint/]) !== null;
+      const p = join(root, mechanism);
+      if (lstatSync(p).isFile()) {
+        discipline = /\bcommitlint\b|\bmarkdownlint\b/i.test(readIfExists(p) ?? "") || disciplineConfig;
+      } else {
+        // directory mechanism (.husky): discipline requires a commitlint/markdownlint config
+        discipline = disciplineConfig;
+      }
     }
   }
+  // Hook files must actually REFER to the mechanism's tool — existence alone
+  // proves nothing (a yorkie-installed .git/hooks/pre-commit was counted as
+  // pre-commit's own hook; dead/stale hook scripts as active; 2026-08-07).
+  // The pre-commit pattern is the generated hook's own marker — a bare
+  // "pre-commit" word is NOT enough (yorkie/husky runner scripts pass the
+  // hook name as an argument: "node …/yorkie/bin/runner.js pre-commit").
+  const PRE_COMMIT_HOOK = /generated by pre-commit|pre-commit run|pre-commit\.com/i;
+  const TOOL_OF: Record<string, RegExp> = {
+    ".pre-commit-config.yaml": PRE_COMMIT_HOOK,
+    "lefthook.yml": /\blefthook\b/i,
+    ".lintstagedrc": /\b(yorkie|husky|lefthook)\b|generated by pre-commit/i, // runs via a host hook
+    "yorkie (package.json)": /\byorkie\b/i,
+    "husky (package.json)": /\bhusky\b/i,
+  };
+  const hookRefersTool = (name: string): boolean => {
+    const p = join(root, ".git", "hooks", name);
+    if (!existsSync(p) || !lstatSync(p).isFile()) return false;
+    const tool = mechanism ? TOOL_OF[mechanism] : null;
+    return tool ? tool.test(readIfExists(p) ?? "") : true;
+  };
   // Gate-active check (M7): config content alone proves nothing — the hooks
   // must actually be installed. pre-commit/lefthook write .git/hooks/;
   // husky keeps its hooks in .husky/ (core.hooksPath). A missing `.git`
@@ -657,12 +718,10 @@ function checkCfgHooks(root: string): CheckResult {
     }
     const gitDir = join(root, ".git");
     if (!existsSync(gitDir) || !lstatSync(gitDir).isDirectory()) return false;
-    return existsSync(join(gitDir, "hooks", "pre-commit")) || existsSync(join(gitDir, "hooks", "commit-msg"));
+    return hookRefersTool("pre-commit") || hookRefersTool("commit-msg");
   })();
   const commitMsgActive =
-    mechanism === ".husky"
-      ? existsSync(join(root, ".husky", "commit-msg"))
-      : existsSync(join(root, ".git", "hooks", "commit-msg"));
+    mechanism === ".husky" ? existsSync(join(root, ".husky", "commit-msg")) : hookRefersTool("commit-msg");
 
   let score = 0;
   let detail = `hook mechanism: ${mechanism ?? "missing"}`;
@@ -722,7 +781,7 @@ function checkCfgCi(root: string): CheckResult {
 function javaTestFrameworkOf(root: string): string | null {
   const pom = readIfExists(join(root, "pom.xml"));
   if (pom && /\b(junit|testng|jupiter)\b/i.test(pom)) return "pom.xml (junit)";
-  const gradle = readIfExists(join(root, "build.gradle"));
+  const gradle = readIfExists(join(root, "build.gradle")) ?? readIfExists(join(root, "build.gradle.kts"));
   if (gradle && /\b(junit|testng|jupiter)\b/i.test(gradle)) return "build.gradle (junit)";
   return null;
 }
@@ -803,7 +862,7 @@ function findTestFiles(root: string): string[] {
       if (
         /\.(test|spec)\./i.test(f) ||
         /^(test_|.*_test\.|.*_spec\.)/.test(f) ||
-        /\.(ts|js|mjs|py|go|rb|rs|java|php)$/.test(f)
+        /\.(ts|js|mjs|py|go|rb|rs|java|php|kt|kts)$/.test(f)
       )
         out.push(p);
     }
@@ -1106,7 +1165,12 @@ function checkFreshDeps(root: string): CheckResult {
     };
   }
   // java pins versions in the manifest itself — no lockfile convention.
-  if (existsSync(join(root, "pom.xml")) || existsSync(join(root, "build.gradle"))) {
+  if (
+    existsSync(join(root, "pom.xml")) ||
+    ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"].some((f) =>
+      existsSync(join(root, f)),
+    )
+  ) {
     return {
       id: "fresh-deps",
       category: "freshness",
@@ -1166,16 +1230,35 @@ function checkStructReadme(root: string): CheckResult {
 }
 
 function checkStructLayout(root: string): CheckResult {
-  const organized = ["src", "lib", "packages"].some((d) => {
+  const rootLevel = ["src", "lib", "packages"].some((d) => {
     const p = join(root, d);
     return existsSync(p) && lstatSync(p).isDirectory();
   });
+  // Gradle/Android module layout: settings.gradle(.kts) + module dirs carrying
+  // their own src/ (app/src/main/…) — no root src/, scored 0 (2026-08-07).
+  const gradleProject = ["settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"].some((f) =>
+    existsSync(join(root, f)),
+  );
+  const moduleSrc = gradleProject
+    ? (entriesOf(root) ?? []).some(
+        (entry) =>
+          !entry.startsWith(".") &&
+          !VENDORED_DIRS.has(entry) &&
+          existsSync(join(root, entry, "src")) &&
+          lstatSync(join(root, entry, "src")).isDirectory(),
+      )
+    : false;
+  const organized = rootLevel || moduleSrc;
   return {
     id: "struct-layout",
     category: "structure",
     score: organized ? 0.5 : 0,
     max: 0.5,
-    evidence: organized ? "sources organized under src/ lib/ packages/" : "no src/, lib/, or packages/ directory",
+    evidence: moduleSrc
+      ? "sources organized under gradle module dirs (e.g. app/src/)"
+      : organized
+        ? "sources organized under src/ lib/ packages/"
+        : "no src/, lib/, or packages/ directory",
     fix: "organize sources under src/, lib/, or packages/ (not covered by transform)",
   };
 }

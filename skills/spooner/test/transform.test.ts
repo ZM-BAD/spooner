@@ -9,6 +9,8 @@ import {
   TOOL_VERSION,
   applyStage2,
   applyStage3,
+  applyStage4,
+  stage4Templates,
   checkManifestGate,
   ciPlatforms,
   generateAgentsMd,
@@ -707,5 +709,96 @@ test("stage 3: broken-symlink CLAUDE.md -> conflict, never crashes", () => {
   const r = applyStage3(repo, false);
   assert.equal(r.files.find((f) => f.file === "CLAUDE.md")?.action, "conflict");
   assert.ok(!r.message?.includes("ENOENT"), `uncaught error leaked: ${r.message}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: dead husky dependency (no .husky, no husky field) installs the gates — no ecosystem skip", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"devDependencies":{"husky":"^4.3.8"}}\n');
+  assert.equal(hookToolEcosystem(repo), "none", "a bare dependency name is a dead dependency");
+  assert.ok(stage2Templates(repo)[".pre-commit-config.yaml"], "gate must be installed");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: husky v4 field (dependency + package.json field) skips with a remove-the-field hint", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"devDependencies":{"husky":"^4.3.8"},"husky":{"hooks":{"pre-commit":"lint-staged"}}}\n',
+  );
+  assert.equal(hookToolEcosystem(repo), "husky");
+  assert.equal(stage2Templates(repo)[".pre-commit-config.yaml"], undefined);
+  const r = applyStage2(repo, true);
+  assert.match(r.message ?? "", /remove the husky field from package\.json/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: yorkie ecosystem (vue-cli default) -> config skipped + explicit notice", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"devDependencies":{"yorkie":"^2.0.0","lint-staged":"^10.0.0"},"yorkie":{"hooks":{"pre-commit":"lint-staged"}}}\n',
+  );
+  assert.equal(hookToolEcosystem(repo), "yorkie");
+  assert.equal(stage2Templates(repo)[".pre-commit-config.yaml"], undefined);
+  const r = applyStage2(repo, true);
+  assert.match(r.message ?? "", /pre-commit config skipped: detected yorkie/);
+  assert.match(r.message ?? "", /remove the yorkie dependency/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- kotlin/Android (build.gradle.kts) recognition (2026-08-07) ---
+
+test("primaryStack: build.gradle.kts + settings.gradle.kts register as java (kotlin/Android)", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "app"), { recursive: true });
+  writeFileSync(join(repo, "settings.gradle.kts"), 'rootProject.name = "app"\ninclude(":app")\n');
+  writeFileSync(join(repo, "app", "build.gradle.kts"), 'plugins { id("com.android.application") }\n');
+  assert.equal(primaryStack(repo), "java", "kotlin gradle project must resolve to java");
+  const t = stage2Templates(repo);
+  assert.ok(t[".github/workflows/ai-native.yml"], "java workflow must be selected");
+  const cfg = generatePreCommitConfig(repo);
+  assert.match(cfg, /java-test/);
+  assert.match(cfg, /build\\.gradle\\.kts/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("javaHooks: .kt files trigger the java-test hook (kotlin code is the trigger set)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "build.gradle.kts"), 'plugins { id("org.jetbrains.kotlin.android") }\n');
+  const cfg = generatePreCommitConfig(repo);
+  assert.match(cfg, /\\.kt\$/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: yorkie with legacy gitHooks field (vue-cli 2/3) skips the config — not a dead dep", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"devDependencies":{"yorkie":"^2.0.0"},"gitHooks":{"pre-commit":"lint-staged"}}\n',
+  );
+  assert.equal(hookToolEcosystem(repo), "yorkie", "yorkie reads the gitHooks field");
+  assert.equal(stage2Templates(repo)[".pre-commit-config.yaml"], undefined);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 4: gitlab remote greenfield skips the sdd workflow with a notice (stage2 parity, 2026-08-07)", () => {
+  const repo = fixture();
+  execFileSync("git", ["init", "-q"], { cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", "git@gitlab.com:acme/app.git"], { cwd: repo, stdio: "ignore" });
+  const t = stage4Templates(repo);
+  assert.equal(t[".github/workflows/sdd.yml"], undefined, "no dead sdd workflow on gitlab");
+  assert.ok(t["docs/sdd/spec.md"], "sdd docs still install");
+  const r = applyStage4(repo, true);
+  assert.match(r.message ?? "", /origin remote host gitlab \(non-GitHub\).*SDD spec gate/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 4: --ci github overrides a gitlab remote (sdd workflow included)", () => {
+  const repo = fixture();
+  execFileSync("git", ["init", "-q"], { cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", "git@gitlab.com:acme/app.git"], { cwd: repo, stdio: "ignore" });
+  const t = stage4Templates(repo, "github");
+  assert.ok(t[".github/workflows/sdd.yml"], "--ci github forces the workflow");
   rmSync(repo, { recursive: true, force: true });
 });

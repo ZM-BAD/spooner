@@ -1,5 +1,9 @@
-# CI workflow installed by spooner transform Stage 2 (java stack; warn-only
-# quality gates; hard gates: declared-command executability + .ai-native.yml consistency)
+# CI workflow installed by spooner transform Stage 2 (java stack incl.
+# build.gradle.kts / kotlin-Android; warn-only quality gates; hard gates:
+# declared-command executability + .ai-native.yml consistency)
+# Android projects: the declared-commands hard gate runs ./gradlew build — it
+# needs the Android SDK configured (ANDROID_HOME / local.properties or a
+# setup-android step); local commits can proceed with SKIP=java-test
 name: ai-native
 
 on:
@@ -52,7 +56,7 @@ jobs:
           if [ -f ./mvnw ]; then ./mvnw -q -B test
           elif [ -f ./gradlew ]; then ./gradlew build
           elif [ -f pom.xml ]; then mvn -q -B test
-          elif [ -f build.gradle ]; then gradle build
+          elif [ -f build.gradle ] || [ -f build.gradle.kts ] || [ -f settings.gradle ] || [ -f settings.gradle.kts ]; then gradle build
           else echo "no java build file found"; fi
   security:
     name: secret scan (gitleaks, warn-only)
@@ -80,7 +84,7 @@ jobs:
           if [ -f ./mvnw ]; then ./mvnw -q -B test
           elif [ -f ./gradlew ]; then ./gradlew build
           elif [ -f pom.xml ]; then mvn -q -B test
-          elif [ -f build.gradle ]; then gradle build
+          elif [ -f build.gradle ] || [ -f build.gradle.kts ] || [ -f settings.gradle ] || [ -f settings.gradle.kts ]; then gradle build
           else echo "no java build file found"; fi
   manifest-consistency:
     name: .ai-native.yml consistency + template version (hard gate)
@@ -93,7 +97,7 @@ jobs:
           import sys, os, re
           # baked at install time; must track the spooner TOOL_VERSION that
           # shipped this workflow (docs/08 ledger rule: every bump updates it)
-          EXPECTED = "0.9.0"
+          EXPECTED = "0.11.0"
 
           def parse_yaml(text):
               lines = [(len(l) - len(l.lstrip()), l) for l in text.split("\n")]

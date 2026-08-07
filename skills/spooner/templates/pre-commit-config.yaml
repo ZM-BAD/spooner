@@ -2,6 +2,10 @@
 # Install hooks (commitlint runs on the commit-msg stage — both are required):
 #   pre-commit install --hook-type pre-commit --hook-type commit-msg
 # Full run: pre-commit run --all-files
+# NOTE: the hook repos below are fetched from GitHub when pre-commit runs.
+# With GitHub unreachable (mirror/proxy not configured), pre-commit cannot
+# prepare the hook environment and commits are BLOCKED — make GitHub reachable
+# (or configure a mirror) before relying on these gates.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

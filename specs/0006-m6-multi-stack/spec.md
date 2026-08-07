@@ -24,7 +24,7 @@ For any node / python / go / java / rust repository, transform installs stack-co
     - node: declared build/test families from package.json (existing behavior, unchanged)
     - python: `python -m unittest discover` (stdlib — deterministic; no pytest dependency; pytest repos keep working, the gate verifies executability not coverage)
     - go: `go build ./...` + `go test ./...`
-    - java: `./mvnw -q -B test` if the wrapper exists else `mvn -q -B test`; `./gradlew build` if `build.gradle` is present (wrapper preference, runner-provided maven/gradle fallback)
+    - java: `./mvnw -q -B test` if the wrapper exists else `mvn -q -B test`; `./gradlew build` if a gradle project is present (`build.gradle(.kts)` at the root, or `settings.gradle(.kts)` — kotlin/Android module layouts keep their build files in module dirs, 2026-08-07; wrapper preference, runner-provided maven/gradle fallback); the local `java-test` hook trigger set includes `.kt`/`.kts`
     - rust: `cargo build` + `cargo test` (spec 0011)
   - **Unsupported / unknown stacks** (ruby, php, swift, dotnet, none): cross-stack gates installed; the workflow is **not** installed; the stage message says "stack X: transform not supported yet — audit works; supported stacks: node/python/go/java/rust" (fixes the silent-npm-gates ⚠️)
   - **Wrong-stack workflow conflict**: if the installed workflow's bytes match a different stack's template, it's reported as `conflict` with a hint naming the installed stack (delete it and re-run)

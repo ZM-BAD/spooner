@@ -45,8 +45,8 @@ Weight structure (2026-08-07 revision): Agent Setup 45% (the AI-specific core) /
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
-| cfg-lint | 0.5 | config + command + CI job depth (incl. php: phpcs.xml / phpstan.neon / psalm.xml) |
-| cfg-format | 0.5 | config + command + CI job depth (prettier/biome/ruff/rustfmt/.php-cs-fixer configs — ruff.toml counts like cfg-lint; tool names only, no --format noise) |
+| cfg-lint | 0.5 | config + command + CI job depth (incl. php: phpcs.xml / phpstan.neon / psalm.xml; kotlin: ktlint) |
+| cfg-format | 0.5 | config + command + CI job depth (prettier/biome/ruff/rustfmt/.php-cs-fixer/ktlint configs — ruff.toml counts like cfg-lint; ktlint via ktlint.toml or .editorconfig `ktlint_*` keys; tool names only, no --format noise) |
 | cfg-hooks | 0.5 | mechanism → + discipline config → + hooks installed → + commit-msg stage |
 | cfg-ci | 0.5 | lint only / lint+test / lint+test+security job |
 | cfg-test | 0.5 | framework/command → + test files → + assertions (incl. php: phpunit.xml / phpunit in composer.json; .php test files with PHPUnit assertions) |
@@ -64,14 +64,14 @@ Weight structure (2026-08-07 revision): Agent Setup 45% (the AI-specific core) /
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
-| fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard; go: go.sum checksum lockfile; rust: Cargo.lock; java: manifest-version pin (no lockfile convention); python: pyproject.toml, or requirements.txt — exact `==` pins are the manifest pin, +uv/poetry/pdm lock → lockfile; php: composer.json + composer.lock (checksum lockfile), declared constraints without lock = manifest pin; mixed repos aggregate composer.lock into the node lockfile signal |
+| fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard; go: go.sum checksum lockfile; rust: Cargo.lock; java: manifest-version pin incl. build.gradle.kts/settings.gradle(.kts) (no lockfile convention); python: pyproject.toml, or requirements.txt — exact `==` pins are the manifest pin, +uv/poetry/pdm lock → lockfile; php: composer.json + composer.lock (checksum lockfile), declared constraints without lock = manifest pin; mixed repos aggregate composer.lock into the node lockfile signal |
 
 ### Structure (1.5) — engineering structure
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
 | struct-readme | 0.5 | content with ≥3 section headings / content only / <50 chars |
-| struct-layout | 0.5 | src / lib / packages subdir or equivalent (human-fixable) |
+| struct-layout | 0.5 | src / lib / packages subdir, or gradle module dirs carrying src/ (settings.gradle(.kts) project with app/src — Android/kotlin, 2026-08-07) |
 
 **Calibration note**: weights are an expert-set first version (kardo-core r=0.828 structure); the calibration loop (cross-check on real repos, see "Calibration status") is the differentiator (internal archive docs/04 insight #1), not a one-off.
 

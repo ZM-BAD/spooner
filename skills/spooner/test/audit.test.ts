@@ -630,3 +630,98 @@ test("cfg-lint/cfg-format: php tool configs score (phpstan.neon / .php-cs-fixer.
   assert.equal(item(repo, "cfg-format")?.score, 0.2);
   rmSync(repo, { recursive: true, force: true });
 });
+
+// --- hook-ecosystem honesty: yorkie recognition + existence ≠ execution (2026-08-07) ---
+
+test("cfg-hooks: yorkie field mechanism + matching hook content scores full (vue2 chain)", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"devDependencies":{"yorkie":"^2.0.0"},"yorkie":{"hooks":{"pre-commit":"lint-staged","commit-msg":"commitlint -E HUSKY_GIT_PARAMS"}}}\n',
+  );
+  writeFileSync(join(repo, ".commitlintrc.json"), '{"extends":["@commitlint/config-conventional"]}\n');
+  writeFileSync(join(repo, ".lintstagedrc"), '{"*.js":["eslint"]}\n');
+  mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+  writeFileSync(
+    join(repo, ".git", "hooks", "pre-commit"),
+    "#!/bin/sh\nnode node_modules/yorkie/bin/runner.js pre-commit\n",
+  );
+  writeFileSync(
+    join(repo, ".git", "hooks", "commit-msg"),
+    "#!/bin/sh\nnode node_modules/yorkie/bin/runner.js commit-msg\n",
+  );
+  const r = item(repo, "cfg-hooks");
+  assert.equal(r?.score, 0.5, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /yorkie/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-hooks: pre-commit config + yorkie-installed hook files -> not active (existence ≠ execution)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, ".pre-commit-config.yaml"), "repos:\n  - repo: r\n    hooks: [{id: commitlint}]\n");
+  writeFileSync(join(repo, ".commitlintrc.json"), '{"extends":["@commitlint/config-conventional"]}\n');
+  mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+  writeFileSync(
+    join(repo, ".git", "hooks", "pre-commit"),
+    "#!/bin/sh\nnode node_modules/yorkie/bin/runner.js pre-commit\n",
+  );
+  writeFileSync(
+    join(repo, ".git", "hooks", "commit-msg"),
+    "#!/bin/sh\nnode node_modules/yorkie/bin/runner.js commit-msg\n",
+  );
+  const r = item(repo, "cfg-hooks");
+  assert.equal(r?.score, 0.2, `score inflated: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /hooks not installed/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-hooks: .lintstagedrc + .commitlintrc.json -> discipline recognized, hooks not installed -> 0.2", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, ".lintstagedrc"), '{"*.js":["eslint"]}\n');
+  writeFileSync(join(repo, ".commitlintrc.json"), '{"extends":["@commitlint/config-conventional"]}\n');
+  const r = item(repo, "cfg-hooks");
+  // 0.2 (not 0.1) proves the discipline config is recognized — the old code
+  // read only the mechanism file content and reported "no commitlint discipline"
+  assert.equal(r?.score, 0.2, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /hooks not installed/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- kotlin/Android: gradle kts, ktlint, module layout (2026-08-07) ---
+
+test("kotlin Android repo: build.gradle.kts scores fresh-deps + struct-layout module dirs", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "settings.gradle.kts"), 'rootProject.name = "app"\ninclude(":app")\n');
+  mkdirSync(join(repo, "app", "src", "main", "java"), { recursive: true });
+  writeFileSync(join(repo, "app", "build.gradle.kts"), 'plugins { id("com.android.application") }\n');
+  assert.equal(item(repo, "fresh-deps")?.score, 0.3, "build.gradle.kts is a manifest pin");
+  const layout = item(repo, "struct-layout");
+  assert.equal(layout?.score, 0.5, `evidence: ${layout?.evidence}`);
+  assert.match(layout?.evidence ?? "", /gradle module dirs/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-format/cfg-lint: ktlint via .editorconfig ktlint_ keys or ktlint.toml", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, ".editorconfig"), "root = true\n[*.kt]\nktlint_standard = enabled\n");
+  assert.equal(item(repo, "cfg-format")?.score, 0.2, "editorconfig ktlint keys count");
+  assert.match(item(repo, "cfg-format")?.evidence ?? "", /ktlint/);
+  assert.equal(item(repo, "cfg-lint")?.score, 0.2, "ktlint is also a linter");
+  writeFileSync(join(repo, "ktlint.toml"), 'disabled_rules = ["no-wildcard-imports"]\n');
+  assert.match(item(repo, "cfg-format")?.evidence ?? "", /ktlint\.toml/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-test: kotlin tests in app/src/test/java score (module dirs + .kt extension)", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "app", "src", "test", "java"), { recursive: true });
+  writeFileSync(join(repo, "app", "build.gradle.kts"), 'plugins { id("com.android.application") }\n');
+  writeFileSync(
+    join(repo, "app", "src", "test", "java", "MainTest.kt"),
+    "package x\nimport org.junit.Test\nclass MainTest {\n  @Test fun works() { assert(true) }\n}\n",
+  );
+  const r = item(repo, "cfg-test");
+  assert.ok((r?.score ?? 0) >= 0.4, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /test file/);
+  rmSync(repo, { recursive: true, force: true });
+});

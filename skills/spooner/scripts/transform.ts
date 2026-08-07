@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.9.0";
+export const TOOL_VERSION = "0.11.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -313,7 +313,7 @@ export function stage2Templates(root: string, ciOverride?: string): Record<strin
   const tpl = { ...STAGE2_COMMON };
   if (stack && workflowEligible(root, ciOverride)) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
   const ecosystem = hookToolEcosystem(root);
-  if (ecosystem !== "husky" && ecosystem !== "lefthook") tpl[PRE_COMMIT_FILE] = GENERATED;
+  if (ecosystem !== "husky" && ecosystem !== "lefthook" && ecosystem !== "yorkie") tpl[PRE_COMMIT_FILE] = GENERATED;
   return tpl;
 }
 
@@ -324,15 +324,31 @@ export const PRE_COMMIT_FILE = ".pre-commit-config.yaml";
 /** Marker for generated content in stage2Templates (M10). */
 const GENERATED = "@generated";
 
-export type HookTool = "pre-commit" | "husky" | "lefthook" | "none";
+export type HookTool = "pre-commit" | "husky" | "lefthook" | "yorkie" | "none";
 
-/** Existing git-hook ecosystem (M10): husky/lefthook repos keep their own hooks. */
+/**
+ * Existing git-hook ecosystem (M10): husky/lefthook/yorkie repos keep their
+ * own hooks — the generated pre-commit config would be a foreign gate file.
+ * A bare dependency name WITHOUT hooks configuration is a DEAD dependency —
+ * it must not block the gate install (vue2 upgrade leftovers: husky in
+ * devDependencies, no .husky/, no husky field; 2026-08-07). Active forms:
+ * husky v7+ = a `.husky/` directory; husky v4 / yorkie (vue-cli default) =
+ * a package.json field with a `hooks` map, dependency present.
+ */
 export function hookToolEcosystem(root: string): HookTool {
   if (existsSync(join(root, "lefthook.yml"))) return "lefthook";
   if (existsSync(join(root, PRE_COMMIT_FILE))) return "pre-commit";
   const pkg = packageJsonOf(root);
   const all = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) } as Record<string, unknown>;
-  if (existsSync(join(root, ".husky")) || all["husky"] !== undefined) return "husky";
+  const fieldOf = (name: string): boolean => {
+    const v = pkg !== null ? (pkg as Record<string, unknown>)[name] : undefined;
+    return v !== undefined && v !== null && typeof v === "object" && !Array.isArray(v);
+  };
+  // yorkie (vue-cli) reads either its own `yorkie` field or the legacy
+  // `gitHooks` field (vue-cli 2/3 — husky-v4-compatible schema); a yorkie
+  // dependency with gitHooks configured is ACTIVE (2026-08-07).
+  if (all["yorkie"] !== undefined && (fieldOf("yorkie") || fieldOf("gitHooks"))) return "yorkie";
+  if (existsSync(join(root, ".husky")) || (all["husky"] !== undefined && fieldOf("husky"))) return "husky";
   return "none";
 }
 
@@ -675,8 +691,12 @@ function goHooks(root: string): string | null {
 
 /** Java gates (local system hook — SKIP'd in the java workflow template). */
 function javaHooks(root: string): string | null {
-  if (!hasAny(root, ["pom.xml", "build.gradle"])) return null;
-  const gradle = existsSync(join(root, "build.gradle"));
+  // settings.gradle(.kts) marks a gradle project whose build files live in
+  // module dirs (Android: app/build.gradle.kts) — the root-only check missed
+  // every kotlin/Android layout (2026-08-07).
+  if (!hasAny(root, ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]))
+    return null;
+  const gradle = hasAny(root, ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]);
   const entry = gradle
     ? existsSync(join(root, "gradlew"))
       ? "./gradlew build"
@@ -691,7 +711,7 @@ function javaHooks(root: string): string | null {
         entry: ${entry}
         language: system
         pass_filenames: false
-        files: (\\.java$|pom\\.xml$|build\\.gradle$)
+        files: (\\.java$|\\.kt$|pom\\.xml$|build\\.gradle$|build\\.gradle\\.kts$)
         stages: [pre-commit]`;
 }
 
@@ -733,6 +753,9 @@ export function generatePreCommitConfig(root: string): string {
     "# Install hooks (commitlint runs on the commit-msg stage — both are required):",
     "#   pre-commit install --hook-type pre-commit --hook-type commit-msg",
     "# Full run: pre-commit run --all-files",
+    "# NOTE: the hook repos below are fetched from GitHub when pre-commit runs — with",
+    "# GitHub unreachable (no mirror/proxy configured), pre-commit cannot prepare the",
+    "# hook environment and commits are BLOCKED; make GitHub reachable first.",
     "# Regenerate: delete this file and re-run `transform --stage 2` — the hook set",
     "# follows the repo's detected tooling (what audit credits, transform installs).",
     "repos:",
@@ -828,7 +851,7 @@ export function stackLifecycle(root: string): { build: string | null; test: stri
   if (stack === "rust") return { build: "cargo build", test: "cargo test" };
   if (stack === "python") return { build: null, test: "python3 -m unittest discover -q || [ $? -eq 5 ]" };
   if (stack === "java") {
-    if (existsSync(join(root, "build.gradle"))) {
+    if (hasAny(root, ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"])) {
       return { build: existsSync(join(root, "gradlew")) ? "./gradlew build" : "gradle build", test: null };
     }
     return { build: null, test: existsSync(join(root, "mvnw")) ? "./mvnw -q -B test" : "mvn -q -B test" };
@@ -893,13 +916,23 @@ const GENERATED_PRE_COMMIT_MARKER = "# pre-commit config generated by spooner tr
  *  config applies and no hook is installed yet (config ≠ enforcement; the
  *  agent still runs `pre-commit install` per SKILL.md). */
 function hookPromptOf(root: string, ecosystem: HookTool, templates: Record<string, string>): string {
-  if (ecosystem === "husky" || ecosystem === "lefthook") return "";
+  if (ecosystem === "husky" || ecosystem === "lefthook" || ecosystem === "yorkie") return "";
   if (templates[PRE_COMMIT_FILE] === undefined) return "";
   const installed =
     existsSync(join(root, ".git", "hooks", "pre-commit")) || existsSync(join(root, ".git", "hooks", "commit-msg"));
   return installed
     ? ""
     : "; hooks not installed — run: pre-commit install --hook-type pre-commit --hook-type commit-msg";
+}
+
+/** Android SDK failures are an environment-config issue, not a broken build —
+ *  the report must say so and name the escape hatch (2026-08-07): the local
+ *  java-test hook can be skipped per commit with SKIP=java-test; the CI hard
+ *  gate needs ANDROID_HOME / local.properties (or a setup-android step). */
+function androidEnvHint(error: string | null): string {
+  return error && /SDK location not found|ANDROID_HOME|local\.properties/i.test(error)
+    ? " — Android: this looks like a missing SDK/environment config, not a broken build (set ANDROID_HOME / local.properties and re-run; local commits can proceed with SKIP=java-test)"
+    : "";
 }
 
 export function applyStage2(root: string, dryRun: boolean, ciOverride?: string): Stage2Result {
@@ -939,12 +972,22 @@ export function applyStage2(root: string, dryRun: boolean, ciOverride?: string):
   const platformNotice =
     stack !== null && !templates[".github/workflows/ai-native.yml"] ? workflowSkipReason(root, ciOverride) : null;
 
-  // Hook-tool skip notice (M10, spec 0010): husky/lefthook ecosystems keep their
-  // own hooks — the generated pre-commit config would be a foreign gate file.
+  // Hook-tool skip notice (M10, spec 0010): husky/lefthook/yorkie ecosystems
+  // keep their own hooks — the generated pre-commit config would be a foreign
+  // gate file. The removal hint names the active form (a dead husky dependency
+  // never reaches here — dead deps install the gates, 2026-08-07).
   const ecosystem = hookToolEcosystem(root);
   const hookNotice =
-    ecosystem === "husky" || ecosystem === "lefthook"
-      ? `pre-commit config skipped: detected ${ecosystem} hook ecosystem — keep your existing git hooks (delete ${ecosystem === "husky" ? ".husky" : "lefthook.yml"} and re-run to install the generated pre-commit gates)`
+    ecosystem === "husky" || ecosystem === "lefthook" || ecosystem === "yorkie"
+      ? `pre-commit config skipped: detected ${ecosystem} hook ecosystem — keep your existing git hooks (${
+          ecosystem === "husky"
+            ? existsSync(join(root, ".husky"))
+              ? "delete .husky"
+              : "remove the husky field from package.json"
+            : ecosystem === "yorkie"
+              ? "remove the yorkie dependency from package.json"
+              : "delete lefthook.yml"
+        } and re-run to install the generated pre-commit gates)`
       : null;
 
   // Wrong-stack workflow hint: installed bytes match a different stack's template.
@@ -1022,7 +1065,7 @@ export function applyStage2(root: string, dryRun: boolean, ciOverride?: string):
       before === false && missingTool
         ? `stage 2 applied: ${written} written; build verification could not run — ${missingTool} is not installed (exit 127: command not found) — install the tool and re-run; a missing local tool is not a failing build (hooks stay installed; CI hard gates will verify the real build)`
         : before === false
-          ? `stage 2 applied: build was ALREADY failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); ${written} written; verification still failing after — installed hooks are hard gates (commits stay blocked until the build is fixed)`
+          ? `stage 2 applied: build was ALREADY failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); ${written} written; verification still failing after — installed hooks are hard gates (commits stay blocked until the build is fixed)${androidEnvHint(buildError)}`
           : `stage 2 applied but build verification FAILED after — ${buildError ?? "unknown error"}; rollback: git restore ${written}`;
   } else {
     const parts: string[] = [];
@@ -1097,7 +1140,8 @@ function stackCommandsOf(root: string): { command: string; purpose: string }[] {
   }
   if (stacks.includes("python")) out.push({ command: "python3 -m unittest discover", purpose: "test" });
   if (stacks.includes("java")) {
-    if (existsSync(join(root, "build.gradle"))) out.push({ command: "gradle build", purpose: "build + test" });
+    if (hasAny(root, ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]))
+      out.push({ command: "gradle build", purpose: "build + test" });
     else
       out.push({ command: existsSync(join(root, "mvnw")) ? "./mvnw -q -B test" : "mvn -q -B test", purpose: "test" });
   }

@@ -9,7 +9,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 > Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
 >
-> **Status: all milestones shipped — `detect`, `audit`, `transform`, `check`, `sync`, `badge` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java / rust; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit); transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice; the generated pre-commit config follows the repo's detected tooling — husky/lefthook ecosystems keep their own hooks); the badge matches the README's existing badge style (5 shields styles + probe).**
+> **Status: all milestones shipped — `detect`, `audit`, `transform`, `check`, `sync`, `badge` available; the installed CI workflow hard-gates manifest consistency; transform supports node / python / go / java / rust; the installed commitlint gate enforces (hook install step + CI commit-msg check + gate-active audit); transform is context-aware (SKILL.md context probe + CI-platform routing — non-GitHub repos skip the workflow with an explicit notice; the generated pre-commit config follows the repo's detected tooling — husky/lefthook/yorkie ecosystems keep their own hooks (yorkie includes the legacy gitHooks field; a dead husky dependency with no hooks config does not block the gate install)); the badge matches the README's existing badge style (5 shields styles + probe).**
 
 ## Workflow
 
@@ -25,6 +25,8 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 - **Node.js >= 22.18** — the scripts are TypeScript run natively via type stripping; there is no build step. On older Node, `audit.ts` prints an upgrade hint and exits.
 - **git** — freshness checks and maturity gating read commit history.
+- **GitHub reachability for pre-commit** — the generated `.pre-commit-config.yaml` fetches its hook repos (pre-commit-hooks, markdownlint-cli2, commitlint, gitleaks) from GitHub when pre-commit runs. With GitHub unreachable (no mirror/proxy configured), pre-commit cannot prepare the hook environment and commits are **blocked** — the generated config's header says so. CI (GitHub Actions) is unaffected.
+- **Android/kotlin builds need environment config, not a broken build** — the java stack gate runs `./gradlew build`; an Android project without the SDK configured (ANDROID_HOME / local.properties) fails verification. Stage 2's report names this and the escape hatch: local commits can proceed with `SKIP=java-test`; the CI hard gate needs the SDK configured (or a setup-android step).
 - **Stack toolchains** — stage 2's verification and the installed CI gate run the stack's lifecycle commands (`npm` / `python3 -m unittest` / `go build` / `mvn` / `cargo`), so the stack toolchain must be available where `transform` runs (CI sets it up itself via setup-node / setup-python / setup-go / setup-java / dtolnay-rust-toolchain).
 - The scripts are **zero-dependency** (Node builtins only). `detect` and `audit` are **read-only** by default; `audit --verify` additionally **executes** the traced lifecycle commands to verify them (see below); `transform`, `check`, `sync` and `badge` write only what they declare (installed template files / the `.ai-native.yml` manifest / the `.ai-native/baseline.json` ledger / `assets/badge.svg` + `assets/audit-report.md`).
 
@@ -104,7 +106,7 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 
 | Stage | What it does | Outputs |
 |---|---|---|
-| 2 — gates (install warn-only; active hooks hard) | commitlint + pre-commit (markdownlint + gitleaks + **stack-aware generated config**: the pre-commit hook set follows the repo's detected tooling — ruff/pytest for python, eslint/tsc for node, gofmt/vet for go, mvn for java, cargo fmt/clippy for rust; check-only, rev-pinned; **the config hard-gates the `.ai-native.yml` ledger locally** — a self-contained manifest-consistency hook (baked EXPECTED) mirroring the CI drift gate, so stale/drifting ledgers turn local pre-commit red (runs on python3 — guaranteed wherever pre-commit runs); **husky/lefthook ecosystems keep their own hooks — the config is skipped with an explicit notice**) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file. Platform detection reads local CI files first, then the origin remote host (a greenfield repo on a GitLab remote no longer receives a dead `.github/workflows` file); the auto-detection is overridable with `--ci github\|gitlab\|none` (the Stage 0 questionnaire's answer lands on the CLI — no hand-editing the manifest) | `.commitlintrc.json`, `.pre-commit-config.yaml` (generated — re-run `--stage 2` to regenerate), `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
+| 2 — gates (install warn-only; active hooks hard) | commitlint + pre-commit (markdownlint + gitleaks + **stack-aware generated config**: the pre-commit hook set follows the repo's detected tooling — ruff/pytest for python, eslint/tsc for node, gofmt/vet for go, mvn for java, cargo fmt/clippy for rust; check-only, rev-pinned; **the config hard-gates the `.ai-native.yml` ledger locally** — a self-contained manifest-consistency hook (baked EXPECTED) mirroring the CI drift gate, so stale/drifting ledgers turn local pre-commit red (runs on python3 — guaranteed wherever pre-commit runs); **husky/lefthook/yorkie ecosystems keep their own hooks — the config is skipped with an explicit notice; a dead husky dependency (no .husky/, no package.json field) installs the gates**) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file. Platform detection reads local CI files first, then the origin remote host (a greenfield repo on a GitLab remote no longer receives a dead `.github/workflows` file); the auto-detection is overridable with `--ci github\|gitlab\|none` (the Stage 0 questionnaire's answer lands on the CLI — no hand-editing the manifest) | `.commitlintrc.json`, `.pre-commit-config.yaml` (generated — re-run `--stage 2` to regenerate), `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
 | 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile / stack lifecycle: `mvn`, `go`, `python3 -m unittest`, `cargo`) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
 | 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate (**platform-routed like stage 2** — the gate installs only where the GitHub workflow applies; skipped with "… (SDD spec gate)" otherwise, 2026-08-07) | `docs/sdd/*.md`, `.github/workflows/sdd.yml` (absent in no-workflow mode), AGENTS.md convention |
 
@@ -115,7 +117,7 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 | node (incl. React/Vue/Next) | ✅ | ✅ | ✅ `npm run build/test` lifecycle | package.json scripts + Makefile |
 | python | ✅ | ✅ | ✅ `python3 -m unittest discover` | pyproject/requirements → `python3 -m unittest discover` |
 | go | ✅ | ✅ | ✅ `go build ./...` + `go test ./...` | go.mod → `go build/test/vet ./...` |
-| java (Maven + Gradle) | ✅ | ✅ | ✅ `mvn -q -B test` / `gradle build` | pom.xml → `mvn`, build.gradle → `gradle` |
+| java (Maven + Gradle, incl. kotlin/Android `build.gradle.kts` / `settings.gradle(.kts)`) | ✅ | ✅ | ✅ `mvn -q -B test` / `gradle build` | pom.xml → `mvn`, build.gradle(.kts) → `gradle` |
 | rust | ✅ | ✅ | ✅ `cargo build` + `cargo test` (fmt/clippy via the M10 generated pre-commit gates) | Cargo.toml → `cargo build/test/fmt/clippy` |
 | php | ✅ | ✅ (composer.lock / phpunit / phpcs / phpstan / php-cs-fixer signals score; the full-lifecycle band is unreachable) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
 | ruby / swift / dotnet | ✅ | ✅ (under-scores only, never over) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
@@ -289,11 +291,11 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 ```markdown
 # Sync Report
 
-- Root: . · Dry-run: true · Templates: installed 0.6.0 → current 0.7.0
+- Root: . · Dry-run: true · Templates: installed 0.10.0 → current 0.11.0
 
 | File | Stage | Status | Version |
 |---|---|---|---|
-| .commitlintrc.json | 2 | outdated | 0.6.0 → 0.7.0 |
+| .commitlintrc.json | 2 | outdated | 0.10.0 → 0.11.0 |
 | .pre-commit-config.yaml | 2 | generated | — |
 | AGENTS.md | 3 | generated | — |
 | CLAUDE.md | 3 | generated | — |
@@ -304,7 +306,7 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 dry-run: 1 outdated (apply replaces), 0 missing (apply restores), 0 modified (user edits — never touched), 3 generated (not template-managed), 5 tracked file(s)
 ```
 
-The fixture simulated an older install (`templateVersion: "0.6.0"` + a changed commitlint config). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion` on the stage, and reports `rollback: git restore .commitlintrc.json`. The pre-commit config is **generated-class since M10** — sync never writes it; re-run `transform --stage 2` to regenerate from the repo's detected tooling. A user-edited file at the same version reports `modified` and is never touched.
+The fixture simulated an older install (`templateVersion: "0.8.0"` + a changed commitlint config). Apply (without `--dry-run`) replaces the one `outdated` file with the current template bytes, stamps `templateVersion` on the stage, and reports `rollback: git restore .commitlintrc.json`. The pre-commit config is **generated-class since M10** — sync never writes it; re-run `transform --stage 2` to regenerate from the repo's detected tooling. A user-edited file at the same version reports `modified` and is never touched.
 
 ## Red lines
 
