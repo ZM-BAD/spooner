@@ -4,7 +4,7 @@
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> Audit a codebase's **AI coding readiness**, score it, then transform it in place — install CI gates, generate an AGENTS.md, adopt a spec-driven workflow. Every step verifiable, never breaking the existing build.
+> **Make this git repository ready for AI** — so AI coding agents can work in it from the first run. Audit its AI coding readiness, score it out of 10, then transform it in place: CI gates, AGENTS.md, a spec-driven workflow. Every step verifiable, never breaking the existing build.
 
 <p align="center">
   <img src="https://img.shields.io/badge/TypeScript-6.0-3178C6.svg?style=flat-square" alt="TypeScript 6.0"/>
@@ -17,13 +17,15 @@
   <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
   <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
-  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI readiness: AI-Native · 9/10"/></a>
+  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI readiness: AI-Native · 9.4/10"/></a>
 </p>
 <p align="center">
-  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI readiness: 4/10 AI-Aware → 9/10 AI-Native after one transform"/></a>
+  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI readiness: 4/10 AI-Aware → 9.4/10 AI-Native after one transform"/></a>
 </p>
 
-**Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after the detective who keeps robots in line in *I, Robot* (2004) — Spooner keeps AI coding in line.**
+An AI-native repository generally comes with complete quality gates and AI guidance: **pre-commit hooks**, **lint / formatter checks that actually run**, **CI that agrees with the local gates**, an **AGENTS.md** that tells the agent how things run, and a **spec-driven contract** (SDD templates) — to name a few. New quality gates, as they emerge, join the readiness score.
+
+**Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after Detective Del Spooner in *I, Robot* (2004), whose left arm is robotic and serves him well — Spooner evaluates which of the above your repository is missing (AI readiness /10), adds them incrementally, and keeps them from drifting.**
 
 ## The workflow
 

@@ -4,7 +4,7 @@
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> 对仓库的 **AI 编程就绪度** 进行检测评分，并就地执行渐进化改造——装好工程门禁、生成 Agent 指令文件、落地 SDD 工作流。每步可验证、不破坏现有构建。
+> **让这个 git 仓库为 AI 做好准备**——AI coding agent 从第一次运行起就能在里面好好干活。检测它的 AI 编码就绪度、打出 10 分制的分数，然后就地改造：CI 门禁、AGENTS.md、spec 驱动工作流。每步可验证，永不破坏已有构建。
 
 <p align="center">
   <img src="https://img.shields.io/badge/TypeScript-6.0-3178C6.svg?style=flat-square" alt="TypeScript 6.0"/>
@@ -17,13 +17,15 @@
   <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
   <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
-  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI 就绪度：AI-Native · 9/10"/></a>
+  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI 就绪度：AI-Native · 9.4/10"/></a>
 </p>
 <p align="center">
-  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4/10 AI-Aware → 9/10 AI-Native"/></a>
+  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4/10 AI-Aware → 9.4/10 AI-Native"/></a>
 </p>
 
-**Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里给机器人立规矩的警探——Spooner 是给 AI 编码立规矩的。**
+一个 AI 原生（AI-Native）驱动的仓库，一般要具备完备的质量检测与 AI 引导设施，比如：**pre-commit 门禁**、真正会跑的 **lint / formatter 检查**、与本地门禁**一致的 CI**、告诉 agent 怎么干活的 **AGENTS.md**、**spec 驱动的契约**（SDD 模板）等等——未来涌现的同类质量检测设施，也会纳入 Spooner 的就绪度考核。
+
+**Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里的 Del Spooner 警探——他的左臂是机械臂，并很好地为他服务。Spooner 会评估你的仓库缺了上述哪些设施（AI 就绪度 /10），并渐进地为你补齐，防止它漂移。**
 
 ## 工作流
 

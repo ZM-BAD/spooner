@@ -1,6 +1,6 @@
 ---
 name: spooner
-description: Audit a codebase's AI coding readiness — detect the stack, score it out of 10 with a gap list and maturity assessment, using deterministic zero-build scripts. Use when the user asks to audit or improve a repository's readiness for AI coding agents, or to run the audit / transform / check / sync workflow.
+description: Make a git repository ready for AI — audit its AI coding readiness, score it out of 10 with a gap list and maturity assessment, using deterministic zero-build scripts. Use when the user asks to audit or improve a repository's readiness for AI coding agents, or to run the audit / transform / check / sync workflow.
 license: MIT
 compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via type stripping — no build step, zero third-party dependencies)
 ---
@@ -164,7 +164,7 @@ The badge is the recurring-impression asset: pasted once into the README, it ren
 ```markdown
 # AI-Readiness Report
 
-- Stack: node · Maturity: stable · Score: **9/10**
+- Stack: node · Maturity: stable · Score: **9.4/10**
 
 ## Score by category
 
@@ -268,7 +268,7 @@ A stage 2 dry-run on a repo with no gates reports the plan first, e.g. `dry-run:
 ```markdown
 # Check Report
 
-- Score: **9/10** · Maturity: stable · Root: .
+- Score: **9.4/10** · Maturity: stable · Root: .
 
 - Baseline: none (first run)
 
