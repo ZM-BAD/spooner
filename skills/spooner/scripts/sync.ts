@@ -104,7 +104,10 @@ function templateFor(file: string, root: string): string | null {
 }
 
 /** Every manifest file entry across stages (stage ascending, then file). */
-function manifestEntries(manifest: { stages: Record<string, { files: string[]; templateVersion?: string }> }, root: string): ManifestEntry[] {
+function manifestEntries(
+  manifest: { stages: Record<string, { files: string[]; templateVersion?: string }> },
+  root: string,
+): ManifestEntry[] {
   const out: ManifestEntry[] = [];
   for (const [k, s] of Object.entries(manifest.stages)) {
     const stage = Number.parseInt(k, 10);
@@ -150,7 +153,9 @@ export function run(root: string, dryRun: boolean): SyncReport {
       files: [],
       applied: false,
       consistency: null,
-      message: mr.present ? `manifest unreadable (${mr.error}) — fix or re-run transform` : "no .ai-native.yml manifest — run transform stage 2 first",
+      message: mr.present
+        ? `manifest unreadable (${mr.error}) — fix or re-run transform`
+        : "no .ai-native.yml manifest — run transform stage 2 first",
     };
   }
 
@@ -188,7 +193,8 @@ export function run(root: string, dryRun: boolean): SyncReport {
   // keep their record.
   for (const [k, s] of Object.entries(mr.manifest.stages)) {
     const stage = Number.parseInt(k, 10);
-    if (touchedStages.has(stage) || s.templateVersion === undefined || !versionLt(s.templateVersion, TOOL_VERSION)) continue;
+    if (touchedStages.has(stage) || s.templateVersion === undefined || !versionLt(s.templateVersion, TOOL_VERSION))
+      continue;
     const managed = files.filter((f) => f.stage === stage && f.status !== "generated");
     if (managed.length > 0 && managed.every((f) => f.status === "up-to-date")) {
       writeManifest(root, manifestWithStage(root, k, { ...s, date: today(), templateVersion: TOOL_VERSION }));
@@ -198,7 +204,10 @@ export function run(root: string, dryRun: boolean): SyncReport {
   // Stamp the touched stages with the current template version (the re-sync record).
   for (const stage of [...touchedStages].sort()) {
     const current = mr.manifest.stages[String(stage)];
-    writeManifest(root, manifestWithStage(root, String(stage), { ...current, date: today(), templateVersion: TOOL_VERSION }));
+    writeManifest(
+      root,
+      manifestWithStage(root, String(stage), { ...current, date: today(), templateVersion: TOOL_VERSION }),
+    );
   }
 
   const parts: string[] = [];
@@ -233,7 +242,10 @@ export function run(root: string, dryRun: boolean): SyncReport {
 function renderMarkdown(r: SyncReport): string {
   const lines: string[] = ["# Sync Report", ""];
   const installed = r.version.installed ?? "none";
-  lines.push(`- Root: ${r.root} · Dry-run: ${r.dryRun} · Templates: installed ${installed} → current ${r.version.current}`, "");
+  lines.push(
+    `- Root: ${r.root} · Dry-run: ${r.dryRun} · Templates: installed ${installed} → current ${r.version.current}`,
+    "",
+  );
   if (r.files.length === 0) {
     lines.push("- No tracked template files.", "");
   } else {
@@ -246,7 +258,9 @@ function renderMarkdown(r: SyncReport): string {
   }
   if (r.consistency) {
     lines.push(
-      r.consistency.consistent ? "- Manifest consistency: consistent" : `- Manifest consistency: DIVERGENT — missing: ${r.consistency.missing.join(", ")}`,
+      r.consistency.consistent
+        ? "- Manifest consistency: consistent"
+        : `- Manifest consistency: DIVERGENT — missing: ${r.consistency.missing.join(", ")}`,
       "",
     );
   }
@@ -268,10 +282,7 @@ function parseArgs(argv: string[]): { root: string; dryRun: boolean; format: "js
 function assertNodeVersion(): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
   const ok =
-    major > 24 ||
-    (major === 24 && minor >= 12) ||
-    (major === 23 && minor >= 6) ||
-    (major === 22 && minor >= 18);
+    major > 24 || (major === 24 && minor >= 12) || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
   if (!ok) {
     console.error(
       `sync: Node.js >= 22.18 required (native type stripping); found ${process.versions.node}.\n` +

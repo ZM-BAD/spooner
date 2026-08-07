@@ -25,10 +25,12 @@ jobs:
       - run: pip install pre-commit
       # local hooks (typecheck/test) need node_modules which this job does not
       # install; typecheck runs in the declared-commands hard gate, test in
-      # lint-test — skip them here
+      # lint-test — skip them here; the managed eslint hook loads the repo's
+      # eslint.config (typescript-eslint resolves from repo node_modules),
+      # which this job lacks — lint runs in the lint-test job
       - run: pre-commit run --all-files
         env:
-          SKIP: typecheck,test,manifest-consistency
+          SKIP: typecheck,test,eslint,manifest-consistency
       # commitlint runs on the commit-msg stage (never run by --all-files);
       # write the last commit into .git/COMMIT_EDITMSG (what the hook reads);
       # --commit-msg-filename is required by pre-commit for this hook stage
@@ -107,7 +109,7 @@ jobs:
           import sys, os, re
           # baked at install time; must track the spooner TOOL_VERSION that
           # shipped this workflow (docs/08 ledger rule: every bump updates it)
-          EXPECTED = "0.7.0"
+          EXPECTED = "0.9.0"
 
           def parse_yaml(text):
               lines = [(len(l) - len(l.lstrip()), l) for l in text.split("\n")]

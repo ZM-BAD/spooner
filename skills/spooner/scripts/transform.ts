@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.7.0";
+export const TOOL_VERSION = "0.9.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -133,7 +133,12 @@ function parseYaml(text: string): { [k: string]: YamlValue } {
 }
 
 function stringifyManifest(m: Manifest): string {
-  const lines: string[] = [`schemaVersion: ${m.schemaVersion}`, `tool: ${m.tool}`, `version: "${m.version}"`, "stages:"];
+  const lines: string[] = [
+    `schemaVersion: ${m.schemaVersion}`,
+    `tool: ${m.tool}`,
+    `version: "${m.version}"`,
+    "stages:",
+  ];
   for (const [stage, s] of Object.entries(m.stages)) {
     lines.push(`  ${stage}:`, `    date: "${s.date}"`);
     if (s.templateVersion !== undefined) lines.push(`    templateVersion: "${s.templateVersion}"`);
@@ -152,14 +157,26 @@ export function readManifest(root: string): { present: boolean; manifest: Manife
   try {
     const parsed = parseYaml(readFileSync(p, "utf8"));
     const stagesRaw = parsed["stages"];
-    if (parsed["schemaVersion"] !== SCHEMA_VERSION || parsed["tool"] !== TOOL_NAME || typeof stagesRaw !== "object" || stagesRaw === null || Array.isArray(stagesRaw)) {
+    if (
+      parsed["schemaVersion"] !== SCHEMA_VERSION ||
+      parsed["tool"] !== TOOL_NAME ||
+      typeof stagesRaw !== "object" ||
+      stagesRaw === null ||
+      Array.isArray(stagesRaw)
+    ) {
       throw new Error(`schema mismatch (expected schemaVersion ${SCHEMA_VERSION}, tool ${TOOL_NAME}, stages map)`);
     }
     const stages: Record<string, ManifestStage> = {};
     const topVersion = typeof parsed["version"] === "string" ? parsed["version"] : TOOL_VERSION;
     for (const [k, v] of Object.entries(stagesRaw)) {
       const s = v as { date?: unknown; warnOnly?: unknown; files?: unknown; templateVersion?: unknown };
-      if (typeof s !== "object" || s === null || typeof s.date !== "string" || !Array.isArray(s.files) || s.files.some((f) => typeof f !== "string")) {
+      if (
+        typeof s !== "object" ||
+        s === null ||
+        typeof s.date !== "string" ||
+        !Array.isArray(s.files) ||
+        s.files.some((f) => typeof f !== "string")
+      ) {
         throw new Error(`stage "${k}" entry malformed`);
       }
       const tv = s.templateVersion;
@@ -188,7 +205,11 @@ export function readManifest(root: string): { present: boolean; manifest: Manife
 
 /** Written by every applied stage (slices 2-4); idempotent by design. */
 export function writeManifest(root: string, stages: Record<string, ManifestStage>): void {
-  writeFileSync(join(root, MANIFEST_FILE), stringifyManifest({ schemaVersion: SCHEMA_VERSION, tool: TOOL_NAME, version: TOOL_VERSION, stages }), "utf8");
+  writeFileSync(
+    join(root, MANIFEST_FILE),
+    stringifyManifest({ schemaVersion: SCHEMA_VERSION, tool: TOOL_NAME, version: TOOL_VERSION, stages }),
+    "utf8",
+  );
 }
 
 // --- stage 2: gates installer ---------------------------------------------------
@@ -277,7 +298,15 @@ function hasAny(root: string, names: string[]): boolean {
 }
 
 function pythonPresent(root: string): boolean {
-  return hasAny(root, ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".pylintrc", "ruff.toml", ".ruff.toml"]);
+  return hasAny(root, [
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "requirements.txt",
+    ".pylintrc",
+    "ruff.toml",
+    ".ruff.toml",
+  ]);
 }
 
 function pytestPresent(root: string): boolean {
@@ -294,7 +323,18 @@ function pipAuditPresent(root: string): boolean {
 }
 
 function eslintPresent(root: string): boolean {
-  if (hasAny(root, ["eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yml"])) return true;
+  if (
+    hasAny(root, [
+      "eslint.config.js",
+      "eslint.config.mjs",
+      "eslint.config.cjs",
+      ".eslintrc.json",
+      ".eslintrc.js",
+      ".eslintrc.cjs",
+      ".eslintrc.yml",
+    ])
+  )
+    return true;
   const pkg = packageJsonOf(root);
   return pkg !== null && pkg["eslintConfig"] !== undefined;
 }
@@ -305,7 +345,8 @@ function tsconfigPresent(root: string): boolean {
 
 function declaredScript(root: string, key: string): boolean {
   const pkg = packageJsonOf(root);
-  const scripts = pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
+  const scripts =
+    pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
   return typeof scripts[key] === "string";
 }
 
@@ -517,12 +558,17 @@ function nodeHooks(root: string): string | null {
   if (!eslintPresent(root) && !typecheckable && !declaredScript(root, "test")) return null;
   const lines: string[] = [];
   if (eslintPresent(root)) {
+    // types: [] — mirrors-eslint defaults to types: [javascript], which
+    // filters .ts files out (pre-commit's identify tags them typescript),
+    // leaving a dead eslint gate on pure-TS repos (dogfood 2026-08-07).
+    // The files pattern already scopes js/ts; no type filtering needed.
     lines.push(`  - repo: https://github.com/pre-commit/mirrors-eslint
     rev: v10.0.3
     hooks:
       - id: eslint
         args: [--max-warnings, "0"]
         files: \\.[jt]sx?$
+        types: []
         additional_dependencies:
           - eslint@10.0.3`);
   }
@@ -548,7 +594,8 @@ function nodeHooks(root: string): string | null {
         always_run: true
         stages: [pre-commit]`);
   }
-  if (local.length > 0) lines.push(`  - repo: local
+  if (local.length > 0)
+    lines.push(`  - repo: local
     hooks:
 ${local.join("\n")}`);
   return lines.join("\n");
@@ -714,8 +761,10 @@ function packageJsonOf(root: string): Record<string, unknown> | null {
 /** Declared build-ish and test-ish npm scripts (same key families as the audit). */
 function declaredNpmLifecycle(root: string): { build: string | null; test: string | null } {
   const pkg = packageJsonOf(root);
-  const scripts = pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
-  const build = ["build", "compile", "typecheck", "check", "verify"].find((k) => typeof scripts[k] === "string") ?? null;
+  const scripts =
+    pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
+  const build =
+    ["build", "compile", "typecheck", "check", "verify"].find((k) => typeof scripts[k] === "string") ?? null;
   const test = ["test", "spec"].find((k) => typeof scripts[k] === "string") ?? null;
   return { build: build ? `npm run ${build}` : null, test: test ? `npm run ${test}` : null };
 }
@@ -779,9 +828,10 @@ function hookPromptOf(root: string, ecosystem: HookTool, templates: Record<strin
   if (ecosystem === "husky" || ecosystem === "lefthook") return "";
   if (templates[PRE_COMMIT_FILE] === undefined) return "";
   const installed =
-    existsSync(join(root, ".git", "hooks", "pre-commit")) ||
-    existsSync(join(root, ".git", "hooks", "commit-msg"));
-  return installed ? "" : "; hooks not installed — run: pre-commit install --hook-type pre-commit --hook-type commit-msg";
+    existsSync(join(root, ".git", "hooks", "pre-commit")) || existsSync(join(root, ".git", "hooks", "commit-msg"));
+  return installed
+    ? ""
+    : "; hooks not installed — run: pre-commit install --hook-type pre-commit --hook-type commit-msg";
 }
 
 export function applyStage2(root: string, dryRun: boolean): Stage2Result {
@@ -793,7 +843,11 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
     if (current === stage2Content(root, file, tpl)) return { file, action: "keep" };
     // M10 legacy upgrade: bytes from the pre-M10 universal template, or any
     // generated config carrying the marker header (M12), are tool-owned.
-    if (file === PRE_COMMIT_FILE && (current === templateContent(LEGACY_PRE_COMMIT_TEMPLATE) || current.includes(GENERATED_PRE_COMMIT_MARKER))) return { file, action: "write" };
+    if (
+      file === PRE_COMMIT_FILE &&
+      (current === templateContent(LEGACY_PRE_COMMIT_TEMPLATE) || current.includes(GENERATED_PRE_COMMIT_MARKER))
+    )
+      return { file, action: "write" };
     return { file, action: "conflict" };
   });
   const toWrite = plans.filter((p) => p.action === "write");
@@ -835,8 +889,11 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
     if (existsSync(target)) {
       const installed = readFileSync(target, "utf8");
       if (installed !== templateContent(templates[workflowFile])) {
-        const other = Object.entries(STAGE2_WORKFLOWS).find(([s, t]) => s !== stack && installed === templateContent(t));
-        if (other) wrongStackHint = `installed workflow targets the ${other[0]} stack — delete ${workflowFile} and re-run to install the ${stack} workflow`;
+        const other = Object.entries(STAGE2_WORKFLOWS).find(
+          ([s, t]) => s !== stack && installed === templateContent(t),
+        );
+        if (other)
+          wrongStackHint = `installed workflow targets the ${other[0]} stack — delete ${workflowFile} and re-run to install the ${stack} workflow`;
       }
     }
   }
@@ -884,7 +941,10 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
 
   let message: string;
   if (toWrite.length === 0 && conflicts.length === 0) {
-    message = (manifestMissing ? "stage 2 files already installed; manifest restored" : "stage 2 already installed (no changes)") + (extra ? `; ${extra}` : "");
+    message =
+      (manifestMissing
+        ? "stage 2 files already installed; manifest restored"
+        : "stage 2 already installed (no changes)") + (extra ? `; ${extra}` : "");
   } else if (after === false) {
     const written = toWrite.map((p) => p.file).join(", ");
     message =
@@ -894,14 +954,25 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
   } else {
     const parts: string[] = [];
     if (toWrite.length > 0) parts.push(`${toWrite.length} file(s) written`);
-    if (conflicts.length > 0) parts.push(`${conflicts.length} conflict(s) kept (existing config differs — not overwritten: ${conflicts.map((c) => c.file).join(", ")})`);
+    if (conflicts.length > 0)
+      parts.push(
+        `${conflicts.length} conflict(s) kept (existing config differs — not overwritten: ${conflicts.map((c) => c.file).join(", ")})`,
+      );
     if (before === null) parts.push("no build/test command declared — nothing to verify");
     else if (before === false) parts.push(`build was failing before apply (pre-existing); green after (${command})`);
     else parts.push(`build green before+after (${command})`);
     message = `stage 2 applied: ${parts.join("; ")}${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}${manifestUpdated ? "; manifest updated" : ""}`;
   }
 
-  return { stage: 2, applied: toWrite.length > 0, dryRun: false, files: plans, buildCheck: { command, before, after }, manifestUpdated, message };
+  return {
+    stage: 2,
+    applied: toWrite.length > 0,
+    dryRun: false,
+    files: plans,
+    buildCheck: { command, before, after },
+    manifestUpdated,
+    message,
+  };
 }
 
 // --- stage 3: agent files --------------------------------------------------------
@@ -934,7 +1005,11 @@ function stackCommandsOf(root: string): { command: string; purpose: string }[] {
   const stacks = detect(root).stacks;
   const out: { command: string; purpose: string }[] = [];
   if (stacks.includes("go")) {
-    out.push({ command: "go build ./...", purpose: "build" }, { command: "go test ./...", purpose: "test" }, { command: "go vet ./...", purpose: "vet" });
+    out.push(
+      { command: "go build ./...", purpose: "build" },
+      { command: "go test ./...", purpose: "test" },
+      { command: "go vet ./...", purpose: "vet" },
+    );
   }
   if (stacks.includes("rust")) {
     out.push(
@@ -947,7 +1022,8 @@ function stackCommandsOf(root: string): { command: string; purpose: string }[] {
   if (stacks.includes("python")) out.push({ command: "python3 -m unittest discover", purpose: "test" });
   if (stacks.includes("java")) {
     if (existsSync(join(root, "build.gradle"))) out.push({ command: "gradle build", purpose: "build + test" });
-    else out.push({ command: existsSync(join(root, "mvnw")) ? "./mvnw -q -B test" : "mvn -q -B test", purpose: "test" });
+    else
+      out.push({ command: existsSync(join(root, "mvnw")) ? "./mvnw -q -B test" : "mvn -q -B test", purpose: "test" });
   }
   return out;
 }
@@ -958,7 +1034,8 @@ function stackCommandsOf(root: string): { command: string; purpose: string }[] {
  */
 export function generateAgentsMd(root: string): string {
   const pkg = packageJsonOf(root);
-  const scripts = pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
+  const scripts =
+    pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
   const stacks = detect(root).stacks;
   const name = typeof pkg?.name === "string" && pkg.name ? pkg.name : basename(resolve(root));
   const description = typeof pkg?.description === "string" ? pkg.description : null;
@@ -1068,7 +1145,11 @@ export function applyStage3(root: string, dryRun: boolean): Stage3Result {
   if (manifestUpdated) {
     writeManifest(
       root,
-      manifestWithStage(root, "3", { date: new Date().toISOString().slice(0, 10), templateVersion: TOOL_VERSION, files: ["AGENTS.md", "CLAUDE.md"] }),
+      manifestWithStage(root, "3", {
+        date: new Date().toISOString().slice(0, 10),
+        templateVersion: TOOL_VERSION,
+        files: ["AGENTS.md", "CLAUDE.md"],
+      }),
     );
   }
 
@@ -1086,7 +1167,12 @@ export function applyStage3(root: string, dryRun: boolean): Stage3Result {
     message = `stage 3 applied: ${manifestUpdated ? "files written; " : ""}conflict(s) kept (not overwritten: ${conflicts.map((c) => c.file).join(", ")})${note}`;
   } else {
     const agents = agentsAction.action === "write" ? `written (${generated.split("\n").length} lines)` : "kept";
-    const claude = claudeAction.action === "link" ? (process.platform === "win32" ? "@AGENTS.md import written" : "symlinked to AGENTS.md") : "kept";
+    const claude =
+      claudeAction.action === "link"
+        ? process.platform === "win32"
+          ? "@AGENTS.md import written"
+          : "symlinked to AGENTS.md"
+        : "kept";
     message = `stage 3 applied: AGENTS.md ${agents}; CLAUDE.md ${claude}; manifest updated`;
   }
   return { stage: 3, applied: manifestUpdated, dryRun: false, files: plans, manifestUpdated, message };
@@ -1124,7 +1210,9 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
   const plans: Stage2FilePlan[] = Object.entries(STAGE4_TEMPLATES).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
-    return readFileSync(target, "utf8") === templateContent(tpl) ? { file, action: "keep" } : { file, action: "conflict" };
+    return readFileSync(target, "utf8") === templateContent(tpl)
+      ? { file, action: "keep" }
+      : { file, action: "conflict" };
   });
   const toWrite = plans.filter((p) => p.action === "write");
   const conflicts = plans.filter((p) => p.action === "conflict");
@@ -1140,7 +1228,12 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
   }
 
   if (dryRun) {
-    const agentsPlan = agentsSdd.plan === "append" ? "append" : agentsSdd.plan === "already-present" ? "already present" : "skipped (no AGENTS.md — run stage 3)";
+    const agentsPlan =
+      agentsSdd.plan === "append"
+        ? "append"
+        : agentsSdd.plan === "already-present"
+          ? "already present"
+          : "skipped (no AGENTS.md — run stage 3)";
     return {
       stage: 4,
       applied: false,
@@ -1166,7 +1259,14 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
   const manifestUpdated = toWrite.length > 0 || appended;
   if (manifestUpdated) {
     const files = [...Object.keys(STAGE4_TEMPLATES), ...(appended ? ["AGENTS.md"] : [])];
-    writeManifest(root, manifestWithStage(root, "4", { date: new Date().toISOString().slice(0, 10), templateVersion: TOOL_VERSION, files }));
+    writeManifest(
+      root,
+      manifestWithStage(root, "4", {
+        date: new Date().toISOString().slice(0, 10),
+        templateVersion: TOOL_VERSION,
+        files,
+      }),
+    );
   }
 
   let message: string;
@@ -1323,7 +1423,10 @@ function renderMarkdown(r: TransformReport): string {
     );
   }
   if (r.buildCheck && r.buildCheck.command) {
-    lines.push(`- Build verification (${r.buildCheck.command}): before ${r.buildCheck.before ?? "—"} / after ${r.buildCheck.after ?? "—"}`, "");
+    lines.push(
+      `- Build verification (${r.buildCheck.command}): before ${r.buildCheck.before ?? "—"} / after ${r.buildCheck.after ?? "—"}`,
+      "",
+    );
   }
   if (r.message) lines.push(r.message, "");
   return lines.join("\n");
@@ -1331,7 +1434,12 @@ function renderMarkdown(r: TransformReport): string {
 
 // --- CLI ------------------------------------------------------------------------
 
-function parseArgs(argv: string[]): { root: string; stage: number | "all"; dryRun: boolean; format: "json" | "markdown" } {
+function parseArgs(argv: string[]): {
+  root: string;
+  stage: number | "all";
+  dryRun: boolean;
+  format: "json" | "markdown";
+} {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : undefined;
@@ -1352,10 +1460,7 @@ function parseArgs(argv: string[]): { root: string; stage: number | "all"; dryRu
 function assertNodeVersion(): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
   const ok =
-    major > 24 ||
-    (major === 24 && minor >= 12) ||
-    (major === 23 && minor >= 6) ||
-    (major === 22 && minor >= 18);
+    major > 24 || (major === 24 && minor >= 12) || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
   if (!ok) {
     console.error(
       `transform: Node.js >= 22.18 required (native type stripping); found ${process.versions.node}.\n` +

@@ -35,7 +35,10 @@ test("check: second run reports delta 0 with unchanged wording", () => {
 test("check: v1-model baseline is re-baselined with an explicit notice", () => {
   const repo = fixture();
   mkdirSync(join(repo, ".ai-native"), { recursive: true });
-  writeFileSync(join(repo, ".ai-native", "baseline.json"), JSON.stringify({ schemaVersion: 1, date: "2026-08-01", score: { total: 18, max: 20 }, gaps: [] }) + "\n");
+  writeFileSync(
+    join(repo, ".ai-native", "baseline.json"),
+    JSON.stringify({ schemaVersion: 1, date: "2026-08-01", score: { total: 18, max: 20 }, gaps: [] }) + "\n",
+  );
   const r = run(repo);
   assert.equal(r.baseline.present, false);
   assert.match(r.suggestions.join(" "), /v1 scoring model re-baselined/);

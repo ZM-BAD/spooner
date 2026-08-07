@@ -1,10 +1,10 @@
 schemaVersion: 1
 tool: spooner
-version: "0.7.0"
+version: "0.9.0"
 stages:
   2:
     date: "2026-08-06"
-    templateVersion: "0.7.0"
+    templateVersion: "0.9.0"
     warnOnly: true
     files:
       - ".commitlintrc.json"

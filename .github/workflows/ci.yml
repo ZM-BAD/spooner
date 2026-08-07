@@ -27,7 +27,7 @@ jobs:
       # same results, no duplicate work).
       - uses: pre-commit/action@v3.0.1
         env:
-          SKIP: typecheck,test,manifest-consistency
+          SKIP: typecheck,test,eslint,manifest-consistency
 
   typecheck:
     name: TypeScript 6 typecheck + tests
