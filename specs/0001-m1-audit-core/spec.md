@@ -38,18 +38,18 @@ Weight structure (2026-08-07 revision): Agent Setup 45% (the AI-specific core) /
 | agents-md | 0.5 | content depth + command traceability (commands trace to scripts/Makefile) |
 | agents-bridge | 0.5 | real symlink / @AGENTS.md import (content reference scores lower) |
 | agents-length | 0.5 | optimal band 30-200 lines; thin/short and over-long drop bands |
-| agents-commands | 1 | build+test traceable → full stack lifecycle → documented in AGENTS.md |
+| agents-commands | 1 | build+test traceable → full stack lifecycle → documented in AGENTS.md (tracing is static — evidence marks "static trace, not executed" unless `--verify` runs the commands; php signals are traced beyond the primary stack — phpunit.xml / phpunit in composer.json) |
 | agents-sdd | 0.5 | declaration → + spec files → + state frontmatter → + CI spec gate |
 
 ### Configuration (2) — tools & gates
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
-| cfg-lint | 0.5 | config + command + CI job depth |
-| cfg-format | 0.5 | config + command + CI job depth (tool names only, no --format noise) |
+| cfg-lint | 0.5 | config + command + CI job depth (incl. php: phpcs.xml / phpstan.neon / psalm.xml) |
+| cfg-format | 0.5 | config + command + CI job depth (prettier/biome/ruff/rustfmt/.php-cs-fixer configs — ruff.toml counts like cfg-lint; tool names only, no --format noise) |
 | cfg-hooks | 0.5 | mechanism → + discipline config → + hooks installed → + commit-msg stage |
 | cfg-ci | 0.5 | lint only / lint+test / lint+test+security job |
-| cfg-test | 0.5 | framework/command → + test files → + assertions |
+| cfg-test | 0.5 | framework/command → + test files → + assertions (incl. php: phpunit.xml / phpunit in composer.json; .php test files with PHPUnit assertions) |
 
 ### Integrity (1.5) — security & consistency
 
@@ -64,7 +64,7 @@ Weight structure (2026-08-07 revision): Agent Setup 45% (the AI-specific core) /
 
 | ID | Max | Quality signal (summary) |
 |---|---|---|
-| fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard; go: go.sum checksum lockfile; rust: Cargo.lock; java: manifest-version pin (no lockfile convention) |
+| fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard; go: go.sum checksum lockfile; rust: Cargo.lock; java: manifest-version pin (no lockfile convention); python: pyproject.toml, or requirements.txt — exact `==` pins are the manifest pin, +uv/poetry/pdm lock → lockfile; php: composer.json + composer.lock (checksum lockfile), declared constraints without lock = manifest pin; mixed repos aggregate composer.lock into the node lockfile signal |
 
 ### Structure (1.5) — engineering structure
 

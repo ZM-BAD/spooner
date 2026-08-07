@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -18,6 +18,7 @@ import {
   primaryStack,
   stage2Templates,
   workflowEligible,
+  workflowSkipReason,
 } from "../scripts/transform.ts";
 import { runAudit } from "../scripts/audit.ts";
 
@@ -27,6 +28,10 @@ function fixture(): string {
 
 function readTemplate(name: string): string {
   return readFileSync(join(TEMPLATE_DIR, name), "utf8");
+}
+
+function git(root: string, args: string[]): void {
+  execFileSync("git", args, { cwd: root, stdio: "ignore" });
 }
 
 function nodeRepo(dir: string): string {
@@ -69,10 +74,58 @@ test("ciPlatforms: github presence wins over a stray non-GitHub file", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("stage2Templates: no CI -> workflow included (greenfield GitHub assumption)", () => {
+test("stage2Templates: no CI + no remote -> workflow included (greenfield GitHub assumption)", () => {
   const repo = nodeRepo(fixture());
   const tpl = stage2Templates(repo);
   assert.ok(tpl[".github/workflows/ai-native.yml"]);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage2Templates: greenfield + gitlab origin remote -> no workflow (no dead CI file)", () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  git(repo, ["remote", "add", "origin", "git@gitlab.com:group/repo.git"]);
+  const tpl = stage2Templates(repo);
+  assert.equal(tpl[".github/workflows/ai-native.yml"], undefined);
+  assert.match(workflowSkipReason(repo) ?? "", /origin remote host gitlab \(non-GitHub\)/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage2Templates: greenfield + github origin remote -> workflow included", () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  git(repo, ["remote", "add", "origin", "https://github.com/ZM-BAD/spooner.git"]);
+  const tpl = stage2Templates(repo);
+  assert.ok(tpl[".github/workflows/ai-native.yml"]);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage2Templates: --ci none overrides a github-detected repo (no workflow)", () => {
+  const repo = nodeRepo(fixture());
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  assert.ok(stage2Templates(repo)[".github/workflows/ai-native.yml"], "auto-detection should include the workflow");
+  const tpl = stage2Templates(repo, "none");
+  assert.equal(tpl[".github/workflows/ai-native.yml"], undefined);
+  assert.match(workflowSkipReason(repo, "none") ?? "", /none \(explicit\)/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage2Templates: --ci github overrides a gitlab remote (workflow included)", () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  git(repo, ["remote", "add", "origin", "git@gitlab.com:group/repo.git"]);
+  const tpl = stage2Templates(repo, "github");
+  assert.ok(tpl[".github/workflows/ai-native.yml"]);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: gitlab-remote greenfield installs gates only + reports the skip notice", () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  git(repo, ["remote", "add", "origin", "git@gitlab.com:group/repo.git"]);
+  const r = applyStage2(repo, false);
+  assert.ok(!existsSync(join(repo, ".github/workflows/ai-native.yml")));
+  assert.match(r.message ?? "", /CI workflow skipped: origin remote host gitlab/);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -222,6 +275,24 @@ test("stage3: rust fixture -> AGENTS.md lists cargo commands", () => {
   assert.match(md, /cargo test/);
   assert.match(md, /cargo fmt --check/);
   assert.match(md, /cargo clippy/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage3: AGENTS.md conventions are stack-aware (rust)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Cargo.toml"), '[package]\nname = "x"\nversion = "0.1.0"\n');
+  const md = generateAgentsMd(repo);
+  assert.match(md, /Rust: run `cargo fmt` and `cargo clippy` before committing/);
+  assert.doesNotMatch(md, /virtualenv/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage3: python fixture conventions mention virtualenv (stack-aware copy)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\n");
+  const md = generateAgentsMd(repo);
+  assert.match(md, /Python: install dependencies via pip inside a virtualenv/);
+  assert.doesNotMatch(md, /cargo fmt/);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -559,7 +630,8 @@ test("stage 2: build-verification message is honest when before fails and after 
   const r = applyStage2(repo, false);
   assert.equal(r.buildCheck.before, false);
   assert.equal(r.buildCheck.after, true);
-  assert.match(r.message ?? "", /failing before apply \(pre-existing\)/);
+  assert.match(r.message ?? "", /failing before apply \(pre-existing/);
+  assert.match(r.buildCheck.error ?? "", /npm run test — exit 1/);
   assert.ok(!r.message?.includes("green before+after"), `message claims green: ${r.message}`);
   rmSync(repo, { recursive: true, force: true });
 });
@@ -571,6 +643,20 @@ test("stage 2: 'green before+after' wording unchanged when both sides pass", () 
   assert.equal(r.buildCheck.before, true);
   assert.equal(r.buildCheck.after, true);
   assert.match(r.message ?? "", /green before\+after/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: pre-existing build failure reports the reason (exit code + stderr)", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "x", scripts: { build: "echo boom >&2 && exit 3" } }),
+  );
+  const r = applyStage2(repo, false);
+  assert.equal(r.buildCheck.before, false);
+  assert.match(r.buildCheck.error ?? "", /npm run build — exit 3: boom/);
+  assert.match(r.message ?? "", /pre-existing — npm run build — exit 3: boom/);
+  assert.match(r.message ?? "", /installed hooks are hard gates \(commits stay blocked until the build is fixed\)/);
   rmSync(repo, { recursive: true, force: true });
 });
 

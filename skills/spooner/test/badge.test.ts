@@ -23,7 +23,20 @@ test("probe: no README -> default flat", () => {
   assert.equal(p.readme, null);
   assert.equal(p.decided, "flat");
   assert.equal(p.source, "default");
-  assert.equal(p.evidence, "README.md missing — default flat");
+  assert.equal(p.evidence, "README missing — default flat");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("probe: lowercase readme.md probes identically (case-insensitive lookup, 2026-08-07)", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "readme.md"),
+    "# R\n\n![x](https://img.shields.io/badge/a-1-flat?style=flat-square)\n![y](https://img.shields.io/badge/b-2-flat?style=flat-square)\n",
+  );
+  const p = probeReadme(repo);
+  assert.equal(p.decided, "flat-square");
+  assert.equal(p.source, "probe");
+  assert.match(p.evidence, /matched flat-square/);
   rmSync(repo, { recursive: true, force: true });
 });
 

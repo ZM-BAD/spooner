@@ -17,10 +17,10 @@
  * type stripping — no build step:
  *   node skills/spooner/scripts/badge.ts [--root <path>] [--style <name>] [--format json|markdown]
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runAudit, renderMarkdown as renderAuditMarkdown } from "./audit.ts";
+import { readmeFileOf, runAudit, renderMarkdown as renderAuditMarkdown } from "./audit.ts";
 
 const ARTIFACT_DIR = "assets";
 const BADGE_FILE = "badge.svg";
@@ -90,8 +90,10 @@ function badgeUrls(readme: string | null): string[] {
  * else (badgen, custom SVG, GitHub-native workflow badges) is unknown.
  */
 export function probeReadme(root: string): ProbeResult {
-  const readmePath = join(root, "README.md");
-  const readme = existsSync(readmePath) ? readFileSync(readmePath, "utf8") : null;
+  // case-insensitive lookup — a lowercase readme.md must probe identically on
+  // macOS and Linux CI (2026-08-07)
+  const readmeName = readmeFileOf(root);
+  const readme = readmeName ? readFileSync(join(root, readmeName), "utf8") : null;
 
   const badges: BadgeHit[] = badgeUrls(readme).map((url) => {
     const m = url.match(/[?&]style=([a-z0-9-]+)/i);
@@ -120,16 +122,17 @@ export function probeReadme(root: string): ProbeResult {
 
   const known = badges.filter((b) => b.style !== null).length;
   const evidence = !readme
-    ? "README.md missing — default flat"
+    ? "README missing — default flat"
     : badges.length === 0
-      ? "no badges found in README.md — default flat"
+      ? "no badges found in README — default flat"
       : known === 0
         ? `no recognized shields.io style among ${badges.length} badge(s) — default flat`
         : matched
           ? `matched ${decided}: ${best} shields.io badge(s)`
           : "tie between existing styles — default flat";
 
-  return { readme: readme ? readmePath : null, badges, counts, decided, source, evidence };
+  const readmePath = readmeName ? join(root, readmeName) : null;
+  return { readme: readmePath, badges, counts, decided, source, evidence };
 }
 
 // --- SVG rendering ------------------------------------------------------------

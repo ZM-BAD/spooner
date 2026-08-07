@@ -10,7 +10,7 @@
  *
  * Zero dependencies (Node builtins only); runs natively via Node's
  * type stripping — no build step:
- *   node skills/spooner/scripts/transform.ts [--root <path>] [--stage 2|3|4|all] [--dry-run] [--format json|markdown]
+ *   node skills/spooner/scripts/transform.ts [--root <path>] [--stage 2|3|4|all] [--dry-run] [--ci github|gitlab|none] [--format json|markdown]
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -29,6 +29,15 @@ const STAGE_FILES: Record<number, string[]> = {
   3: ["AGENTS.md", "CLAUDE.md"],
   4: ["docs/sdd/spec.md", "docs/sdd/plan.md", "docs/sdd/tasks.md", ".github/workflows/sdd.yml"],
 };
+
+/** Stage-4 template map: SDD docs + the spec-existence CI gate. The gate is
+ *  skipped on non-GitHub platforms — same routing as stage 2 (2026-08-07:
+ *  stage 4 previously installed a dead .github/workflows/sdd.yml on GitLab). */
+export function stage4Templates(root: string, ciOverride?: string): Record<string, string> {
+  const tpl = { ...STAGE4_TEMPLATES };
+  if (!workflowEligible(root, ciOverride)) delete tpl[".github/workflows/sdd.yml"];
+  return tpl;
+}
 
 interface ManifestStage {
   date: string;
@@ -250,24 +259,59 @@ export function ciPlatforms(root: string): string[] {
   return out;
 }
 
+/** Host of the repo's origin remote (null when none is configured). */
+function gitRemoteHost(root: string): string | null {
+  try {
+    const url = execFileSync("git", ["config", "--get", "remote.origin.url"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    const host = url.match(/^(?:[a-z+]+:\/\/)?(?:[^@/]+@)?([^:/]+)/i)?.[1] ?? null;
+    if (!host || !host.includes(".")) return null; // local/file remotes carry no host signal
+    const h = host.toLowerCase();
+    if (h.includes("github")) return "github";
+    if (h.includes("gitlab")) return "gitlab";
+    return h;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Whether the GitHub workflow template applies (spec 0008): no CI detected
- * (greenfield — GitHub assumption holds) or GitHub present (github wins over
- * a stray non-GitHub file). A non-GitHub platform means the workflow would be
- * a dead file — cross-stack gates only.
+ * Why the GitHub workflow template is skipped (null = it applies). Detection
+ * order (spec 0008 + greenfield-remote fix 2026-08-07): an explicit --ci
+ * override wins; local CI files next; a greenfield repo with no CI files
+ * consults the origin remote host — a GitLab remote must not receive a dead
+ * .github/workflows file.
  */
-export function workflowEligible(root: string): boolean {
+export function workflowSkipReason(root: string, ciOverride?: string): string | null {
+  if (ciOverride === "github") return null;
+  if (ciOverride === "gitlab" || ciOverride === "none")
+    return `CI workflow skipped: ${ciOverride} (explicit) — cross-stack gates installed`;
   const platforms = ciPlatforms(root);
-  return platforms.length === 0 || platforms.includes("github");
+  if (platforms.length > 0 && !platforms.includes("github"))
+    return `CI workflow skipped: detected ${platforms.join("/")} (non-GitHub) — cross-stack gates installed`;
+  if (platforms.length === 0) {
+    const host = gitRemoteHost(root);
+    if (host !== null && host !== "github")
+      return `CI workflow skipped: origin remote host ${host} (non-GitHub) — cross-stack gates installed`;
+  }
+  return null;
+}
+
+/** Whether the GitHub workflow template applies (spec 0008 + greenfield remote). */
+export function workflowEligible(root: string, ciOverride?: string): boolean {
+  return workflowSkipReason(root, ciOverride) === null;
 }
 
 /** Stage-2 template map for a repo: cross-stack gates + its stack's workflow.
  *  The pre-commit config is generated (M10) unless the repo keeps another hook
  *  ecosystem (husky / lefthook — skip + notice, the spec 0008 treatment). */
-export function stage2Templates(root: string): Record<string, string> {
+export function stage2Templates(root: string, ciOverride?: string): Record<string, string> {
   const stack = primaryStack(root);
   const tpl = { ...STAGE2_COMMON };
-  if (stack && workflowEligible(root)) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
+  if (stack && workflowEligible(root, ciOverride)) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
   const ecosystem = hookToolEcosystem(root);
   if (ecosystem !== "husky" && ecosystem !== "lefthook") tpl[PRE_COMMIT_FILE] = GENERATED;
   return tpl;
@@ -734,6 +778,10 @@ interface BuildCheck {
   command: string | null;
   before: boolean | null;
   after: boolean | null;
+  /** Why the check failed — failing command + stderr excerpt (first failure, truncated). */
+  error: string | null;
+  /** A tool of the verification command was not installed (exit 127) — not a build failure. */
+  missingTool: string | null;
 }
 
 interface Stage2Result {
@@ -774,7 +822,7 @@ function declaredNpmLifecycle(root: string): { build: string | null; test: strin
  * python/go/java use fixed standard commands, verified by the CI hard gate —
  * the same trust model as package.json scripts (the gate actually runs them).
  */
-function stackLifecycle(root: string): { build: string | null; test: string | null } {
+export function stackLifecycle(root: string): { build: string | null; test: string | null } {
   const stack = primaryStack(root);
   if (stack === "go") return { build: "go build ./...", test: "go test ./..." };
   if (stack === "rust") return { build: "cargo build", test: "cargo test" };
@@ -788,22 +836,42 @@ function stackLifecycle(root: string): { build: string | null; test: string | nu
   return declaredNpmLifecycle(root);
 }
 
-function runCommand(root: string, command: string): boolean {
+interface CommandResult {
+  ok: boolean;
+  /** Failing command + stderr excerpt (truncated) — null when the command passed. */
+  error: string | null;
+  /** First tool of the command that could not be found (exit 127) — a missing
+   *  local tool is NOT a failing build (2026-08-07). */
+  missingTool: string | null;
+}
+
+function runCommand(root: string, command: string): CommandResult {
   try {
     execFileSync("sh", ["-c", command], { cwd: root, stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
+    return { ok: true, error: null, missingTool: null };
+  } catch (err) {
+    const e = (err ?? {}) as { status?: number; stderr?: Buffer | string };
+    const stderr = e.stderr ? String(e.stderr).trim() : "";
+    const excerpt = stderr.length > 300 ? `${stderr.slice(0, 300)}…` : stderr;
+    const missing =
+      e.status === 127 || /command not found|No such file or directory/i.test(stderr) ? command.split(/\s+/)[0] : null;
+    return { ok: false, error: `exit ${e.status ?? "?"}${excerpt ? `: ${excerpt}` : ""}`, missingTool: missing };
   }
 }
 
-function runDeclared(root: string): { ok: boolean; keys: string[] } {
+function runDeclared(root: string): {
+  ok: boolean;
+  keys: string[];
+  error: string | null;
+  missingTool: string | null;
+} {
   const { build, test } = stackLifecycle(root);
   const keys = [build, test].filter((k): k is string => k !== null);
   for (const k of keys) {
-    if (!runCommand(root, k)) return { ok: false, keys };
+    const r = runCommand(root, k);
+    if (!r.ok) return { ok: false, keys, error: `${k} — ${r.error}`, missingTool: r.missingTool };
   }
-  return { ok: true, keys };
+  return { ok: true, keys, error: null, missingTool: null };
 }
 
 export function manifestWithStage(root: string, stage: string, entry: ManifestStage): Record<string, ManifestStage> {
@@ -834,8 +902,8 @@ function hookPromptOf(root: string, ecosystem: HookTool, templates: Record<strin
     : "; hooks not installed — run: pre-commit install --hook-type pre-commit --hook-type commit-msg";
 }
 
-export function applyStage2(root: string, dryRun: boolean): Stage2Result {
-  const templates = stage2Templates(root);
+export function applyStage2(root: string, dryRun: boolean, ciOverride?: string): Stage2Result {
+  const templates = stage2Templates(root, ciOverride);
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
@@ -865,13 +933,11 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
         ? `stack ${detected.join("/")}: transform not supported yet — audit works; supported stacks: node/python/go/java/rust (cross-stack gates installed, CI workflow skipped)`
         : "no recognized stack — cross-stack gates installed, CI workflow skipped (supported stacks: node/python/go/java/rust)";
 
-  // Non-GitHub CI skip notice (spec 0008): the workflow would be a dead file on
-  // GitLab/Jenkins/etc. — cross-stack gates install, the workflow is skipped.
-  const platforms = ciPlatforms(root);
+  // Non-GitHub workflow skip notice (spec 0008): local CI files or the origin
+  // remote host (greenfield — no CI files) decide; an explicit --ci override
+  // is reported the same way. The workflow would be a dead file elsewhere.
   const platformNotice =
-    stack !== null && platforms.length > 0 && !platforms.includes("github")
-      ? `CI workflow skipped: detected ${platforms.join("/")} (non-GitHub) — cross-stack gates installed`
-      : null;
+    stack !== null && !templates[".github/workflows/ai-native.yml"] ? workflowSkipReason(root, ciOverride) : null;
 
   // Hook-tool skip notice (M10, spec 0010): husky/lefthook ecosystems keep their
   // own hooks — the generated pre-commit config would be a foreign gate file.
@@ -905,7 +971,7 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
       applied: false,
       dryRun: true,
       files: plans,
-      buildCheck: { command, before: null, after: null },
+      buildCheck: { command, before: null, after: null, error: null, missingTool: null },
       manifestUpdated: false,
       message: `dry-run: ${toWrite.length} file(s) to write, ${conflicts.length} conflict(s), ${plans.length - toWrite.length - conflicts.length} already installed; verification command: ${command ?? "none declared"}${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}`,
     };
@@ -915,12 +981,17 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
   // local tooling like pre-commit exists here); the CI gate template runs
   // self-contained families only (a clean CI checkout lacks that tooling).
   // A failure here names rollback or pre-existing, never fakes green.
-  const before = command ? runDeclared(root).ok : null;
+  const beforeRun = command ? runDeclared(root) : null;
+  const before = beforeRun ? beforeRun.ok : null;
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
     writeFileSync(join(root, p.file), stage2Content(root, p.file, templates[p.file]), "utf8");
   }
-  const after = command ? runDeclared(root).ok : null;
+  const afterRun = command ? runDeclared(root) : null;
+  const after = afterRun ? afterRun.ok : null;
+  // first failure carries the reason (stderr excerpt + exit code)
+  const buildError = beforeRun?.error ?? afterRun?.error ?? null;
+  const missingTool = beforeRun?.missingTool ?? afterRun?.missingTool ?? null;
   // the manifest is the ledger: restore it even when no files are written
   // (a deleted .ai-native.yml must not be a dead end for the drift gate's
   // "run transform stage 2" remediation — and check's no-manifest suggestion)
@@ -948,9 +1019,11 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
   } else if (after === false) {
     const written = toWrite.map((p) => p.file).join(", ");
     message =
-      before === false
-        ? `stage 2 applied: build was ALREADY failing before apply (pre-existing); ${written} written; verification still failing after`
-        : `stage 2 applied but build verification FAILED after — rollback: git restore ${written}`;
+      before === false && missingTool
+        ? `stage 2 applied: ${written} written; build verification could not run — ${missingTool} is not installed (exit 127: command not found) — install the tool and re-run; a missing local tool is not a failing build (hooks stay installed; CI hard gates will verify the real build)`
+        : before === false
+          ? `stage 2 applied: build was ALREADY failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); ${written} written; verification still failing after — installed hooks are hard gates (commits stay blocked until the build is fixed)`
+          : `stage 2 applied but build verification FAILED after — ${buildError ?? "unknown error"}; rollback: git restore ${written}`;
   } else {
     const parts: string[] = [];
     if (toWrite.length > 0) parts.push(`${toWrite.length} file(s) written`);
@@ -959,7 +1032,10 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
         `${conflicts.length} conflict(s) kept (existing config differs — not overwritten: ${conflicts.map((c) => c.file).join(", ")})`,
       );
     if (before === null) parts.push("no build/test command declared — nothing to verify");
-    else if (before === false) parts.push(`build was failing before apply (pre-existing); green after (${command})`);
+    else if (before === false)
+      parts.push(
+        `build was failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); green after (${command})`,
+      );
     else parts.push(`build green before+after (${command})`);
     message = `stage 2 applied: ${parts.join("; ")}${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}${manifestUpdated ? "; manifest updated" : ""}`;
   }
@@ -969,7 +1045,7 @@ export function applyStage2(root: string, dryRun: boolean): Stage2Result {
     applied: toWrite.length > 0,
     dryRun: false,
     files: plans,
-    buildCheck: { command, before, after },
+    buildCheck: { command, before, after, error: buildError, missingTool },
     manifestUpdated,
     message,
   };
@@ -1042,6 +1118,16 @@ export function generateAgentsMd(root: string): string {
   const scriptKeys = Object.keys(scripts).sort();
   const makeTargets = makefileTargetsOf(root);
   const stackCmds = stackCommandsOf(root);
+  /** Stack-specific advisory copy — not command claims (the commands table
+   *  above is the only traceable part); each line references commands that
+   *  table already declares for that stack. */
+  const stackConventions: Record<string, string> = {
+    node: "- Node: prefer `npm run` scripts for anything agent-run (the gates verify them)",
+    python: "- Python: install dependencies via pip inside a virtualenv (never system-wide)",
+    go: "- Go: run `gofmt` and `go vet` before committing",
+    rust: "- Rust: run `cargo fmt` and `cargo clippy` before committing",
+    java: "- Java: prefer the wrapper (`mvnw`/`gradlew`) when present",
+  };
   const lines: string[] = [
     `# ${name} — agent contract`,
     "",
@@ -1070,6 +1156,10 @@ export function generateAgentsMd(root: string): string {
     lines.push("");
   }
   lines.push("## Conventions", "");
+  for (const s of stacks) {
+    const c = stackConventions[s];
+    if (c) lines.push(c);
+  }
   lines.push("- Follow the repo's existing conventions; keep the build green.", "");
   return lines.join("\n");
 }
@@ -1206,8 +1296,9 @@ interface Stage4Result {
   message: string | null;
 }
 
-function applyStage4(root: string, dryRun: boolean): Stage4Result {
-  const plans: Stage2FilePlan[] = Object.entries(STAGE4_TEMPLATES).map(([file, tpl]) => {
+export function applyStage4(root: string, dryRun: boolean, ciOverride?: string): Stage4Result {
+  const templates = stage4Templates(root, ciOverride);
+  const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
     return readFileSync(target, "utf8") === templateContent(tpl)
@@ -1234,6 +1325,7 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
         : agentsSdd.plan === "already-present"
           ? "already present"
           : "skipped (no AGENTS.md — run stage 3)";
+    const sddSkip = templates[".github/workflows/sdd.yml"] === undefined ? workflowSkipReason(root, ciOverride) : null;
     return {
       stage: 4,
       applied: false,
@@ -1241,13 +1333,13 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
       files: plans,
       agentsSdd,
       manifestUpdated: false,
-      message: `dry-run: ${toWrite.length} file(s) to write, ${conflicts.length} conflict(s), ${plans.length - toWrite.length - conflicts.length} already installed; AGENTS.md SDD convention: ${agentsPlan}`,
+      message: `dry-run: ${toWrite.length} file(s) to write, ${conflicts.length} conflict(s), ${plans.length - toWrite.length - conflicts.length} already installed; AGENTS.md SDD convention: ${agentsPlan}${sddSkip ? `; ${sddSkip} (SDD spec gate)` : ""}`,
     };
   }
 
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
-    writeFileSync(join(root, p.file), templateContent(STAGE4_TEMPLATES[p.file]), "utf8");
+    writeFileSync(join(root, p.file), templateContent(templates[p.file]), "utf8");
   }
   let appended = false;
   if (agentsSdd.plan === "append") {
@@ -1256,9 +1348,10 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
     agentsSdd = { plan: "append", appended: true };
   }
 
+  const sddSkip = templates[".github/workflows/sdd.yml"] === undefined ? workflowSkipReason(root, ciOverride) : null;
   const manifestUpdated = toWrite.length > 0 || appended;
   if (manifestUpdated) {
-    const files = [...Object.keys(STAGE4_TEMPLATES), ...(appended ? ["AGENTS.md"] : [])];
+    const files = [...Object.keys(templates), ...(appended ? ["AGENTS.md"] : [])];
     writeManifest(
       root,
       manifestWithStage(root, "4", {
@@ -1271,15 +1364,16 @@ function applyStage4(root: string, dryRun: boolean): Stage4Result {
 
   let message: string;
   if (toWrite.length === 0 && conflicts.length === 0 && !appended) {
-    message = "stage 4 already installed (no changes)";
+    message = `stage 4 already installed (no changes)${sddSkip ? `; ${sddSkip} (SDD spec gate)` : ""}`;
   } else if (conflicts.length > 0) {
-    message = `stage 4 applied: ${toWrite.length > 0 || appended ? "changes written; " : ""}conflict(s) kept (not overwritten: ${conflicts.map((c) => c.file).join(", ")})`;
+    message = `stage 4 applied: ${toWrite.length > 0 || appended ? "changes written; " : ""}conflict(s) kept (not overwritten: ${conflicts.map((c) => c.file).join(", ")})${sddSkip ? `; ${sddSkip} (SDD spec gate)` : ""}`;
   } else {
     const parts: string[] = [];
     if (toWrite.length > 0) parts.push(`${toWrite.length} file(s) written`);
     if (appended) parts.push("AGENTS.md SDD convention appended");
     if (agentsSdd.plan === "already-present") parts.push("AGENTS.md already declares SDD");
     if (agentsSdd.plan === "no-agents-file") parts.push("AGENTS.md missing — run stage 3 first");
+    if (sddSkip) parts.push(sddSkip + " (SDD spec gate)");
     message = `stage 4 applied: ${parts.join("; ")}${manifestUpdated ? "; manifest updated" : ""}`;
   }
   return { stage: 4, applied: manifestUpdated, dryRun: false, files: plans, agentsSdd, manifestUpdated, message };
@@ -1348,15 +1442,20 @@ function gateStageHint(missing: string[]): number {
 
 // --- stage status -------------------------------------------------------------
 
-function stageStatus(root: string, stage: number): StageReport {
-  const files = stage === 2 ? Object.keys(stage2Templates(root)) : STAGE_FILES[stage];
+function stageStatus(root: string, stage: number, ciOverride?: string): StageReport {
+  const files =
+    stage === 2
+      ? Object.keys(stage2Templates(root, ciOverride))
+      : stage === 4
+        ? Object.keys(stage4Templates(root, ciOverride))
+        : STAGE_FILES[stage];
   const present = files.filter((f) => existsSync(join(root, f)));
   const missing = files.filter((f) => !present.includes(f));
   const status: StageStatus = present.length === 0 ? "not-installed" : missing.length === 0 ? "installed" : "partial";
   return { stage, status, present, missing };
 }
 
-function run(root: string, stage: number | "all", dryRun: boolean): TransformReport {
+function run(root: string, stage: number | "all", dryRun: boolean, ciOverride?: string): TransformReport {
   const stagesToReport = stage === "all" ? [2, 3, 4] : [stage];
   const mr = readManifest(root);
   let applied = false;
@@ -1365,7 +1464,7 @@ function run(root: string, stage: number | "all", dryRun: boolean): TransformRep
   let files: Stage2FilePlan[] | Stage3FilePlan[] | null = null;
   let buildCheck: BuildCheck | null = null;
   if (stage === 2) {
-    const r2 = applyStage2(root, dryRun);
+    const r2 = applyStage2(root, dryRun, ciOverride);
     applied = r2.applied;
     message = r2.message;
     manifestUpdated = r2.manifestUpdated;
@@ -1378,7 +1477,7 @@ function run(root: string, stage: number | "all", dryRun: boolean): TransformRep
     manifestUpdated = r3.manifestUpdated;
     files = r3.files;
   } else if (stage === 4) {
-    const r4 = applyStage4(root, dryRun);
+    const r4 = applyStage4(root, dryRun, ciOverride);
     applied = r4.applied;
     message = r4.message;
     manifestUpdated = r4.manifestUpdated;
@@ -1389,7 +1488,7 @@ function run(root: string, stage: number | "all", dryRun: boolean): TransformRep
     root,
     stage,
     dryRun,
-    stages: stagesToReport.map((s) => stageStatus(root, s)),
+    stages: stagesToReport.map((s) => stageStatus(root, s, ciOverride)),
     manifest: { present: mr.present, error: mr.error },
     consistency: checkConsistency(root),
     applied,
@@ -1423,8 +1522,9 @@ function renderMarkdown(r: TransformReport): string {
     );
   }
   if (r.buildCheck && r.buildCheck.command) {
+    const detail = r.buildCheck.error ? ` — ${r.buildCheck.error}` : "";
     lines.push(
-      `- Build verification (${r.buildCheck.command}): before ${r.buildCheck.before ?? "—"} / after ${r.buildCheck.after ?? "—"}`,
+      `- Build verification (${r.buildCheck.command}): before ${r.buildCheck.before ?? "—"} / after ${r.buildCheck.after ?? "—"}${detail}`,
       "",
     );
   }
@@ -1439,6 +1539,7 @@ function parseArgs(argv: string[]): {
   stage: number | "all";
   dryRun: boolean;
   format: "json" | "markdown";
+  ci: "github" | "gitlab" | "none" | undefined;
 } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
@@ -1454,7 +1555,16 @@ function parseArgs(argv: string[]): {
           throw new Error(`invalid --stage "${stageRaw}" (expected 2, 3, 4, or all)`);
         })();
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
-  return { root: valueOf("--root") ?? process.cwd(), stage, dryRun: argv.includes("--dry-run"), format };
+  const ciRaw = valueOf("--ci");
+  const ci: "github" | "gitlab" | "none" | undefined =
+    ciRaw === undefined
+      ? undefined
+      : ciRaw === "github" || ciRaw === "gitlab" || ciRaw === "none"
+        ? ciRaw
+        : (() => {
+            throw new Error(`invalid --ci "${ciRaw}" (expected github, gitlab, none, or omit for auto)`);
+          })();
+  return { root: valueOf("--root") ?? process.cwd(), stage, dryRun: argv.includes("--dry-run"), format, ci };
 }
 
 function assertNodeVersion(): void {
@@ -1474,8 +1584,8 @@ function assertNodeVersion(): void {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   assertNodeVersion();
   try {
-    const { root, stage, dryRun, format } = parseArgs(process.argv.slice(2));
-    const report = run(root, stage, dryRun);
+    const { root, stage, dryRun, format, ci } = parseArgs(process.argv.slice(2));
+    const report = run(root, stage, dryRun, ci);
     process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
     // applied but the post-apply build check failed → signal rollback
     if (report.applied && report.buildCheck?.after === false) process.exit(1);

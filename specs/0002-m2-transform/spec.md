@@ -17,11 +17,11 @@ For a mature repository, upgrade its AI coding readiness in place through three 
 ## Scope
 
 - Agent-driven workflow: Stage 1 = audit (existing, M1) → plan → user confirms the stage order → stages 2-4 applied one at a time, each verified + confirmed
-- Stage 2 gates installer: commitlint + pre-commit (markdownlint + gitleaks) + a new CI workflow (warn-only quality jobs + declared-commands hard gate + a commit-msg commitlint check on the last commit; the manifest-consistency hard gate ships separately); warn-only defaults, build stays green. **Platform routing (spec 0008)**: GitHub or no CI detected → the workflow installs; a non-GitHub CI platform (gitlab / jenkins / azure / circleci / travis) skips the workflow with an explicit "CI workflow skipped: detected <platform>" notice and installs the cross-stack gates only (the manifest `files` list records exactly what was installed — no schema change). **After apply, the agent installs the git hooks**: `pre-commit install --hook-type commit-msg` — plain `pre-commit install` installs only the pre-commit stage and leaves the commitlint hook dead (a config file alone is not an active gate; spec 0001's `cfg-hooks` scores only installed hooks)
-- Stage 3 agent files: AGENTS.md generated from real commands (package.json scripts / Makefile / CI), ≤200 lines / <40K chars; CLAUDE.md symlink (Windows: `@AGENTS.md` import)
+- Stage 2 gates installer: commitlint + pre-commit (markdownlint + gitleaks) + a new CI workflow (warn-only quality jobs + declared-commands hard gate + a commit-msg commitlint check on the last commit; the manifest-consistency hard gate ships separately); **the install is warn-only** — a pre-existing broken build is reported **with the reason** (failing command + stderr excerpt + exit code) and never blocks the install, but the **installed hooks are hard gates by design** (local ⊇ CI — commits stay blocked until the build is fixed); build verification never reports a bare boolean without the failure detail. **Platform routing (spec 0008)**: GitHub or no CI detected → the workflow installs; a non-GitHub CI platform (gitlab / jenkins / azure / circleci / travis) — or a greenfield origin remote host that is not GitHub — skips the workflow with an explicit "CI workflow skipped: detected <platform>" notice and installs the cross-stack gates only (the manifest `files` list records exactly what was installed — no schema change); `--ci github|gitlab|none` overrides the auto-detection. **After apply, the agent installs the git hooks**: `pre-commit install --hook-type commit-msg` — plain `pre-commit install` installs only the pre-commit stage and leaves the commitlint hook dead (a config file alone is not an active gate; spec 0001's `cfg-hooks` scores only installed hooks)
+- Stage 3 agent files: AGENTS.md generated from real commands (package.json scripts / Makefile / CI), ≤200 lines / <40K chars, with **stack-aware conventions** (advisory per-stack copy referencing only the commands the table declares — python virtualenv, go fmt/vet, rust fmt/clippy, node npm-run, java wrapper); CLAUDE.md symlink (Windows: `@AGENTS.md` import)
 - Stage 4 (optional) SDD: `docs/sdd/` templates (spec/plan/tasks), AGENTS.md workflow convention, optional CI spec-existence gate
 - `.ai-native.yml` manifest: written/updated by every applied stage; consistency verification
-- `transform.ts` CLI: `--root` / `--stage 2|3|4` / `--dry-run` / `--format json|markdown`; zero-build, zero-dependency (Node >= 22.18)
+- `transform.ts` CLI: `--root` / `--stage 2|3|4` / `--dry-run` / `--ci github|gitlab|none` / `--format json|markdown`; zero-build, zero-dependency (Node >= 22.18)
 - SKILL.md: full transform instructions + examples (slice 5)
 
 ## Non-goals
@@ -45,7 +45,7 @@ For a mature repository, upgrade its AI coding readiness in place through three 
 
 ## Per-stage outputs (pinned)
 
-### Stage 2 — gates (warn-only, never breaks the build)
+### Stage 2 — gates (install warn-only; active hooks hard)
 
 | Output file | Source template |
 |---|---|
@@ -66,7 +66,8 @@ Rules: existing configs are never overwritten without explicit user confirmation
 
 - `docs/sdd/`: `spec.md` / `plan.md` / `tasks.md` templates (from `templates/sdd/`)
 - AGENTS.md: spec-driven workflow convention appended
-- Optional CI gate: spec-file existence check
+- Optional CI gate: spec-file existence check — **platform-routed like stage 2 (2026-08-07)**: `.github/workflows/sdd.yml` installs only when the GitHub workflow applies (local CI files / origin remote / `--ci`); a skipped gate reports "CI workflow skipped: … (SDD spec gate)" and the manifest records the docs templates without the workflow file
+- **Build verification (stage 2 rule, 2026-08-07)**: a missing tool (exit 127, "command not found") is reported as **tool missing, not a failing build** — the stage-2 message says "mvn is not installed (exit 127: command not found) — install the tool and re-run; a missing local tool is not a failing build"
 
 ## Manifest `.ai-native.yml` (pinned schema v1)
 

@@ -26,7 +26,7 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 - **Node.js >= 22.18** — the scripts are TypeScript run natively via type stripping; there is no build step. On older Node, `audit.ts` prints an upgrade hint and exits.
 - **git** — freshness checks and maturity gating read commit history.
 - **Stack toolchains** — stage 2's verification and the installed CI gate run the stack's lifecycle commands (`npm` / `python3 -m unittest` / `go build` / `mvn` / `cargo`), so the stack toolchain must be available where `transform` runs (CI sets it up itself via setup-node / setup-python / setup-go / setup-java / dtolnay-rust-toolchain).
-- The scripts are **zero-dependency** (Node builtins only). `detect` and `audit` are **read-only**; `transform`, `check`, `sync` and `badge` write only what they declare (installed template files / the `.ai-native.yml` manifest / the `.ai-native/baseline.json` ledger / `assets/badge.svg` + `assets/audit-report.md`).
+- The scripts are **zero-dependency** (Node builtins only). `detect` and `audit` are **read-only** by default; `audit --verify` additionally **executes** the traced lifecycle commands to verify them (see below); `transform`, `check`, `sync` and `badge` write only what they declare (installed template files / the `.ai-native.yml` manifest / the `.ai-native/baseline.json` ledger / `assets/badge.svg` + `assets/audit-report.md`).
 
 ## Running the scripts
 
@@ -34,8 +34,8 @@ Both scripts accept `--root <path>` (default: the current working directory) and
 
 ```sh
 node <skill-dir>/scripts/detect.ts --root /path/to/repo
-node <skill-dir>/scripts/audit.ts --root /path/to/repo [--format json|markdown]
-node <skill-dir>/scripts/transform.ts --root /path/to/repo [--stage 2|3|4|all] [--dry-run] [--format json|markdown]
+node <skill-dir>/scripts/audit.ts --root /path/to/repo [--format json|markdown] [--verify]
+node <skill-dir>/scripts/transform.ts --root /path/to/repo [--stage 2|3|4|all] [--dry-run] [--ci github|gitlab|none] [--format json|markdown]
 node <skill-dir>/scripts/check.ts --root /path/to/repo [--format json|markdown]
 node <skill-dir>/scripts/sync.ts --root /path/to/repo [--dry-run] [--format json|markdown]
 node <skill-dir>/scripts/badge.ts --root /path/to/repo [--style flat|flat-square|plastic|for-the-badge|social] [--format json|markdown]
@@ -44,7 +44,7 @@ node <skill-dir>/scripts/badge.ts --root /path/to/repo [--style flat|flat-square
 (When developing this skill inside the spooner repo, `<skill-dir>` is `skills/spooner`.)
 
 - `detect.ts` always prints JSON: `{ root, stacks, manifests }` — the detected stacks plus one entry per known manifest (`package.json`, `pyproject.toml`, `go.mod`, …) with an `exists` flag.
-- `audit.ts` defaults to JSON (machine-parseable); `--format markdown` prints the human-readable report.
+- `audit.ts` defaults to JSON (machine-parseable); `--format markdown` prints the human-readable report. Command tracing is **static** — `agents-commands` evidence marks "static trace, not executed"; `--verify` actually runs the traced lifecycle commands (build/test, same strings as transform stage 2) and the evidence reports passed / FAILED (exit + stderr) / tool not installed (exit 127 — a missing local tool is not a failing build).
 - `transform.ts` defaults to `--stage all` status; `--stage 2|3|4` applies one stage, `--dry-run` shows the plan without writing anything.
 - `check.ts` re-runs the audit, compares against the stored baseline and the manifest, and reports drift — defaults to JSON; `--format markdown` for humans.
 - `sync.ts` compares manifest-recorded template files against the current skill templates and re-syncs them — defaults to **apply** (replaces outdated, restores missing); `--dry-run` shows the per-file plan without writing.
@@ -66,7 +66,7 @@ node <skill-dir>/scripts/badge.ts --root /path/to/repo [--style flat|flat-square
 |---|---|---|
 | skeleton | fewer than 5 commits | The score is still reported, with a "too early" note. Tell the user the repo is too young to transform and to re-run after it stabilizes. |
 | stable | ≥ 5 commits, with a buildable command (or an agent file / CI present) | Normal path: report → suggest transform (Stage 2 gates first, then Stage 3 AGENTS.md). |
-| legacy | ≥ 5 commits, no agent file, no CI | Normal path with **conservative Stage 2**: warn-only gates, existing build kept green. |
+| legacy | ≥ 5 commits, no agent file, no CI | Normal path with **conservative Stage 2**: the install is warn-only — a pre-existing broken build is reported **with the reason** (stderr + exit code) and the gates still install; the installed hooks are hard gates by design (local ⊇ CI — commits stay blocked until the build is fixed) |
 
 ### Determinism
 
@@ -104,9 +104,9 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 
 | Stage | What it does | Outputs |
 |---|---|---|
-| 2 — gates (warn-only) | commitlint + pre-commit (markdownlint + gitleaks + **stack-aware generated config**: the pre-commit hook set follows the repo's detected tooling — ruff/pytest for python, eslint/tsc for node, gofmt/vet for go, mvn for java, cargo fmt/clippy for rust; check-only, rev-pinned; **the config hard-gates the `.ai-native.yml` ledger locally** — a self-contained manifest-consistency hook (baked EXPECTED) mirroring the CI drift gate, so stale/drifting ledgers turn local pre-commit red (runs on python3 — guaranteed wherever pre-commit runs); **husky/lefthook ecosystems keep their own hooks — the config is skipped with an explicit notice**) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file | `.commitlintrc.json`, `.pre-commit-config.yaml` (generated — re-run `--stage 2` to regenerate), `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
+| 2 — gates (install warn-only; active hooks hard) | commitlint + pre-commit (markdownlint + gitleaks + **stack-aware generated config**: the pre-commit hook set follows the repo's detected tooling — ruff/pytest for python, eslint/tsc for node, gofmt/vet for go, mvn for java, cargo fmt/clippy for rust; check-only, rev-pinned; **the config hard-gates the `.ai-native.yml` ledger locally** — a self-contained manifest-consistency hook (baked EXPECTED) mirroring the CI drift gate, so stale/drifting ledgers turn local pre-commit red (runs on python3 — guaranteed wherever pre-commit runs); **husky/lefthook ecosystems keep their own hooks — the config is skipped with an explicit notice**) + **stack-aware** CI workflow (warn-only quality jobs; hard gates: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file. Platform detection reads local CI files first, then the origin remote host (a greenfield repo on a GitLab remote no longer receives a dead `.github/workflows` file); the auto-detection is overridable with `--ci github\|gitlab\|none` (the Stage 0 questionnaire's answer lands on the CLI — no hand-editing the manifest) | `.commitlintrc.json`, `.pre-commit-config.yaml` (generated — re-run `--stage 2` to regenerate), `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
 | 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile / stack lifecycle: `mvn`, `go`, `python3 -m unittest`, `cargo`) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
-| 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate | `docs/sdd/*.md`, `.github/workflows/sdd.yml`, AGENTS.md convention |
+| 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate (**platform-routed like stage 2** — the gate installs only where the GitHub workflow applies; skipped with "… (SDD spec gate)" otherwise, 2026-08-07) | `docs/sdd/*.md`, `.github/workflows/sdd.yml` (absent in no-workflow mode), AGENTS.md convention |
 
 ### Stack support (M6)
 
@@ -117,9 +117,10 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 | go | ✅ | ✅ | ✅ `go build ./...` + `go test ./...` | go.mod → `go build/test/vet ./...` |
 | java (Maven + Gradle) | ✅ | ✅ | ✅ `mvn -q -B test` / `gradle build` | pom.xml → `mvn`, build.gradle → `gradle` |
 | rust | ✅ | ✅ | ✅ `cargo build` + `cargo test` (fmt/clippy via the M10 generated pre-commit gates) | Cargo.toml → `cargo build/test/fmt/clippy` |
-| ruby / php / swift / dotnet | ✅ | ✅ (under-scores only, never over) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
+| php | ✅ | ✅ (composer.lock / phpunit / phpcs / phpstan / php-cs-fixer signals score; the full-lifecycle band is unreachable) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
+| ruby / swift / dotnet | ✅ | ✅ (under-scores only, never over) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
 
-**Primary stack rule**: node > python > go > java > rust for mixed repos (one workflow per repo). Non-supported stacks get an explicit notice — never silent npm gates. The audit's `agents-commands` check credits the stack lifecycle commands too (go/rust/java repos can now score 2/2).
+**Primary stack rule**: node > python > go > java > rust for mixed repos (one workflow per repo). Non-supported stacks get an explicit notice — never silent npm gates. The audit's `agents-commands` check credits the stack lifecycle commands too (go/rust/java repos can now score 2/2); php test signals (phpunit.xml / phpunit in composer.json) are traced beyond the primary stack in mixed node+php repos.
 
 `check` (M3) makes the loop repeatable: re-run `scripts/check.ts --root <path>` any time — in CI, before a release, or when the user says "is anything drifting?". First run records a baseline (`.ai-native/baseline.json`); later runs report the score delta, manifest drift (files the manifest declares but that are missing, mapped back to the transform stage that installs them), and fixed suggestions. Check only reports — transform does the fixing (same separation as audit/transform). When installed templates go stale (see sync below), check's suggestions say so and `sync` applies the current ones.
 

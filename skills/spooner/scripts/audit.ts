@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { detect } from "./detect.ts";
-import { readManifest, TOOL_VERSION } from "./transform.ts";
+import { readManifest, stackLifecycle, TOOL_VERSION } from "./transform.ts";
 
 /**
  * Full marks is 10 — but a 10 requires every one of the 17 checks to max out,
@@ -174,12 +174,29 @@ function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolea
   const stacks = detect(root).stacks;
   if (stacks.includes("go")) return { hasBuild: true, hasTest: true, source: "go.mod (go build/test)" };
   if (stacks.includes("rust")) return { hasBuild: true, hasTest: true, source: "Cargo.toml (cargo build/test)" };
-  if (stacks.includes("python"))
-    return { hasBuild: false, hasTest: true, source: "pyproject.toml (python3 -m unittest)" };
+  if (stacks.includes("python")) {
+    // Evidence must name a file that exists: python is detected by either
+    // manifest (regression 2026-08-07 — a requirements.txt-only repo was
+    // credited with a non-existent pyproject.toml).
+    const manifest = existsSync(join(root, "pyproject.toml")) ? "pyproject.toml" : "requirements.txt";
+    return { hasBuild: false, hasTest: true, source: `${manifest} (python3 -m unittest)` };
+  }
   if (stacks.includes("java")) {
     if (existsSync(join(root, "build.gradle")))
       return { hasBuild: true, hasTest: true, source: "build.gradle (gradle build/test)" };
     return { hasBuild: true, hasTest: true, source: "pom.xml (mvn compile/test)" };
+  }
+  // php: no standard build command; the test signal is phpunit (config or
+  // require-dev declaration). Note: this branch fires for php-only repos —
+  // mixed repos resolve the primary stack first (node etc.), and agents-commands
+  // adds the php signal separately (2026-08-07).
+  if (stacks.includes("php")) {
+    const phpunit = existsSync(join(root, "phpunit.xml")) || existsSync(join(root, "phpunit.xml.dist"));
+    return {
+      hasBuild: false,
+      hasTest: phpunit,
+      source: phpunit ? "phpunit.xml (phpunit)" : (phpTestFrameworkOf(root) ?? "composer.json (no test framework)"),
+    };
   }
   return { hasBuild: false, hasTest: false, source: null };
 }
@@ -395,21 +412,62 @@ function checkAgentsLength(root: string): CheckResult {
   };
 }
 
-function checkAgentsCommands(root: string): CheckResult {
+/**
+ * Actually run the traced lifecycle commands (build + test, same command
+ * strings as transform's stackLifecycle — one source of truth). Returns null
+ * when all passed, or a note explaining why verification could not pass.
+ * Static tracing only proves the commands exist, not that they run (review
+ * 2026-08-07) — this is the audit-side counterpart of transform stage 2's
+ * build verification; missing tools are not failing builds (exit 127).
+ */
+function verificationNote(root: string): string | null {
+  const { build, test } = stackLifecycle(root);
+  const cmds = [build, test].filter((c): c is string => c !== null);
+  if (cmds.length === 0) return "no local lifecycle command to verify";
+  for (const cmd of cmds) {
+    try {
+      execFileSync("sh", ["-c", cmd], { cwd: root, stdio: "pipe" });
+    } catch (err) {
+      const e = (err ?? {}) as { status?: number; stderr?: Buffer | string };
+      const stderr = String(e.stderr ?? "").trim();
+      const excerpt = stderr.length > 120 ? `${stderr.slice(0, 120)}…` : stderr;
+      if (e.status === 127 || /command not found|No such file or directory/i.test(stderr))
+        return `${cmd.split(/\s+/)[0]} is not installed (exit 127) — install the tool and re-run`;
+      return `${cmd} FAILED (exit ${e.status ?? "?"}${excerpt ? `: ${excerpt}` : ""})`;
+    }
+  }
+  return null;
+}
+
+function checkAgentsCommands(root: string, verify = false): CheckResult {
   const buildKey = scriptKey(root, /^(build|compile|typecheck|check|verify)\b/);
   const testKey = scriptKey(root, /^(test|spec)\b/);
   const sc = stackCommandSources(root);
   const hasBuild = buildKey !== null || makefileTarget(root, "build") || sc.hasBuild;
-  const hasTest = testKey !== null || makefileTarget(root, "test") || sc.hasTest;
+  // PHP signal beyond the primary stack — mixed node+php repos trace phpunit
+  // even though primaryStack() resolves to node (2026-08-07).
+  const phpSource = sc.hasTest ? null : detect(root).stacks.includes("php") ? phpTestSourceOf(root) : null;
+  const hasTest = testKey !== null || makefileTarget(root, "test") || sc.hasTest || phpSource !== null;
   const hasThird =
     scriptKey(root, /^lint\b|^vet\b/) !== null || makefileTarget(root, "lint") || makefileTarget(root, "vet");
   const sources: string[] = [];
   if (buildKey || testKey) sources.push("package.json scripts");
   if (makefileTargets(root).length > 0) sources.push("Makefile");
   if (sc.source) sources.push(sc.source);
+  if (phpSource && !sources.includes(phpSource)) sources.push(phpSource);
+  // Tracing is static — the score proves the commands exist in real files, not
+  // that they run. --verify executes them (note null = all passed); otherwise
+  // the evidence says so instead of implying verified behavior (2026-08-07).
+  const verifyNote = verify ? verificationNote(root) : undefined;
   const evidence =
     sources.length > 0
-      ? `commands traceable to ${sources.join(" + ")} (build: ${hasBuild}, test: ${hasTest})`
+      ? `commands traceable to ${sources.join(" + ")} (build: ${hasBuild}, test: ${hasTest})${
+          verifyNote === undefined
+            ? " — static trace, not executed (--verify runs them)"
+            : verifyNote === null
+              ? " — verified: lifecycle commands passed"
+              : ` — ${verifyNote}`
+        }`
       : "no build/test commands found in package.json, Makefile, or stack build files";
 
   // AGENTS.md documentation of the real commands (the 1.0 band).
@@ -506,6 +564,9 @@ function checkCfgLint(root: string): CheckResult {
     /^\.golangci/,
     /^ruff\.toml/,
     /^\.markdownlint/,
+    /^phpcs\.xml/,
+    /^phpstan\.neon/,
+    /^psalm\.xml/,
   ]);
   const cmd = scriptKey(root, /lint/i) ?? (makefileTarget(root, "lint") ? "lint" : null);
   const ci = /\blint\b/i.test(ciContent(root));
@@ -525,14 +586,24 @@ function checkCfgLint(root: string): CheckResult {
     max: 0.5,
     evidence:
       config && (cmd ?? (ci ? "CI lint step" : "no command"))
-        ? `${config} + ${cmd ?? "CI lint step"}`
+        ? `${config} + ${cmd ?? (ci ? "CI lint step" : "no command")}`
         : `lint config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
     fix,
   };
 }
 
 function checkCfgFormat(root: string): CheckResult {
-  const config = hasPattern(root, [/^\.prettierrc/, /^prettier\.config\./, /^biome\.json/, /^rustfmt\.toml/]);
+  // ruff provides both lint and format — a ruff.toml counts as a formatter
+  // config exactly as it counts as a lint config (symmetry review 2026-08-07);
+  // php-cs-fixer is the php formatter config.
+  const config = hasPattern(root, [
+    /^\.prettierrc/,
+    /^prettier\.config\./,
+    /^biome\.json/,
+    /^rustfmt\.toml/,
+    /^ruff\.toml/,
+    /^\.php-cs-fixer/,
+  ]);
   const cmd = scriptKey(root, /^format\b|^fmt\b/) ?? (makefileTarget(root, "format") ? "format" : null);
   // Tool names only — the word "format" alone is noise (git log --format=%B
   // would false-positive on commitlint steps).
@@ -545,7 +616,7 @@ function checkCfgFormat(root: string): CheckResult {
     ? cmd
       ? "transform Stage 2 (CI format job)"
       : "add a format command (transform never invents commands)"
-    : "add a formatter config + format command (prettier/biome)";
+    : "add a formatter config + format command (prettier/biome/ruff)";
   return {
     id: "cfg-format",
     category: "configuration",
@@ -553,7 +624,7 @@ function checkCfgFormat(root: string): CheckResult {
     max: 0.5,
     evidence:
       config && (cmd ?? (ci ? "CI format step" : "no command"))
-        ? `${config} + ${cmd ?? "CI format step"}`
+        ? `${config} + ${cmd ?? (ci ? "CI format step" : "no command")}`
         : `formatter config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
     fix,
   };
@@ -646,18 +717,56 @@ function checkCfgCi(root: string): CheckResult {
   };
 }
 
+/** Java test-framework signal: junit/testng declared in the build manifest
+ *  (java has no separate test-config file — the declaration IS the signal). */
+function javaTestFrameworkOf(root: string): string | null {
+  const pom = readIfExists(join(root, "pom.xml"));
+  if (pom && /\b(junit|testng|jupiter)\b/i.test(pom)) return "pom.xml (junit)";
+  const gradle = readIfExists(join(root, "build.gradle"));
+  if (gradle && /\b(junit|testng|jupiter)\b/i.test(gradle)) return "build.gradle (junit)";
+  return null;
+}
+
+/** PHP test-framework signal: phpunit declared in composer.json require-dev
+ *  (phpunit.xml is matched by the cfg-test config patterns directly). */
+function phpTestFrameworkOf(root: string): string | null {
+  const composer = readIfExists(join(root, "composer.json"));
+  if (composer && /phpunit\/phpunit/.test(composer)) return "composer.json (phpunit)";
+  return null;
+}
+
+/** PHP test signal for command tracing — phpunit.xml / phpunit in composer.json. */
+function phpTestSourceOf(root: string): string | null {
+  if (existsSync(join(root, "phpunit.xml")) || existsSync(join(root, "phpunit.xml.dist")))
+    return "phpunit.xml (phpunit)";
+  return phpTestFrameworkOf(root);
+}
+
 function checkCfgTest(root: string): CheckResult {
-  const cmd = scriptKey(root, /^test\b|^spec\b/) ?? (makefileTarget(root, "test") ? "test" : null);
-  const config = hasPattern(root, [
-    /^vitest\.config/,
-    /^jest\.config/,
-    /^playwright\.config/,
-    /^pytest\.ini/,
-    /^conftest\.py/,
-  ]);
+  const sc = stackCommandSources(root);
+  const cmd =
+    scriptKey(root, /^test\b|^spec\b/) ??
+    (makefileTarget(root, "test") ? "test" : null) ??
+    // stack lifecycle commands count as a test command (mvn test / cargo test
+    // / go test / python3 -m unittest) — java repos were falsely reported as
+    // having no test framework (2026-08-07)
+    (sc.hasTest ? sc.source : null);
+  const config =
+    hasPattern(root, [
+      /^vitest\.config/,
+      /^jest\.config/,
+      /^playwright\.config/,
+      /^pytest\.ini/,
+      /^conftest\.py/,
+      /^phpunit\.xml/,
+    ]) ??
+    javaTestFrameworkOf(root) ??
+    phpTestFrameworkOf(root);
   const testFiles = findTestFiles(root);
   const nonEmpty = testFiles.some((f) =>
-    /\b(it|test|describe|assert|expect)\(|self\.assert|@Test|it\s*\(|test\s*\(/i.test(readIfExists(f) ?? ""),
+    /\b(it|test|describe|assert|expect)\(|self\.assert|\$this->assert|@Test|#\[Test\]|it\s*\(|test\s*\(|test[A-Z]\w*\(/i.test(
+      readIfExists(f) ?? "",
+    ),
   );
   let score = 0;
   if (cmd || config) score = cmd && config ? 0.3 : 0.2;
@@ -679,14 +788,24 @@ function checkCfgTest(root: string): CheckResult {
   };
 }
 
-/** Bounded test-file scan: known test dirs (one level) + root-level test files
- *  + test dirs inside one-level subdirs (monorepo-style, e.g. skills/spooner/test). */
+/** Test-file scan: known test dirs + root-level test files + test dirs inside
+ *  one-level subdirs (monorepo-style). collect recurses — java lives at
+ *  src/test/java/… (package dirs), python at tests/unit/… (2026-08-07). */
 function findTestFiles(root: string): string[] {
   const out: string[] = [];
   const collect = (dir: string) => {
     for (const f of entriesOf(dir) ?? []) {
-      if (/\.(test|spec)\./i.test(f) || /^(test_|.*_test\.|.*_spec\.)/.test(f) || /\.(ts|js|mjs|py|go|rb|rs)$/.test(f))
-        out.push(join(dir, f));
+      const p = join(dir, f);
+      if (lstatSync(p).isDirectory()) {
+        collect(p);
+        continue;
+      }
+      if (
+        /\.(test|spec)\./i.test(f) ||
+        /^(test_|.*_test\.|.*_spec\.)/.test(f) ||
+        /\.(ts|js|mjs|py|go|rb|rs|java|php)$/.test(f)
+      )
+        out.push(p);
     }
   };
   for (const dir of ["test", "tests", "spec"]) {
@@ -886,8 +1005,16 @@ function checkFreshDeps(root: string): CheckResult {
     };
     const wildcard = Object.values(deps).some((v) => String(v).includes("*"));
     const pinned = !wildcard;
-    const score = pinned && lock ? 0.5 : pinned ? 0.3 : 0.1;
-    const evidence = lock ? `deps pinned + ${lock}` : pinned ? "deps pinned, no lockfile" : "deps use wildcard ranges";
+    // PHP co-exists in mixed repos — a committed composer.lock locks the PHP
+    // side; "no lockfile" must not be reported while it exists (2026-08-07).
+    const locks = [...(lock ? [lock] : []), ...(existsSync(join(root, "composer.lock")) ? ["composer.lock"] : [])];
+    const score = pinned && locks.length > 0 ? 0.5 : pinned ? 0.3 : 0.1;
+    const evidence =
+      locks.length > 0
+        ? `deps pinned + ${locks.join(" + ")}`
+        : pinned
+          ? "deps pinned, no lockfile"
+          : "deps use wildcard ranges";
     return {
       id: "fresh-deps",
       category: "freshness",
@@ -906,6 +1033,50 @@ function checkFreshDeps(root: string): CheckResult {
       max: 0.5,
       evidence: lock ? `pyproject.toml + ${lock}` : "pyproject.toml, no lockfile",
       fix: "commit a lockfile",
+    };
+  }
+  // requirements.txt is a python dependency manifest — a fully-pinned file was
+  // scored 0 with the false "no dependency manifest" (blind spot review
+  // 2026-08-07); pyproject.toml above wins when both exist (same precedence as
+  // stackCommandSources). pip has no lockfile convention — exact `==` pins are
+  // the manifest pin, like java's pom.xml.
+  if (existsSync(join(root, "requirements.txt"))) {
+    const depLines = (readIfExists(join(root, "requirements.txt")) ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("#") && !l.startsWith("-") && !l.startsWith("."));
+    const unpinned = depLines.some((l) => !/==/.test(l));
+    const pinned = depLines.length > 0 && !unpinned;
+    const score = lock ? 0.5 : pinned ? 0.3 : 0.1;
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score,
+      max: 0.5,
+      evidence: lock
+        ? `requirements.txt + ${lock}`
+        : pinned
+          ? "requirements.txt pins exact versions (==)"
+          : depLines.length === 0
+            ? "requirements.txt is empty or comment-only"
+            : "requirements.txt uses unpinned ranges",
+      fix: "pin exact versions (==) and commit a lockfile",
+    };
+  }
+  // composer.json is a php manifest — composer.lock is its checksum lockfile
+  // (php convention: commit it); without it the declared constraints are the
+  // manifest pin (php was never scored — "no dependency manifest" — 2026-08-07).
+  if (existsSync(join(root, "composer.json"))) {
+    const composerLock = existsSync(join(root, "composer.lock"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: composerLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: composerLock
+        ? "composer.json + composer.lock (checksum lockfile)"
+        : "composer.json declares versions, no composer.lock",
+      fix: "commit composer.lock for reproducible installs",
     };
   }
   // go/rust: the checksum lockfiles are the lockfile signal (review 2026-08-06
@@ -957,8 +1128,19 @@ function checkFreshDeps(root: string): CheckResult {
 
 // --- checks: structure (1.0) --------------------------------------------------
 
+/** Case-insensitive root README lookup — a lowercase `readme.md` must score
+ *  the same on macOS (case-insensitive FS) and Linux CI (sensitive); the
+ *  fixed-name existsSync variant silently diverged between the two (2026-08-07). */
+export function readmeFileOf(root: string): string | null {
+  for (const f of entriesOf(root) ?? []) {
+    if (/^readme(\.md)?$/i.test(f) && lstatSync(join(root, f)).isFile()) return f;
+  }
+  return null;
+}
+
 function checkStructReadme(root: string): CheckResult {
-  const readme = ["README.md", "README"].map((f) => join(root, f)).find((f) => existsSync(f) && lstatSync(f).isFile());
+  const readmeName = readmeFileOf(root);
+  const readme = readmeName ? join(root, readmeName) : null;
   const content = readme ? (readIfExists(readme) ?? "") : "";
   const chars = content.trim().length;
   const headings = content.match(/^#{2,3}\s+/gm)?.length ?? 0;
@@ -966,10 +1148,10 @@ function checkStructReadme(root: string): CheckResult {
   let detail = `README: ${readme ? "too short (<50 chars)" : "missing"}`;
   if (readme && chars > 50 && headings >= 3) {
     score = 0.5;
-    detail = `${readme}: ${chars} chars with ${headings} section headings`;
+    detail = `${readmeName}: ${chars} chars with ${headings} section headings`;
   } else if (readme && chars > 50) {
     score = 0.3;
-    detail = `${readme}: ${chars} chars, no section headings`;
+    detail = `${readmeName}: ${chars} chars, no section headings`;
   } else if (readme) {
     score = 0.1;
   }
@@ -1033,12 +1215,12 @@ function round1(n: number): number {
 }
 
 /** Full audit pipeline — exported for reuse by check.ts (M3) / badge.ts (M9). */
-export function runAudit(root: string): AuditResult {
+export function runAudit(root: string, verify = false): AuditResult {
   const items: CheckResult[] = [
     checkAgentsMd(root),
     checkAgentsBridge(root),
     checkAgentsLength(root),
-    checkAgentsCommands(root),
+    checkAgentsCommands(root, verify),
     checkAgentsSdd(root),
     checkCfgLint(root),
     checkCfgFormat(root),
@@ -1147,13 +1329,13 @@ export function renderMarkdown(r: AuditResult): string {
 
 // --- CLI ------------------------------------------------------------------------
 
-function parseArgs(argv: string[]): { root: string; format: "json" | "markdown" } {
+function parseArgs(argv: string[]): { root: string; format: "json" | "markdown"; verify: boolean } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
-  return { root: valueOf("--root") ?? process.cwd(), format };
+  return { root: valueOf("--root") ?? process.cwd(), format, verify: argv.includes("--verify") };
 }
 
 function assertNodeVersion(): void {
@@ -1172,9 +1354,9 @@ function assertNodeVersion(): void {
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   assertNodeVersion();
-  const { root, format } = parseArgs(process.argv.slice(2));
+  const { root, format, verify } = parseArgs(process.argv.slice(2));
   try {
-    const result = runAudit(root);
+    const result = runAudit(root, verify);
     process.stdout.write(format === "markdown" ? renderMarkdown(result) : `${JSON.stringify(result, null, 2)}\n`);
   } catch (err) {
     console.error(`audit: failed to scan ${root}: ${(err as Error).message}`);

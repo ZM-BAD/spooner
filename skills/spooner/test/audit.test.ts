@@ -257,6 +257,16 @@ test("fresh-deps: java manifest pins versions -> 0.3 (no lockfile convention)", 
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("agents-commands evidence: requirements.txt-only python — no phantom pyproject.toml (regression 2026-08-07)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\n");
+  const r = item(repo, "agents-commands");
+  assert.ok(r, "agents-commands missing");
+  assert.match(r.evidence, /requirements\.txt/, `evidence: ${r.evidence}`);
+  assert.doesNotMatch(r.evidence, /pyproject\.toml/, `evidence names a file that does not exist: ${r.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 // --- acceptance 6: hook quality ----------------------------------------------
 
 test("cfg-hooks: no config -> 0", () => {
@@ -448,5 +458,175 @@ test("sec-ci: GitHub step named 'security scan' is not a job (deep indent)", () 
     "jobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - name: security scan\n        run: trivy fs .\n",
   );
   assert.equal(item(repo, "sec-ci")?.score, 0.2);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- 2026-08-07 review regressions -------------------------------------------
+
+test("struct-readme: lowercase readme.md scores identically to README.md (case-insensitive lookup)", () => {
+  const lower = fixture();
+  writeFileSync(join(lower, "readme.md"), "# r\n\n## A\n\n## B\n\n## C\n\nbody body body body body body body\n");
+  const upper = fixture();
+  writeFileSync(join(upper, "README.md"), "# r\n\n## A\n\n## B\n\n## C\n\nbody body body body body body body\n");
+  const l = item(lower, "struct-readme");
+  const u = item(upper, "struct-readme");
+  assert.equal(l?.score, u?.score, "lowercase readme must score the same as README");
+  assert.match(l?.evidence ?? "", /readme\.md: \d+ chars with 3 section headings/);
+  assert.equal(l?.score, 0.5);
+  rmSync(lower, { recursive: true, force: true });
+  rmSync(upper, { recursive: true, force: true });
+});
+
+test("cfg-test: java repo with junit + src/test scores full (regression: no test framework found)", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "src/main/java"), { recursive: true });
+  mkdirSync(join(repo, "src/test/java"), { recursive: true });
+  writeFileSync(
+    join(repo, "pom.xml"),
+    "<project><modelVersion>4.0.0</modelVersion><groupId>x</groupId><artifactId>x</artifactId><version>1.0</version><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.0</version><scope>test</scope></dependency></dependencies></project>\n",
+  );
+  writeFileSync(
+    join(repo, "src/test/java/FooTest.java"),
+    "package x;\nimport org.junit.jupiter.api.Test;\nclass FooTest {\n  @Test void works() { assert 1 == 1; }\n}\n",
+  );
+  const r = item(repo, "cfg-test");
+  assert.equal(r?.score, 0.5, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /pom\.xml \(mvn compile\/test\)/);
+  assert.match(r?.evidence ?? "", /test file\(s\) with assertions/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- review regression: ruff.toml symmetry, requirements.txt blind spot, static trace (2026-08-07) ---
+
+test("cfg-format: ruff.toml counts as a formatter config (symmetry with cfg-lint)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "ruff.toml"), '[lint]\nselect = ["E", "F"]\n');
+  const f = item(repo, "cfg-format");
+  assert.equal(f?.score, 0.2, `cfg-format ${f?.score} ${f?.evidence}`);
+  assert.match(f?.evidence ?? "", /ruff\.toml/);
+  assert.equal(item(repo, "cfg-lint")?.score, 0.2, "cfg-lint must stay symmetric");
+  // no CI files exist — the evidence must not claim a CI step (report truth)
+  assert.doesNotMatch(f?.evidence ?? "", /CI format step/, `phantom CI step: ${f?.evidence}`);
+  assert.doesNotMatch(item(repo, "cfg-lint")?.evidence ?? "", /CI lint step/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: fully-pinned requirements.txt is a manifest pin, not 'no dependency manifest'", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\nflask==3.0.0\n");
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.3, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /pins exact versions/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: unpinned requirements.txt scores 0.1; +uv.lock scores 0.5", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "requirements.txt"), "requests>=2.0\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.1);
+  writeFileSync(join(repo, "uv.lock"), "version = 1\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.5);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: evidence marks static trace by default (not executed)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"build":"echo b","test":"echo t"}}\n');
+  const r = item(repo, "agents-commands");
+  assert.equal(r?.score, 0.6);
+  assert.match(r?.evidence ?? "", /static trace, not executed/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands --verify: passing lifecycle commands are marked verified", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"build":"node -e 1","test":"node -e 1"}}\n');
+  const r = runAudit(repo, true).items.find((i) => i.id === "agents-commands");
+  assert.match(r?.evidence ?? "", /verified: lifecycle commands passed/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands --verify: failing command is reported, not hidden", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"test":"node -e \\"process.exit(3)\\""}}\n');
+  const r = runAudit(repo, true).items.find((i) => i.id === "agents-commands");
+  assert.match(r?.evidence ?? "", /FAILED \(exit 3/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands --verify: missing tool is not a failing build (exit 127)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"test":"spooner-definitely-not-a-tool xyz"}}\n');
+  const r = runAudit(repo, true).items.find((i) => i.id === "agents-commands");
+  assert.match(r?.evidence ?? "", /is not installed \(exit 127\)/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- php signals: composer locking, phpunit tracing, php tool configs (2026-08-07) ---
+
+test("fresh-deps: php-only repo with composer.lock scores 0.5, not 'no dependency manifest'", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "composer.json"), '{"require":{"laravel/framework":"^11.0"}}\n');
+  assert.equal(item(repo, "fresh-deps")?.score, 0.3, "composer.json without lock");
+  writeFileSync(join(repo, "composer.lock"), '{"packages":[]}\n');
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /composer\.json \+ composer\.lock/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: mixed node+php — composer.lock counts, no false 'no lockfile'", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"build":"echo b"}}\n');
+  writeFileSync(join(repo, "composer.json"), '{"require":{"laravel/framework":"^11.0"}}\n');
+  writeFileSync(join(repo, "composer.lock"), '{"packages":[]}\n');
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.5, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /composer\.lock/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-test: php repo with phpunit.xml + PHPUnit assertions scores full", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "tests"), { recursive: true });
+  writeFileSync(join(repo, "composer.json"), '{"require-dev":{"phpunit/phpunit":"^11.0"}}\n');
+  writeFileSync(join(repo, "phpunit.xml"), '<?xml version="1.0"?><phpunit/>\n');
+  writeFileSync(
+    join(repo, "tests/FooTest.php"),
+    "<?php\nuse PHPUnit\\Framework\\TestCase;\nclass FooTest extends TestCase {\n  public function testWorks(): void { $this->assertTrue(true); }\n}\n",
+  );
+  const r = item(repo, "cfg-test");
+  assert.equal(r?.score, 0.5, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /phpunit/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: php-only repo traces phpunit (build: false, test: true -> 0.4)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "composer.json"), '{"require-dev":{"phpunit/phpunit":"^11.0"}}\n');
+  writeFileSync(join(repo, "phpunit.xml"), '<?xml version="1.0"?><phpunit/>\n');
+  const r = item(repo, "agents-commands");
+  assert.equal(r?.score, 0.4, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /phpunit/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: mixed node+php — phpunit traced alongside package.json scripts", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"build":"echo b"}}\n');
+  writeFileSync(join(repo, "composer.json"), '{"require-dev":{"phpunit/phpunit":"^11.0"}}\n');
+  writeFileSync(join(repo, "phpunit.xml"), '<?xml version="1.0"?><phpunit/>\n');
+  const r = item(repo, "agents-commands");
+  assert.match(r?.evidence ?? "", /package\.json scripts/);
+  assert.match(r?.evidence ?? "", /phpunit/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-lint/cfg-format: php tool configs score (phpstan.neon / .php-cs-fixer.php)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "phpstan.neon"), "parameters:\n  level: 8\n");
+  assert.equal(item(repo, "cfg-lint")?.score, 0.2);
+  writeFileSync(join(repo, ".php-cs-fixer.php"), "<?php\nreturn (new PhpCsFixer\\Config());\n");
+  assert.equal(item(repo, "cfg-format")?.score, 0.2);
   rmSync(repo, { recursive: true, force: true });
 });

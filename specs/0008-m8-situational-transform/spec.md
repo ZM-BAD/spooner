@@ -30,9 +30,11 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
   6. Git-hook tool preference? (pre-commit / husky / lefthook / keep the existing setup — decides whether Stage 2 installs the generated pre-commit config or skips with a notice, spec 0010)
   Mode table: **full** (GitHub + allowed → current behavior) / **no-workflow** (non-GitHub → cross-stack gates only) / **audit-only** (nothing written, report + suggestions).
 - **transform.ts — CI-platform detection + Stage-2 routing**:
-  - Detect the repo's CI platform (`.gitlab-ci.yml` → gitlab, `Jenkinsfile` → jenkins, `.github/workflows/*.yml` → github, `azure-pipelines.yml` / `.circleci` → other, none) — the same file families the audit already scans.
+  - Detect the repo's CI platform (`.gitlab-ci.yml` → gitlab, `Jenkinsfile` → jenkins, `.github/workflows/*.yml` → github, `azure-pipelines.yml` / `.circleci` → other, none) — the same file families the audit already scans. **Greenfield (no CI files): the origin remote host decides** (`git config --get remote.origin.url` → github/gitlab/other; no remote → GitHub assumption) — a GitLab remote must not receive a dead `.github/workflows` file (2026-08-07).
+  - **`--ci github|gitlab|none` overrides the auto-detection** — the probed answer lands on the CLI, no hand-editing the manifest (2026-08-07).
   - Stage 2: GitHub (or no conflicting CI detected) → current behavior (workflow + cross-stack gates). Non-GitHub platform detected → **skip the workflow**, install the three cross-stack gates, report "CI workflow skipped: detected <platform> (non-GitHub) — cross-stack gates installed" and record the manifest without the workflow file (the manifest's `files` list is the record of what was actually installed — no schema change).
   - Stage 2 message and transform report carry the skip reason explicitly.
+  - **Stage 4 routing (2026-08-07)**: the SDD spec-existence gate (`.github/workflows/sdd.yml`) follows the same routing as stage 2 — skipped with "… (SDD spec gate)" on non-GitHub platforms; the docs templates still install. `--ci` applies to both stages.
 - **spec 0002 revision** (living document): Stage-2 contract gains the platform-routing rule and the skip notice.
 - No TOOL_VERSION bump (template bytes unchanged — the routing is transform.ts behavior + SKILL.md instructions, not template content).
 
@@ -48,11 +50,13 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
 1. **GitLab routing**: fixture with `.gitlab-ci.yml` → stage 2 installs the three cross-stack gates, **no** `.github/workflows/ai-native.yml`, message says "CI workflow skipped" and names the platform, manifest `files` lacks the workflow
 2. **Jenkins routing**: fixture with `Jenkinsfile` → same skip behavior
 3. **GitHub regression**: fixture with `.github/workflows/` → current behavior (workflow installed, byte-identical to the template)
-4. **No-CI routing**: fixture with no CI files → workflow installed (GitHub assumption holds for greenfield/no-CI repos — the default is still full mode)
-5. **Determinism**: two runs on the same fixture produce identical output
-6. **SKILL.md probe**: the context questions + mode table land in the transform procedure
-7. **spec 0002**: Stage-2 contract describes platform routing + skip notice
-8. **Regression**: typecheck + markdownlint + skills-ref green; M6 acceptance re-run
+4. **No-CI routing**: fixture with no CI files + no remote → workflow installed (GitHub assumption holds for greenfield/no-CI repos — the default is still full mode)
+5. **Greenfield remote routing**: fixture with no CI files + a gitlab origin remote → workflow skipped, message says "origin remote host gitlab"; a github origin remote → workflow installed
+6. **--ci override**: `--ci none` on a github-detected repo skips the workflow with the explicit notice; `--ci github` on a gitlab-remote repo installs it
+7. **Determinism**: two runs on the same fixture produce identical output
+8. **SKILL.md probe**: the context questions + mode table land in the transform procedure
+9. **spec 0002**: Stage-2 contract describes platform routing + skip notice
+10. **Regression**: typecheck + markdownlint + skills-ref green; M6 acceptance re-run
 
 ## Slice plan
 

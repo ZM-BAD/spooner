@@ -11,7 +11,7 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 
 - Product design frozen (internal archive `docs/`, `HANDOFF.md` — local only; milestone history lives there + docs/08 + git commits, never here)
 - Engineering scaffold ready: TypeScript 6 zero-build, SDD workflow (`specs/`), pre-commit + markdownlint + commitlint, GitHub Actions
-- All specs shipped (0001-0006, 0008-0013): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red) and the generated pre-commit config hard-gates the ledger locally (self-contained manifest-consistency hook, baked EXPECTED); transform supports node / python / go / java / rust (stack-aware lifecycle + per-stack CI workflows + generated stack-aware pre-commit gates; husky/lefthook repos skip the config with a notice; non-GitHub CI platforms skip the workflow with a notice); the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); the readiness badge matches the README's dominant badge style (5 shields styles); the audit scores 0-10 on deterministic quality signals with two-sourced fix hints and a monorepo sub-stack note; next candidates: launch prep (docs/06)
+- All specs shipped (0001-0006, 0008-0013): the audit → transform → check → sync loop is complete — the installed CI workflow hard-gates manifest consistency (drift → red) and the generated pre-commit config hard-gates the ledger locally (self-contained manifest-consistency hook, baked EXPECTED); transform supports node / python / go / java / rust (stack-aware lifecycle + per-stack CI workflows + generated stack-aware pre-commit gates; husky/lefthook repos skip the config with a notice; non-GitHub CI platforms skip the workflow with a notice); the installed commitlint gate enforces (install step + CI commit-msg check + gate-active audit); the readiness badge matches the README's dominant badge style (5 shields styles); the audit scores 0-10 on deterministic quality signals with two-sourced fix hints and a monorepo sub-stack note — PHP signals score too (composer.lock / phpunit / php-cs-fixer) even though transform's supported stacks stop at rust; next candidates: launch prep (docs/06)
 
 ## Commands (all real and executable)
 
@@ -24,9 +24,9 @@ Spooner audits a codebase's **AI coding readiness** (audit), transforms it in pl
 | `npm run verify` | check + full pre-commit run (one-shot verification) |
 | `pre-commit run --all-files` | run all pre-commit hooks |
 | `node skills/spooner/scripts/detect.ts` | stack detection (M1; optional `--root <path>`) |
-| `node skills/spooner/scripts/audit.ts` | AI-Readiness scoring (/10, M1; optional `--root <path>` / `--format markdown`) |
+| `node skills/spooner/scripts/audit.ts` | AI-Readiness scoring (/10, M1; optional `--root <path>` / `--format markdown` / `--verify` executes the traced lifecycle commands instead of marking them unverified) |
 | `node skills/spooner/scripts/check.ts` | drift check (M3: baseline delta + manifest drift; optional `--root <path>` / `--format markdown`) |
-| `node skills/spooner/scripts/transform.ts` | transform workflow (M2: stages 2-4 + manifest consistency; optional `--root <path>` / `--stage 2/3/4/all` / `--dry-run` / `--format markdown`) |
+| `node skills/spooner/scripts/transform.ts` | transform workflow (M2: stages 2-4 + manifest consistency; optional `--root <path>` / `--stage 2/3/4/all` / `--dry-run` / `--ci github\|gitlab\|none` / `--format markdown`) |
 | `node skills/spooner/scripts/sync.ts` | template re-sync (M4: version-aware diff of installed vs current templates + one-click apply; optional `--root <path>` / `--dry-run` / `--format markdown`) |
 | `node skills/spooner/scripts/badge.ts` | readiness badge (M9: 5 shields styles + README style probe + pinned tier/color mapping; optional `--root <path>` / `--style <name>` / `--format markdown`) |
 | `.venv/bin/agentskills validate skills/spooner` | SKILL.md spec validation (`.venv` via `python3 -m venv .venv && .venv/bin/pip install skills-ref`; CI pins the same version) |
