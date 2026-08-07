@@ -157,6 +157,12 @@ node skills/spooner/scripts/detect.ts   # 切片 1：栈识别
 | `specs/0001-m1-audit-core/spec.md` | M1 audit 契约：评分矩阵、报告 schema、验收标准 |
 | `skills/spooner/SKILL.md` | 可分发 skill 入口 |
 
+## 贡献者
+
+感谢试用反馈推动本项目改进的用户——每个版本的修复都来自他们提交的问题：
+
+<a href="https://github.com/shellRaining"><img src="https://avatars.githubusercontent.com/shellRaining?v=4" title="shellRaining" width="50" height="50" alt="shellRaining"></a>
+
 ## 许可证
 
 [MIT](LICENSE)

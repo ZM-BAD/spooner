@@ -122,6 +122,7 @@ spooner/
 - **`skills-ref` is not on the Aliyun pip mirror + PEP 668 blocks system pip** — use a venv with `--index-url https://pypi.org/simple`
 - **Audit false positives, historically**: `hasCi` counted empty CI files (join of empty strings) — filter empties; `agents-sdd` matched hyphenated names like `sdd-app` — `\bSDD\b(?!-)` (2026-08-04)
 - **detect only scans the repo root** — monorepo stacks in subdirs (`backend/requirements.txt`, DAG-chat) are invisible; audit under-scores honestly, transform sees the root stack only (spec 0008 notes the boundary)
+- **Entry guards must compare REAL paths** — `process.argv[1]` (absolutized but symlink-preserving) vs `fileURLToPath(import.meta.url)` (module loader resolves symlinks): strict string equality silently skips main() for any invocation through a symlinked path (exit 0, no output — user-found 2026-08-07). All six scripts delegate to `isDirectEntry(import.meta.url)` (scripts/entry.ts, realpath both sides); pinned by entry.test.ts (symlinked-dir + relative spawn)
 
 **markdownlint / docs**
 

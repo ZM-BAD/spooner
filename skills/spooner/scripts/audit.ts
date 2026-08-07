@@ -19,7 +19,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "./entry.ts";
 import { detect } from "./detect.ts";
 import { readManifest, stackLifecycle, TOOL_VERSION } from "./transform.ts";
 
@@ -1435,7 +1435,7 @@ function assertNodeVersion(): void {
 }
 
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
   const { root, format, verify } = parseArgs(process.argv.slice(2));
   try {

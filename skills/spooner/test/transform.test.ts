@@ -379,6 +379,15 @@ test("parity: installed dogfood workflow stays byte-equal to the node template",
   assert.equal(installed, readTemplate("ci-workflow-node.yml"));
 });
 
+test("parity: installed dogfood pre-commit config bakes the current EXPECTED", () => {
+  // Regression (2026-08-07): the 0.9.0 bump left the installed config's baked
+  // EXPECTED at 0.8.0 for two bumps — the one-directional gate hid it locally
+  // and parity pinned the installed workflow but not the installed config.
+  // The entry is a YAML double-quoted string, so the inner quotes are escaped.
+  const installed = readFileSync(join(import.meta.dirname, "..", "..", "..", ".pre-commit-config.yaml"), "utf8");
+  assert.match(installed, new RegExp(`EXPECTED = \\\\"${TOOL_VERSION}\\\\"`));
+});
+
 /** Hook ids under `repo: local` blocks in a generated pre-commit config. */
 function localHookIds(config: string): string[] {
   const ids: string[] = [];

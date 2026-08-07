@@ -15,13 +15,13 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "./entry.ts";
 import { detect } from "./detect.ts";
 
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.11.0";
+export const TOOL_VERSION = "0.10.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -1625,7 +1625,7 @@ function assertNodeVersion(): void {
 }
 
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
   try {
     const { root, stage, dryRun, format, ci } = parseArgs(process.argv.slice(2));

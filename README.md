@@ -157,6 +157,13 @@ Distributed from this GitHub repository — `npx skills add ZM-BAD/spooner` inst
 | `specs/0001-m1-audit-core/spec.md` | M1 audit contract: scoring matrix, report schema, acceptance |
 | `skills/spooner/SKILL.md` | The distributable skill entry |
 
+## Contributors
+
+Thanks to the users whose trial feedback shaped this project — each release
+lists the people whose reports were fixed:
+
+<a href="https://github.com/shellRaining"><img src="https://avatars.githubusercontent.com/shellRaining?v=4" title="shellRaining" width="50" height="50" alt="shellRaining"></a>
+
 ## License
 
 [MIT](LICENSE)

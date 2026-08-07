@@ -72,7 +72,16 @@ test("freshness: activity is not scored — a dormant repo matches an active one
     git(repo, ["init", "-q"]);
     writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"test":"true"}}\n');
     git(repo, ["add", "."]);
-    git(repo, ["commit", "-q", "-m", "init"], { GIT_AUTHOR_DATE: commitDate, GIT_COMMITTER_DATE: commitDate });
+    // CI runners have no global git identity — a bare commit fails there
+    // ("Please tell me who you are") while local machines pass (2026-08-07).
+    git(repo, ["commit", "-q", "-m", "init"], {
+      GIT_AUTHOR_DATE: commitDate,
+      GIT_COMMITTER_DATE: commitDate,
+      GIT_AUTHOR_NAME: "test",
+      GIT_AUTHOR_EMAIL: "test@example.com",
+      GIT_COMMITTER_NAME: "test",
+      GIT_COMMITTER_EMAIL: "test@example.com",
+    });
     return repo;
   };
   const active = build("2026-08-01T00:00:00Z");

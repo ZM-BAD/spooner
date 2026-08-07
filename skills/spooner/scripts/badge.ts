@@ -19,7 +19,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "./entry.ts";
 import { readmeFileOf, runAudit, renderMarkdown as renderAuditMarkdown } from "./audit.ts";
 
 const ARTIFACT_DIR = "assets";
@@ -457,7 +457,7 @@ function assertNodeVersion(): void {
 }
 
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
   const args = parseArgs(process.argv.slice(2));
   const styleRaw = (() => {

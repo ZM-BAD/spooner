@@ -291,11 +291,11 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 ```markdown
 # Sync Report
 
-- Root: . · Dry-run: true · Templates: installed 0.10.0 → current 0.11.0
+- Root: . · Dry-run: true · Templates: installed 0.9.0 → current 0.10.0
 
 | File | Stage | Status | Version |
 |---|---|---|---|
-| .commitlintrc.json | 2 | outdated | 0.10.0 → 0.11.0 |
+| .commitlintrc.json | 2 | outdated | 0.9.0 → 0.10.0 |
 | .pre-commit-config.yaml | 2 | generated | — |
 | AGENTS.md | 3 | generated | — |
 | CLAUDE.md | 3 | generated | — |

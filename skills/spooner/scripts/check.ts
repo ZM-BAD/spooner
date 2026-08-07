@@ -17,7 +17,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "./entry.ts";
 import { runAudit } from "./audit.ts";
 import { checkConsistency } from "./transform.ts";
 import { outdatedTemplates } from "./sync.ts";
@@ -200,7 +200,7 @@ function assertNodeVersion(): void {
 }
 
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
   try {
     const { root, format } = parseArgs(process.argv.slice(2));

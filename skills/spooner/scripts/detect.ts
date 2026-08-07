@@ -10,7 +10,7 @@
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "./entry.ts";
 
 /** Known manifests mapped to their stacks */
 const MANIFESTS = [
@@ -66,7 +66,7 @@ function parseRootArg(argv: string[]): string {
 
 // CLI entry: runs only when executed directly (importing from audit.ts
 // must not trigger side effects)
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isDirectEntry(import.meta.url)) {
   const root = parseRootArg(process.argv.slice(2));
   try {
     process.stdout.write(`${JSON.stringify(detect(root), null, 2)}\n`);
