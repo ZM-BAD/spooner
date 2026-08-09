@@ -855,7 +855,7 @@ test("stage2: pre-existing build failure names the SKIP escape (dogfood: go-mono
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n\ngo 1.24\n");
   writeFileSync(join(repo, "main.go"), "package main\nfunc main() {}\n");
-  writeFileSync(join(repo, "main_test.go"), "package main\nfunc TestX(t *testing.T) { t.Fatal(\"boom\") }\n");
+  writeFileSync(join(repo, "main_test.go"), 'package main\nfunc TestX(t *testing.T) { t.Fatal("boom") }\n');
   const r = await applyStage2(repo, false);
   assert.match(r.message ?? "", /SKIP=go-test/);
   rmSync(repo, { recursive: true, force: true });
@@ -924,7 +924,10 @@ test("preCommit: pip-audit hook skips with a notice when the tool is missing (do
 
 test("stage2Templates: pre-existing commitlint.config.mjs -> .commitlintrc.json skipped (dogfood: monorepo)", () => {
   const repo = nodeRepo(fixture());
-  writeFileSync(join(repo, "commitlint.config.mjs"), "export default { extends: ['@commitlint/config-conventional'] };\n");
+  writeFileSync(
+    join(repo, "commitlint.config.mjs"),
+    "export default { extends: ['@commitlint/config-conventional'] };\n",
+  );
   const tpl = stage2Templates(repo);
   assert.equal(tpl[".commitlintrc.json"], undefined, "must not install beside the repo's commitlint config");
   rmSync(repo, { recursive: true, force: true });
@@ -932,7 +935,10 @@ test("stage2Templates: pre-existing commitlint.config.mjs -> .commitlintrc.json 
 
 test("stage2Templates: package.json commitlint field also skips the install", () => {
   const repo = nodeRepo(fixture());
-  writeFileSync(join(repo, "package.json"), '{"name":"x","commitlint":{"extends":["@commitlint/config-conventional"]}}\n');
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"name":"x","commitlint":{"extends":["@commitlint/config-conventional"]}}\n',
+  );
   const tpl = stage2Templates(repo);
   assert.equal(tpl[".commitlintrc.json"], undefined);
   rmSync(repo, { recursive: true, force: true });
@@ -962,6 +968,10 @@ test("stackLifecycle: prefix-family scripts (check:metadata) are declared comman
 
 test("parity: node template's declared-commands job uses the prefix-family rule", () => {
   assert.match(readTemplate("ci-workflow-node.yml"), /startsWith\(f \+ ":"\)/);
-  assert.match(readTemplate("ci-workflow-node.yml"), /"check", "verify"/);
+  assert.doesNotMatch(
+    readTemplate("ci-workflow-node.yml"),
+    /"check", "verify"/,
+    "check/verify chain external tooling (pre-commit) missing in the clean-checkout gate",
+  );
   rmSync(fixture(), { recursive: true, force: true });
 });

@@ -90,11 +90,12 @@ jobs:
           node -e '
             const { execSync } = require("node:child_process");
             const scripts = require("./package.json").scripts || {};
-            // prefix-family rule — one source of truth with the audit's
-            // scriptKey and transform's declaredNpmLifecycle (dogfood review
-            // 2026-08-10: a Node repo's check:metadata was credited by the
-            // audit but skipped here)
-            const fam = (k) => ["build", "compile", "typecheck", "check", "verify", "test", "spec"].some((f) => k === f || k.startsWith(f + ":"));
+            // prefix-family rule shared with the audit and transform (exact
+            // name or family: variant), but only the self-contained families:
+            // check/verify scripts chain external tooling (pre-commit etc.)
+            // that this clean-checkout job lacks, so the hard gate excludes
+            // them (local verification runs them where the tools exist)
+            const fam = (k) => ["build", "compile", "typecheck", "test", "spec"].some((f) => k === f || k.startsWith(f + ":"));
             const declared = Object.keys(scripts).filter(fam);
             if (declared.length === 0) { console.log("no build/test scripts declared"); process.exit(0); }
             for (const k of declared) { console.log("> npm run " + k); execSync("npm run " + k, { stdio: "inherit" }); }

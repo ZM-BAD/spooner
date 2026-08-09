@@ -995,9 +995,7 @@ function runCommand(root: string, command: string, opts: VerifyOptions = {}): Pr
       const excerpt = picked.length > 400 ? `…${picked.slice(-400)}` : picked;
       const missing =
         code === 127 || /command not found|No such file or directory/i.test(s) ? command.split(/\s+/)[0] : null;
-      const cause = timedOut
-        ? `timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s`
-        : `exit ${code ?? "?"}`;
+      const cause = timedOut ? `timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s` : `exit ${code ?? "?"}`;
       resolve({ ok: false, error: `${cause}${excerpt ? `: ${excerpt}` : ""}`, missingTool: missing });
     });
   });
@@ -1278,13 +1276,15 @@ interface Stage3Result {
 
 function makefileTargetsOf(root: string): string[] {
   try {
-    return readFileSync(join(root, "Makefile"), "utf8")
-      .split("\n")
-      // Same rule as audit's makefileTargets — real targets only (leading
-      // alpha + `:(?!=)`) so VAR := assignments and .PHONY never become
-      // commands (dogfood review 2026-08-09: a Go monorepo phantom targets).
-      .filter((l) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*\s*:(?!=)/.test(l))
-      .map((l) => l.split(":")[0].trim());
+    return (
+      readFileSync(join(root, "Makefile"), "utf8")
+        .split("\n")
+        // Same rule as audit's makefileTargets — real targets only (leading
+        // alpha + `:(?!=)`) so VAR := assignments and .PHONY never become
+        // commands (dogfood review 2026-08-09: a Go monorepo phantom targets).
+        .filter((l) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*\s*:(?!=)/.test(l))
+        .map((l) => l.split(":")[0].trim())
+    );
   } catch {
     return [];
   }
@@ -1831,27 +1831,27 @@ if (isDirectEntry(import.meta.url)) {
       const verifyOpts: VerifyOptions = verifyTimeoutMin === undefined ? {} : { timeoutMs: verifyTimeoutMin * 60_000 };
       const report = await run(root, stage, dryRun, ci, verifyOpts);
       process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
-    // applied but the post-apply build check failed → signal rollback
-    if (report.applied && report.buildCheck?.after === false) process.exit(1);
-    // local commit gate (dogfood): manifest present + consistent + not stale —
-    // mirrors the CI drift-gate job so local pre-commit catches ledger drift
-    if (process.argv.includes("--manifest-gate")) {
-      const g = checkManifestGate(root);
-      if (!g.ok) {
-        console.error(
-          g.version === null
-            ? "manifest gate FAILED: no .ai-native.yml — run transform stage 2 first"
-            : g.missing.length > 0
-              ? `manifest gate FAILED: missing ${g.missing.join(", ")} — re-run transform stage ${gateStageHint(g.missing)} to restore them`
-              : `manifest gate FAILED: manifest v${g.version} < current v${TOOL_VERSION} — run sync to apply the current templates`,
-        );
-        process.exit(1);
+      // applied but the post-apply build check failed → signal rollback
+      if (report.applied && report.buildCheck?.after === false) process.exit(1);
+      // local commit gate (dogfood): manifest present + consistent + not stale —
+      // mirrors the CI drift-gate job so local pre-commit catches ledger drift
+      if (process.argv.includes("--manifest-gate")) {
+        const g = checkManifestGate(root);
+        if (!g.ok) {
+          console.error(
+            g.version === null
+              ? "manifest gate FAILED: no .ai-native.yml — run transform stage 2 first"
+              : g.missing.length > 0
+                ? `manifest gate FAILED: missing ${g.missing.join(", ")} — re-run transform stage ${gateStageHint(g.missing)} to restore them`
+                : `manifest gate FAILED: manifest v${g.version} < current v${TOOL_VERSION} — run sync to apply the current templates`,
+          );
+          process.exit(1);
+        }
+        console.log(`manifest gate: ok (v${g.version})`);
       }
-      console.log(`manifest gate: ok (v${g.version})`);
+    } catch (err) {
+      console.error(`transform: ${(err as Error).message}`);
+      process.exit(1);
     }
-  } catch (err) {
-    console.error(`transform: ${(err as Error).message}`);
-    process.exit(1);
-  }
   })();
 }
