@@ -10,7 +10,7 @@
  *
  * Zero dependencies (Node builtins only); runs natively via Node's
  * type stripping — no build step:
- *   node skills/spooner/scripts/transform.ts [--root <path>] [--stage 2|3|4|all] [--dry-run] [--ci github|gitlab|none] [--format json|markdown]
+ *   node skills/spooner/scripts/transform.ts [--root <path>] [--stage 2|3|4|all] [--dry-run] [--ci github|gitlab|none] [--gates warn-only|hard] [--format json|markdown]
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
@@ -44,7 +44,28 @@ interface ManifestStage {
   /** Tool version whose templates this stage installed (M4; absent on pre-M4 manifests). */
   templateVersion?: string;
   warnOnly?: boolean;
+  /** CI gate strictness the installed workflow was rendered with (spec 0008
+   *  question 5; absent when no workflow was installed — no-workflow mode). */
+  gates?: GatesStrictness;
   files: string[];
+}
+
+/** Gate strictness (spec 0008 question 5): warn-only quality jobs (default —
+ *  template bytes verbatim) or hard quality jobs (continue-on-error removed). */
+export type GatesStrictness = "warn-only" | "hard";
+
+/** Render a workflow template for the chosen gate strictness. The template
+ *  bytes stay warn-only (the default); hard is a transform-time render — same
+ *  contract as spec 0008's platform routing (template bytes unchanged ⇒ no
+ *  TOOL_VERSION bump). */
+export function renderWorkflow(tpl: string, gates: GatesStrictness): string {
+  if (gates === "warn-only") return tpl;
+  return tpl
+    .replace(/^[ \t]*continue-on-error: true\n/gm, "")
+    .replace(
+      "# CI workflow installed by spooner transform Stage 2 (node stack; warn-only\n# quality gates; hard gates: declared-command executability + .ai-native.yml consistency)",
+      "# CI workflow installed by spooner transform Stage 2 (node stack; hard gates:\n# quality jobs + declared-command executability + .ai-native.yml consistency)",
+    );
 }
 
 interface Manifest {
@@ -152,6 +173,7 @@ function stringifyManifest(m: Manifest): string {
     lines.push(`  ${stage}:`, `    date: "${s.date}"`);
     if (s.templateVersion !== undefined) lines.push(`    templateVersion: "${s.templateVersion}"`);
     if (s.warnOnly !== undefined) lines.push(`    warnOnly: ${s.warnOnly}`);
+    if (s.gates !== undefined) lines.push(`    gates: ${s.gates}`);
     lines.push("    files:");
     for (const f of s.files) lines.push(`      - "${f}"`);
   }
@@ -178,7 +200,13 @@ export function readManifest(root: string): { present: boolean; manifest: Manife
     const stages: Record<string, ManifestStage> = {};
     const topVersion = typeof parsed["version"] === "string" ? parsed["version"] : TOOL_VERSION;
     for (const [k, v] of Object.entries(stagesRaw)) {
-      const s = v as { date?: unknown; warnOnly?: unknown; files?: unknown; templateVersion?: unknown };
+      const s = v as {
+        date?: unknown;
+        warnOnly?: unknown;
+        gates?: unknown;
+        files?: unknown;
+        templateVersion?: unknown;
+      };
       if (
         typeof s !== "object" ||
         s === null ||
@@ -193,6 +221,7 @@ export function readManifest(root: string): { present: boolean; manifest: Manife
         date: s.date,
         files: s.files as string[],
         warnOnly: s.warnOnly === true ? true : undefined,
+        gates: s.gates === "warn-only" || s.gates === "hard" ? s.gates : undefined,
         // per-stage version, else the manifest-level version (pre-M4 manifests), else current
         templateVersion: typeof tv === "string" && tv !== "" ? tv : topVersion,
       };
@@ -838,9 +867,23 @@ export function generatePreCommitConfig(root: string): string {
   return `${sections.join("\n")}\n`;
 }
 
-/** Resolve stage-2 file content: generated (M10) or template bytes. */
-function stage2Content(root: string, file: string, tpl: string): string {
-  return tpl === GENERATED ? generatePreCommitConfig(root) : templateContent(tpl);
+/** Resolve stage-2 file content: generated (M10) or template bytes —
+ *  workflows render for the chosen gate strictness (spec 0008 question 5). */
+function stage2Content(root: string, file: string, tpl: string, gates: GatesStrictness): string {
+  if (tpl === GENERATED) return generatePreCommitConfig(root);
+  const content = templateContent(tpl);
+  return file.endsWith(".github/workflows/ai-native.yml") || file.endsWith(".github/workflows/sdd.yml")
+    ? renderWorkflow(content, gates)
+    : content;
+}
+
+/** Gate strictness for this run: explicit --gates wins; else the manifest's
+ *  recorded choice (a strictness change is an explicit decision, not an
+ *  implied re-render); else warn-only (the default, backwards compatible). */
+export function gatesOf(root: string, explicit?: GatesStrictness): GatesStrictness {
+  if (explicit !== undefined) return explicit;
+  const recorded = readManifest(root).manifest?.stages["2"]?.gates;
+  return recorded ?? "warn-only";
 }
 
 export const TEMPLATE_DIR = join(import.meta.dirname, "..", "templates");
@@ -1086,13 +1129,15 @@ export async function applyStage2(
   dryRun: boolean,
   ciOverride?: string,
   verifyOpts: VerifyOptions = {},
+  gatesArg?: GatesStrictness,
 ): Promise<Stage2Result> {
+  const gates = gatesOf(root, gatesArg);
   const templates = stage2Templates(root, ciOverride);
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
     const current = readFileSync(target, "utf8");
-    if (current === stage2Content(root, file, tpl)) return { file, action: "keep" };
+    if (current === stage2Content(root, file, tpl, gates)) return { file, action: "keep" };
     // M10 legacy upgrade: bytes from the pre-M10 universal template, or any
     // generated config carrying the marker header (M12), are tool-owned.
     if (
@@ -1100,6 +1145,15 @@ export async function applyStage2(
       (current === templateContent(LEGACY_PRE_COMMIT_TEMPLATE) || current.includes(GENERATED_PRE_COMMIT_MARKER))
     )
       return { file, action: "write" };
+    // A workflow installed by the tool is tool-owned across strictness
+    // levels: this stack's template bytes in either render rewrite to the
+    // current choice (a strictness switch is a re-render, not a user-edit
+    // conflict — spec 0008 question 5). Other stacks' bytes stay conflicts
+    // (the wrong-stack hint below keeps its delete-and-re-run UX).
+    if (file === ".github/workflows/ai-native.yml" && tpl !== GENERATED) {
+      const content = templateContent(tpl);
+      if (current === content || current === renderWorkflow(content, "hard")) return { file, action: "write" };
+    }
     return { file, action: "conflict" };
   });
   const toWrite = plans.filter((p) => p.action === "write");
@@ -1197,7 +1251,7 @@ export async function applyStage2(
   const before = beforeRun ? beforeRun.ok : null;
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
-    writeFileSync(join(root, p.file), stage2Content(root, p.file, templates[p.file]), "utf8");
+    writeFileSync(join(root, p.file), stage2Content(root, p.file, templates[p.file], gates), "utf8");
   }
   const afterRun = command ? await runDeclared(root, verifyOpts) : null;
   const after = afterRun ? afterRun.ok : null;
@@ -1216,6 +1270,9 @@ export async function applyStage2(
       manifestWithStage(root, "2", {
         date: new Date().toISOString().slice(0, 10),
         warnOnly: true,
+        // strictness is a property of the installed workflow; no-workflow
+        // mode records nothing (spec 0008: manifest = what was installed)
+        ...(templates[".github/workflows/ai-native.yml"] !== undefined ? { gates } : {}),
         templateVersion: TOOL_VERSION,
         files: Object.keys(templates),
       }),
@@ -1679,6 +1736,7 @@ async function run(
   dryRun: boolean,
   ciOverride?: string,
   verifyOpts: VerifyOptions = {},
+  gatesArg?: GatesStrictness,
 ): Promise<TransformReport> {
   const stagesToReport = stage === "all" ? [2, 3, 4] : [stage];
   const mr = readManifest(root);
@@ -1688,7 +1746,7 @@ async function run(
   let files: Stage2FilePlan[] | Stage3FilePlan[] | null = null;
   let buildCheck: BuildCheck | null = null;
   if (stage === 2) {
-    const r2 = await applyStage2(root, dryRun, ciOverride, verifyOpts);
+    const r2 = await applyStage2(root, dryRun, ciOverride, verifyOpts, gatesArg);
     applied = r2.applied;
     message = r2.message;
     manifestUpdated = r2.manifestUpdated;
@@ -1764,6 +1822,7 @@ function parseArgs(argv: string[]): {
   dryRun: boolean;
   format: "json" | "markdown";
   ci: "github" | "gitlab" | "none" | undefined;
+  gates: GatesStrictness | undefined;
   verifyTimeoutMin: number | undefined;
 } {
   const valueOf = (flag: string): string | undefined => {
@@ -1789,6 +1848,15 @@ function parseArgs(argv: string[]): {
         : (() => {
             throw new Error(`invalid --ci "${ciRaw}" (expected github, gitlab, none, or omit for auto)`);
           })();
+  const gatesRaw = valueOf("--gates");
+  const gates: GatesStrictness | undefined =
+    gatesRaw === undefined
+      ? undefined
+      : gatesRaw === "warn-only" || gatesRaw === "hard"
+        ? gatesRaw
+        : (() => {
+            throw new Error(`invalid --gates "${gatesRaw}" (expected warn-only, hard, or omit for auto)`);
+          })();
   const verifyTimeoutRaw = valueOf("--verify-timeout");
   const verifyTimeoutMin =
     verifyTimeoutRaw === undefined
@@ -1805,6 +1873,7 @@ function parseArgs(argv: string[]): {
     dryRun: argv.includes("--dry-run"),
     format,
     ci,
+    gates,
     verifyTimeoutMin,
   };
 }
@@ -1827,9 +1896,9 @@ if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
   void (async () => {
     try {
-      const { root, stage, dryRun, format, ci, verifyTimeoutMin } = parseArgs(process.argv.slice(2));
+      const { root, stage, dryRun, format, ci, gates, verifyTimeoutMin } = parseArgs(process.argv.slice(2));
       const verifyOpts: VerifyOptions = verifyTimeoutMin === undefined ? {} : { timeoutMs: verifyTimeoutMin * 60_000 };
-      const report = await run(root, stage, dryRun, ci, verifyOpts);
+      const report = await run(root, stage, dryRun, ci, verifyOpts, gates);
       process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
       // applied but the post-apply build check failed → signal rollback
       if (report.applied && report.buildCheck?.after === false) process.exit(1);

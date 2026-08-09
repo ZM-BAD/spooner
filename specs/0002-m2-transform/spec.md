@@ -21,7 +21,7 @@ For a mature repository, upgrade its AI coding readiness in place through three 
 - Stage 3 agent files: AGENTS.md generated from real commands (package.json scripts / Makefile / CI), ≤200 lines / <40K chars, with **stack-aware conventions** (advisory per-stack copy referencing only the commands the table declares — python virtualenv, go fmt/vet, rust fmt/clippy, node npm-run, java wrapper); CLAUDE.md symlink (Windows: `@AGENTS.md` import)
 - Stage 4 (optional) SDD: `docs/sdd/` templates (spec/plan/tasks), AGENTS.md workflow convention, optional CI spec-existence gate
 - `.ai-native.yml` manifest: written/updated by every applied stage; consistency verification
-- `transform.ts` CLI: `--root` / `--stage 2|3|4` / `--dry-run` / `--ci github|gitlab|none` / `--format json|markdown`; zero-build, zero-dependency (Node >= 22.18)
+- `transform.ts` CLI: `--root` / `--stage 2|3|4` / `--dry-run` / `--ci github|gitlab|none` / `--gates warn-only|hard` / `--format json|markdown`; zero-build, zero-dependency (Node >= 22.18). **Gate strictness (spec 0008 question 5)**: `hard` renders the installed workflow's quality jobs without `continue-on-error`; the choice is recorded in the stage-2 manifest entry (`gates`, absent in no-workflow mode) and honored on re-runs; a strictness switch re-renders the tool-owned workflow instead of conflicting
 - SKILL.md: full transform instructions + examples (slice 5)
 
 ## Non-goals

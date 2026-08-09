@@ -29,6 +29,7 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
   5. Gate strictness? (warn-only / hard / audit-only)
   6. Git-hook tool preference? (pre-commit / husky / lefthook / keep the existing setup — decides whether Stage 2 installs the generated pre-commit config or skips with a notice, spec 0010)
   Mode table: **full** (GitHub + allowed → current behavior) / **no-workflow** (non-GitHub → cross-stack gates only) / **audit-only** (nothing written, report + suggestions).
+- **`--gates warn-only|hard` (2026-08-10, question 5 implemented)**: the strictness answer lands on the CLI like `--ci`. `hard` renders the installed workflow with the quality jobs' `continue-on-error` removed (and the header comment adjusted); `warn-only` (default) installs the template bytes verbatim — **the template files themselves stay warn-only; hard is a transform-time render**. The manifest records the choice per stage-2 entry (`gates: warn-only|hard`, absent in no-workflow mode — the manifest is the ledger of what was actually installed); re-runs without `--gates` use the recorded choice (a strictness change is an explicit decision, `--gates hard`); a strictness switch re-renders the tool-owned workflow (any strictness render of the stack's template is tool-owned — user edits stay conflicts, and the wrong-stack hint keeps its delete-and-re-run UX).
 - **transform.ts — CI-platform detection + Stage-2 routing**:
   - Detect the repo's CI platform (`.gitlab-ci.yml` → gitlab, `Jenkinsfile` → jenkins, `.github/workflows/*.yml` → github, `azure-pipelines.yml` / `.circleci` → other, none) — the same file families the audit already scans. **Greenfield (no CI files): the origin remote host decides** (`git config --get remote.origin.url` → github/gitlab/other; no remote → GitHub assumption) — a GitLab remote must not receive a dead `.github/workflows` file (2026-08-07).
   - **`--ci github|gitlab|none` overrides the auto-detection** — the probed answer lands on the CLI, no hand-editing the manifest (2026-08-07).
@@ -36,7 +37,7 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
   - Stage 2 message and transform report carry the skip reason explicitly.
   - **Stage 4 routing (2026-08-07)**: the SDD spec-existence gate (`.github/workflows/sdd.yml`) follows the same routing as stage 2 — skipped with "… (SDD spec gate)" on non-GitHub platforms; the docs templates still install. `--ci` applies to both stages.
 - **spec 0002 revision** (living document): Stage-2 contract gains the platform-routing rule and the skip notice.
-- No TOOL_VERSION bump (template bytes unchanged — the routing is transform.ts behavior + SKILL.md instructions, not template content).
+- No TOOL_VERSION bump (template bytes unchanged — the routing and the strictness render are transform.ts behavior + SKILL.md instructions, not template content; the warn-only template stays the installed default).
 
 ## Non-goals
 
@@ -57,6 +58,8 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
 8. **SKILL.md probe**: the context questions + mode table land in the transform procedure
 9. **spec 0002**: Stage-2 contract describes platform routing + skip notice
 10. **Regression**: typecheck + markdownlint + skills-ref green; M6 acceptance re-run
+11. **`--gates hard` render (2026-08-10)**: fixture installs with `--gates hard` → installed workflow has no `continue-on-error`, header names the hard gates; manifest stage-2 entry records `gates: hard`; re-run without `--gates` keeps the workflow (recorded strictness); a strictness switch (`--gates warn-only` after hard) re-renders to template bytes instead of reporting a conflict; a user-edited workflow stays a conflict
+12. **No-workflow + strictness**: gitlab-routed fixture with `--gates hard` records no `gates` field (nothing to be strict about) and installs no workflow
 
 ## Slice plan
 

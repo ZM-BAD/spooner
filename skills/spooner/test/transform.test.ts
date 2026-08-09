@@ -14,11 +14,13 @@ import {
   stage4Templates,
   checkManifestGate,
   ciPlatforms,
+  gatesOf,
   generateAgentsMd,
   generatePreCommitConfig,
   hookToolEcosystem,
   manifestGateScript,
   primaryStack,
+  renderWorkflow,
   stackLifecycle,
   stage2Templates,
   workflowEligible,
@@ -159,6 +161,97 @@ test("stage2Templates: rust picks the rust workflow template", () => {
   assert.equal(primaryStack(repo), "rust");
   const tpl = stage2Templates(repo);
   assert.equal(tpl[".github/workflows/ai-native.yml"], "ci-workflow-rust.yml");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- M13.5 (spec 0008 question 5): gate strictness --gates warn-only|hard -------
+
+test("renderWorkflow: hard strips continue-on-error and updates the header; warn-only is identity", () => {
+  const tpl = readFileSync(join(TEMPLATE_DIR, "ci-workflow-node.yml"), "utf8");
+  assert.equal(renderWorkflow(tpl, "warn-only"), tpl);
+  const hard = renderWorkflow(tpl, "hard");
+  assert.ok(!hard.includes("continue-on-error"));
+  assert.match(hard, /hard gates:\n# quality jobs \+ declared-command executability \+ \.ai-native\.yml consistency/);
+  assert.ok(!hard.includes("warn-only quality gates"));
+  // everything else byte-identical: only continue-on-error lines + the header comment differ
+  const diff = [...tpl.split("\n")].filter((l) => !hard.split("\n").includes(l)).join("\n");
+  assert.ok(diff.includes("continue-on-error"));
+});
+
+test("stage 2: --gates hard installs the workflow without continue-on-error + records gates in the manifest", async () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  const r = await applyStage2(repo, false, undefined, {}, "hard");
+  assert.ok(r.applied);
+  const wf = readFileSync(join(repo, ".github/workflows/ai-native.yml"), "utf8");
+  assert.ok(!wf.includes("continue-on-error"));
+  assert.match(wf, /hard gates:\n# quality jobs/);
+  const manifest = readFileSync(join(repo, ".ai-native.yml"), "utf8");
+  assert.match(manifest, /gates: hard/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: strictness switch re-renders the tool-owned workflow, not a conflict", async () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  // install warn-only (default), then switch to hard explicitly
+  const first = await applyStage2(repo, false);
+  assert.ok(first.applied);
+  const r = await applyStage2(repo, false, undefined, {}, "hard");
+  assert.ok(r.applied);
+  const wf = readFileSync(join(repo, ".github/workflows/ai-native.yml"), "utf8");
+  assert.ok(!wf.includes("continue-on-error"));
+  const conflicts = r.files.filter((p) => p.action === "conflict");
+  assert.deepEqual(conflicts, []);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: re-run with the manifest's recorded strictness keeps the workflow (no re-render)", async () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  await applyStage2(repo, false, undefined, {}, "hard");
+  // no explicit --gates: manifest records hard, so the rendered bytes match → keep
+  const r = await applyStage2(repo, false);
+  assert.ok(!r.applied);
+  const wf = readFileSync(join(repo, ".github/workflows/ai-native.yml"), "utf8");
+  assert.ok(!wf.includes("continue-on-error"));
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: a user-edited workflow stays a conflict (not tool-owned)", async () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  const r = await applyStage2(repo, false);
+  assert.ok(r.applied);
+  writeFileSync(join(repo, ".github/workflows/ai-native.yml"), "name: user-edit\n", "utf8");
+  const r2 = await applyStage2(repo, false);
+  assert.ok(!r2.applied);
+  assert.deepEqual(r2.files.find((p) => p.file === ".github/workflows/ai-native.yml")?.action, "conflict");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("gatesOf: explicit wins over the manifest; manifest wins over the default; no manifest -> warn-only", () => {
+  const repo = nodeRepo(fixture());
+  assert.equal(gatesOf(repo, "hard"), "hard");
+  assert.equal(gatesOf(repo), "warn-only");
+  writeFileSync(
+    join(repo, ".ai-native.yml"),
+    'schemaVersion: 1\ntool: spooner\nversion: "0.11.0"\nstages:\n  2:\n    date: "2026-08-10"\n    gates: hard\n    files:\n      - ".github/workflows/ai-native.yml"\n',
+    "utf8",
+  );
+  assert.equal(gatesOf(repo), "hard");
+  assert.equal(gatesOf(repo, "warn-only"), "warn-only");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: no-workflow mode records no gates field in the manifest", async () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  git(repo, ["remote", "add", "origin", "git@gitlab.com:group/repo.git"]);
+  const r = await applyStage2(repo, false, undefined, {}, "hard");
+  assert.ok(r.applied);
+  const manifest = readFileSync(join(repo, ".ai-native.yml"), "utf8");
+  assert.ok(!manifest.includes("gates:"));
   rmSync(repo, { recursive: true, force: true });
 });
 

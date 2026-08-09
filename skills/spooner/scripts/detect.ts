@@ -17,8 +17,9 @@ const MANIFESTS = [
   ["node", "package.json"],
   ["node", "pnpm-workspace.yaml"],
   // Rush monorepos have no root package.json — rush.json is the root signal
-  // (dogfood review 2026-08-10: a Rush monorepo scored stacks: empty with 2442 commits
-  // and a full apps/ + libraries/ tree, systematically under-scored).
+  // (dogfood review 2026-08-10: a Rush monorepo scored stacks: empty with
+  // 2442 commits and a full apps/ + libraries/ tree, systematically
+  // under-scored).
   ["node", "rush.json"],
   // HarmonyOS apps have no standard manifest in the list — oh-package.json5
   // is the ohpm manifest (hvigor + AppScope + entry/ structure; dogfood
