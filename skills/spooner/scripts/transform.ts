@@ -13,7 +13,7 @@
  *   node skills/spooner/scripts/transform.ts [--root <path>] [--stage 2|3|4|all] [--dry-run] [--ci github|gitlab|none] [--format json|markdown]
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { isDirectEntry } from "./entry.ts";
 import { detect } from "./detect.ts";
@@ -21,7 +21,7 @@ import { detect } from "./detect.ts";
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.10.0";
+export const TOOL_VERSION = "0.11.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -230,6 +230,54 @@ export const STAGE2_COMMON: Record<string, string> = {
   ".markdownlint-cli2.yaml": "markdownlint-cli2.yaml",
 };
 
+/** Pre-existing markdownlint configs that cli2 would silently MERGE with the
+ *  generated .markdownlint-cli2.yaml — the merge overrides the generated rule
+ *  disables and the gate runs with unexpected defaults (dogfood review
+ *  2026-08-09: a Go monorepo's own .markdownlint.yml diluted the generated
+ *  config's MD060:false → ~21k errors incl. spooner's own SDD templates
+ *  flagged). When one exists, the gate follows the repo's own config. */
+const MARKDOWNLINT_FOREIGN_CONFIGS = [
+  ".markdownlint.yml",
+  ".markdownlint.yaml",
+  ".markdownlint.json",
+  ".markdownlint.jsonc",
+  ".markdownlintrc",
+  ".markdownlint-cli2.json",
+  ".markdownlint-cli2.jsonc",
+  ".markdownlint-cli2.cjs",
+  ".markdownlint-cli2.mjs",
+] as const;
+
+function foreignMarkdownlintConfigOf(root: string): string | null {
+  return MARKDOWNLINT_FOREIGN_CONFIGS.find((name) => existsSync(join(root, name))) ?? null;
+}
+
+/** Pre-existing commitlint configs — installing .commitlintrc.json beside one
+ *  lets cosmiconfig's resolution order silently shadow the repo's own config
+ *  (dogfood review 2026-08-10: a Node/Python monorepo's commitlint.config.mjs tightened
+ *  header-max-length to 72; the installed .commitlintrc.json default 100 won
+ *  the resolution). Skip the install, keep the repo's config. */
+const COMMITLINT_FOREIGN_CONFIGS = [
+  ".commitlintrc",
+  ".commitlintrc.js",
+  ".commitlintrc.cjs",
+  ".commitlintrc.yaml",
+  ".commitlintrc.yml",
+  "commitlint.config.js",
+  "commitlint.config.cjs",
+  "commitlint.config.mjs",
+  "commitlint.config.ts",
+] as const;
+
+function foreignCommitlintConfigOf(root: string): string | null {
+  const named = COMMITLINT_FOREIGN_CONFIGS.find((name) => existsSync(join(root, name)));
+  if (named) return named;
+  const pkg = packageJsonOf(root);
+  return pkg !== null && typeof (pkg as Record<string, unknown>)["commitlint"] === "object"
+    ? "package.json (commitlint field)"
+    : null;
+}
+
 /** Supported stack → workflow template (verbatim copies, zero parameters). */
 export const STAGE2_WORKFLOWS: Record<string, string> = {
   node: "ci-workflow-node.yml",
@@ -314,6 +362,12 @@ export function stage2Templates(root: string, ciOverride?: string): Record<strin
   if (stack && workflowEligible(root, ciOverride)) tpl[".github/workflows/ai-native.yml"] = STAGE2_WORKFLOWS[stack];
   const ecosystem = hookToolEcosystem(root);
   if (ecosystem !== "husky" && ecosystem !== "lefthook" && ecosystem !== "yorkie") tpl[PRE_COMMIT_FILE] = GENERATED;
+  // A pre-existing markdownlint config would merge with the generated one and
+  // override its rule disables — skip the install, keep the repo's config.
+  if (foreignMarkdownlintConfigOf(root) !== null) delete tpl[".markdownlint-cli2.yaml"];
+  // A pre-existing commitlint config would be shadowed by the installed
+  // .commitlintrc.json (cosmiconfig resolution order) — skip, keep the repo's.
+  if (foreignCommitlintConfigOf(root) !== null) delete tpl[".commitlintrc.json"];
   return tpl;
 }
 
@@ -598,11 +652,15 @@ function pythonHooks(root: string): string | null {
         stages: [pre-commit]`);
   }
   if (pipAuditPresent(root)) {
+    // Missing local tool is not a failing build (the audit's exit-127 rule,
+    // dogfood review 2026-08-09): a machine without pip-audit must not block
+    // every commit with "Executable pip-audit not found" — skip with a notice
+    // and name the escape (SKIP=pip-audit / pip install pip-audit).
     lines.push(`  - repo: local
     hooks:
       - id: pip-audit
         name: pip-audit (python deps)
-        entry: pip-audit -r requirements.txt
+        entry: 'command -v pip-audit >/dev/null 2>&1 || { echo "pip-audit not installed - SKIP=pip-audit or pip install pip-audit"; exit 0; }; exec pip-audit -r requirements.txt'
         language: system
         pass_filenames: false
         files: ^requirements\\.txt$
@@ -682,7 +740,7 @@ function goHooks(root: string): string | null {
         stages: [pre-commit]
       - id: go-test
         name: go test
-        entry: go test ./...
+        entry: go test $(go list ./... | grep -v /test/e2e)
         language: system
         pass_filenames: false
         files: \\.go$
@@ -840,6 +898,16 @@ function declaredNpmLifecycle(root: string): { build: string | null; test: strin
   return { build: build ? `npm run ${build}` : null, test: test ? `npm run ${test}` : null };
 }
 
+/** go test minus E2E suites — test/e2e dirs hold integration specs that need
+ *  live infrastructure and would make the gate permanently red (dogfood
+ *  review 2026-08-09: a Go monorepo's `go test ./...` swept in 60 Ginkgo specs,
+ *  0 passed). For repos without a test/e2e dir the pipeline is
+ *  behavior-identical to `go test ./...`. One source of truth: stackLifecycle
+ *  (local verification + audit --verify), the go workflow template's
+ *  declared-commands job, and the generated go-test hook entry all carry this
+ *  exact string (parity test pins the template). */
+export const GO_TEST_COMMAND = "go test $(go list ./... | grep -v /test/e2e)";
+
 /**
  * Per-stack lifecycle commands (decision #13): node stays package.json-declared;
  * python/go/java use fixed standard commands, verified by the CI hard gate —
@@ -847,7 +915,7 @@ function declaredNpmLifecycle(root: string): { build: string | null; test: strin
  */
 export function stackLifecycle(root: string): { build: string | null; test: string | null } {
   const stack = primaryStack(root);
-  if (stack === "go") return { build: "go build ./...", test: "go test ./..." };
+  if (stack === "go") return { build: "go build ./...", test: GO_TEST_COMMAND };
   if (stack === "rust") return { build: "cargo build", test: "cargo test" };
   if (stack === "python") return { build: null, test: "python3 -m unittest discover -q || [ $? -eq 5 ]" };
   if (stack === "java") {
@@ -868,33 +936,84 @@ interface CommandResult {
   missingTool: string | null;
 }
 
-function runCommand(root: string, command: string): CommandResult {
-  try {
-    execFileSync("sh", ["-c", command], { cwd: root, stdio: "pipe" });
-    return { ok: true, error: null, missingTool: null };
-  } catch (err) {
-    const e = (err ?? {}) as { status?: number; stderr?: Buffer | string };
-    const stderr = e.stderr ? String(e.stderr).trim() : "";
-    const excerpt = stderr.length > 300 ? `${stderr.slice(0, 300)}…` : stderr;
-    const missing =
-      e.status === 127 || /command not found|No such file or directory/i.test(stderr) ? command.split(/\s+/)[0] : null;
-    return { ok: false, error: `exit ${e.status ?? "?"}${excerpt ? `: ${excerpt}` : ""}`, missingTool: missing };
-  }
+interface VerifyOptions {
+  /** Kill the verification after this many ms (0/unset = never — a long build
+   *  is not a hang; the heartbeat is the only feedback by default). */
+  timeoutMs?: number;
 }
 
-function runDeclared(root: string): {
+function runCommand(root: string, command: string, opts: VerifyOptions = {}): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    // detached: timeout kills the whole command tree, not just the shell —
+    // an orphaned `sleep`/build child would otherwise outlive the kill.
+    const child = spawn("sh", ["-c", command], { cwd: root, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    let stderr = "";
+    let timedOut = false;
+    child.stderr.on("data", (d) => (stderr += String(d)));
+    // Long builds look hung without feedback — a heartbeat line every 10s
+    // (dogfood review 2026-08-09: a Go monorepo's go test ./... ran >10 minutes
+    // with zero output while stage 2 applied).
+    const heartbeat = setInterval(() => {
+      process.stderr.write(
+        `  ... verification still running (${Math.round((Date.now() - started) / 1000)}s): ${command}\n`,
+      );
+    }, 10_000);
+    const timer =
+      opts.timeoutMs === undefined || opts.timeoutMs <= 0
+        ? null
+        : setTimeout(() => {
+            timedOut = true;
+            if (child.pid !== undefined) {
+              try {
+                process.kill(-child.pid, "SIGTERM");
+              } catch {
+                child.kill("SIGTERM");
+              }
+            }
+          }, opts.timeoutMs);
+    child.on("close", (code) => {
+      clearInterval(heartbeat);
+      if (timer) clearTimeout(timer);
+      const s = stderr.trim();
+      if (code === 0 && !timedOut) return resolve({ ok: true, error: null, missingTool: null });
+      // Failure excerpt = FAIL-ish lines + the tail, NOT the head — the head
+      // of a long run is downloads/setup; the actual failure is at the end
+      // (dogfood review 2026-08-09: a Go monorepo's report showed "go: downloading
+      // …" while its 60 E2E failures were cut off entirely).
+      const lines = s.split("\n");
+      const fails = lines.filter((l) => /FAIL|error:|Error:|panic:/i.test(l)).slice(-6);
+      const tail = lines.slice(-12);
+      const picked = [...new Set([...fails, ...tail])].slice(-12).join("\n");
+      const excerpt = picked.length > 400 ? `…${picked.slice(-400)}` : picked;
+      const missing =
+        code === 127 || /command not found|No such file or directory/i.test(s) ? command.split(/\s+/)[0] : null;
+      const cause = timedOut
+        ? `timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s`
+        : `exit ${code ?? "?"}`;
+      resolve({ ok: false, error: `${cause}${excerpt ? `: ${excerpt}` : ""}`, missingTool: missing });
+    });
+  });
+}
+
+async function runDeclared(
+  root: string,
+  opts: VerifyOptions = {},
+): Promise<{
   ok: boolean;
   keys: string[];
+  /** The failing command (for the SKIP escape hint). */
+  command: string | null;
   error: string | null;
   missingTool: string | null;
-} {
+}> {
   const { build, test } = stackLifecycle(root);
   const keys = [build, test].filter((k): k is string => k !== null);
   for (const k of keys) {
-    const r = runCommand(root, k);
-    if (!r.ok) return { ok: false, keys, error: `${k} — ${r.error}`, missingTool: r.missingTool };
+    const r = await runCommand(root, k, opts);
+    if (!r.ok) return { ok: false, keys, command: k, error: `${k} — ${r.error}`, missingTool: r.missingTool };
   }
-  return { ok: true, keys, error: null, missingTool: null };
+  return { ok: true, keys, command: null, error: null, missingTool: null };
 }
 
 export function manifestWithStage(root: string, stage: string, entry: ManifestStage): Record<string, ManifestStage> {
@@ -935,7 +1054,34 @@ function androidEnvHint(error: string | null): string {
     : "";
 }
 
-export function applyStage2(root: string, dryRun: boolean, ciOverride?: string): Stage2Result {
+/** The generated pre-commit hook that gates a failing verification command —
+ *  the named SKIP escape for the stage-2 report (dogfood review 2026-08-09:
+ *  a Go monorepo's pre-existing go test failure blocked commits with no named
+ *  escape, while the Android case had SKIP=java-test). */
+function verificationHookIdOf(root: string, command: string): string | null {
+  if (/\bgo (build|test)\b/.test(command)) return "go-test";
+  if (/\bcargo\b/.test(command)) return "cargo-test";
+  if (/\b(mvn|gradle)\b/.test(command)) return "java-test";
+  if (/python3 -m unittest/.test(command)) return pytestPresent(root) ? "pytest" : null;
+  const m = command.match(/^npm run (\S+)/);
+  if (m) return m[1] === "test" || m[1] === "spec" ? "test" : "typecheck";
+  return null;
+}
+
+function skipEscapeHint(root: string, command: string | null): string {
+  if (!command) return "";
+  const id = verificationHookIdOf(root, command);
+  return id
+    ? ` — local commits can proceed with SKIP=${id} (pre-commit skip; the CI hard gate still verifies the real build)`
+    : "";
+}
+
+export async function applyStage2(
+  root: string,
+  dryRun: boolean,
+  ciOverride?: string,
+  verifyOpts: VerifyOptions = {},
+): Promise<Stage2Result> {
   const templates = stage2Templates(root, ciOverride);
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
@@ -1006,7 +1152,25 @@ export function applyStage2(root: string, dryRun: boolean, ciOverride?: string):
       }
     }
   }
-  const extra = [notice, platformNotice, wrongStackHint, hookNotice].filter(Boolean).join("; ");
+  // Markdownlint skip notice: a pre-existing repo config governs the gate
+  // (cli2 merges configs — the generated one would be diluted). The hint names
+  // the cleanup for both directions (foreign config present / generated one
+  // already installed from a previous run).
+  const mdForeign = foreignMarkdownlintConfigOf(root);
+  const mdNotice =
+    mdForeign === null
+      ? null
+      : existsSync(join(root, ".markdownlint-cli2.yaml"))
+        ? `markdownlint config skipped: detected ${mdForeign} — keeping your markdownlint config (the gate follows it; remove the generated .markdownlint-cli2.yaml to avoid cli2 merging both)`
+        : `markdownlint config skipped: detected ${mdForeign} — keeping your markdownlint config (the gate follows it; delete ${mdForeign} and re-run to install the generated config)`;
+  // Commitlint alias skip: the repo's own commitlint config governs the gate
+  // (an installed .commitlintrc.json would shadow it via cosmiconfig order).
+  const clForeign = foreignCommitlintConfigOf(root);
+  const clNotice =
+    clForeign === null
+      ? null
+      : `commitlint config skipped: detected ${clForeign} — keeping your commitlint config (the commit-msg hook uses it; delete ${clForeign} and re-run to install the generated one)`;
+  const extra = [notice, platformNotice, wrongStackHint, hookNotice, mdNotice, clNotice].filter(Boolean).join("; ");
 
   if (dryRun) {
     return {
@@ -1024,13 +1188,13 @@ export function applyStage2(root: string, dryRun: boolean, ciOverride?: string):
   // local tooling like pre-commit exists here); the CI gate template runs
   // self-contained families only (a clean CI checkout lacks that tooling).
   // A failure here names rollback or pre-existing, never fakes green.
-  const beforeRun = command ? runDeclared(root) : null;
+  const beforeRun = command ? await runDeclared(root, verifyOpts) : null;
   const before = beforeRun ? beforeRun.ok : null;
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
     writeFileSync(join(root, p.file), stage2Content(root, p.file, templates[p.file]), "utf8");
   }
-  const afterRun = command ? runDeclared(root) : null;
+  const afterRun = command ? await runDeclared(root, verifyOpts) : null;
   const after = afterRun ? afterRun.ok : null;
   // first failure carries the reason (stderr excerpt + exit code)
   const buildError = beforeRun?.error ?? afterRun?.error ?? null;
@@ -1065,7 +1229,7 @@ export function applyStage2(root: string, dryRun: boolean, ciOverride?: string):
       before === false && missingTool
         ? `stage 2 applied: ${written} written; build verification could not run — ${missingTool} is not installed (exit 127: command not found) — install the tool and re-run; a missing local tool is not a failing build (hooks stay installed; CI hard gates will verify the real build)`
         : before === false
-          ? `stage 2 applied: build was ALREADY failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); ${written} written; verification still failing after — installed hooks are hard gates (commits stay blocked until the build is fixed)${androidEnvHint(buildError)}`
+          ? `stage 2 applied: build was ALREADY failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); ${written} written; verification still failing after — installed hooks are hard gates (commits stay blocked until the build is fixed)${skipEscapeHint(root, beforeRun?.command ?? afterRun?.command ?? null)}${androidEnvHint(buildError)}`
           : `stage 2 applied but build verification FAILED after — ${buildError ?? "unknown error"}; rollback: git restore ${written}`;
   } else {
     const parts: string[] = [];
@@ -1109,7 +1273,10 @@ function makefileTargetsOf(root: string): string[] {
   try {
     return readFileSync(join(root, "Makefile"), "utf8")
       .split("\n")
-      .filter((l) => /^[a-zA-Z0-9_.-]+\s*:/.test(l))
+      // Same rule as audit's makefileTargets — real targets only (leading
+      // alpha + `:(?!=)`) so VAR := assignments and .PHONY never become
+      // commands (dogfood review 2026-08-09: a Go monorepo phantom targets).
+      .filter((l) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*\s*:(?!=)/.test(l))
       .map((l) => l.split(":")[0].trim());
   } catch {
     return [];
@@ -1126,7 +1293,7 @@ function stackCommandsOf(root: string): { command: string; purpose: string }[] {
   if (stacks.includes("go")) {
     out.push(
       { command: "go build ./...", purpose: "build" },
-      { command: "go test ./...", purpose: "test" },
+      { command: GO_TEST_COMMAND, purpose: "test" },
       { command: "go vet ./...", purpose: "vet" },
     );
   }
@@ -1499,7 +1666,13 @@ function stageStatus(root: string, stage: number, ciOverride?: string): StageRep
   return { stage, status, present, missing };
 }
 
-function run(root: string, stage: number | "all", dryRun: boolean, ciOverride?: string): TransformReport {
+async function run(
+  root: string,
+  stage: number | "all",
+  dryRun: boolean,
+  ciOverride?: string,
+  verifyOpts: VerifyOptions = {},
+): Promise<TransformReport> {
   const stagesToReport = stage === "all" ? [2, 3, 4] : [stage];
   const mr = readManifest(root);
   let applied = false;
@@ -1508,7 +1681,7 @@ function run(root: string, stage: number | "all", dryRun: boolean, ciOverride?: 
   let files: Stage2FilePlan[] | Stage3FilePlan[] | null = null;
   let buildCheck: BuildCheck | null = null;
   if (stage === 2) {
-    const r2 = applyStage2(root, dryRun, ciOverride);
+    const r2 = await applyStage2(root, dryRun, ciOverride, verifyOpts);
     applied = r2.applied;
     message = r2.message;
     manifestUpdated = r2.manifestUpdated;
@@ -1584,6 +1757,7 @@ function parseArgs(argv: string[]): {
   dryRun: boolean;
   format: "json" | "markdown";
   ci: "github" | "gitlab" | "none" | undefined;
+  verifyTimeoutMin: number | undefined;
 } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
@@ -1608,7 +1782,24 @@ function parseArgs(argv: string[]): {
         : (() => {
             throw new Error(`invalid --ci "${ciRaw}" (expected github, gitlab, none, or omit for auto)`);
           })();
-  return { root: valueOf("--root") ?? process.cwd(), stage, dryRun: argv.includes("--dry-run"), format, ci };
+  const verifyTimeoutRaw = valueOf("--verify-timeout");
+  const verifyTimeoutMin =
+    verifyTimeoutRaw === undefined
+      ? undefined
+      : (() => {
+          const n = Number(verifyTimeoutRaw);
+          if (!Number.isFinite(n) || n <= 0)
+            throw new Error(`invalid --verify-timeout "${verifyTimeoutRaw}" (expected minutes > 0)`);
+          return n;
+        })();
+  return {
+    root: valueOf("--root") ?? process.cwd(),
+    stage,
+    dryRun: argv.includes("--dry-run"),
+    format,
+    ci,
+    verifyTimeoutMin,
+  };
 }
 
 function assertNodeVersion(): void {
@@ -1627,10 +1818,12 @@ function assertNodeVersion(): void {
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
 if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
-  try {
-    const { root, stage, dryRun, format, ci } = parseArgs(process.argv.slice(2));
-    const report = run(root, stage, dryRun, ci);
-    process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
+  void (async () => {
+    try {
+      const { root, stage, dryRun, format, ci, verifyTimeoutMin } = parseArgs(process.argv.slice(2));
+      const verifyOpts: VerifyOptions = verifyTimeoutMin === undefined ? {} : { timeoutMs: verifyTimeoutMin * 60_000 };
+      const report = await run(root, stage, dryRun, ci, verifyOpts);
+      process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
     // applied but the post-apply build check failed → signal rollback
     if (report.applied && report.buildCheck?.after === false) process.exit(1);
     // local commit gate (dogfood): manifest present + consistent + not stale —
@@ -1653,4 +1846,5 @@ if (isDirectEntry(import.meta.url)) {
     console.error(`transform: ${(err as Error).message}`);
     process.exit(1);
   }
+  })();
 }

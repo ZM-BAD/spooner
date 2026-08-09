@@ -1,10 +1,10 @@
 ---
 status: proposed   # proposed → approved → in-progress → shipped
-target: <milestone>
+target: {milestone}
 date: YYYY-MM-DD
 ---
 
-# <feature name>
+# {feature name}
 
 ## Background
 
@@ -20,6 +20,6 @@ date: YYYY-MM-DD
 
 | Slice | Content | Status |
 |---|---|---|
-| 1 | | [ ] |
+| 1 | — | [ ] |
 
 ## Risks

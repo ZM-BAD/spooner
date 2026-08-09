@@ -23,12 +23,12 @@ For any node / python / go / java / rust repository, transform installs stack-co
   - **Lifecycle commands** (per stack; local verification and the CI hard gate run the same set):
     - node: declared build/test families from package.json (existing behavior, unchanged)
     - python: `python -m unittest discover` (stdlib — deterministic; no pytest dependency; pytest repos keep working, the gate verifies executability not coverage)
-    - go: `go build ./...` + `go test ./...`
+    - go: `go build ./...` + `go test $(go list ./... | grep -v /test/e2e)` (e2e-aware — a test/e2e dir holds integration specs needing live infra; without one the pipeline is behavior-identical to `go test ./...`; dogfood review 2026-08-09: a Go monorepo's plain `go test ./...` swept in 60 Ginkgo specs)
     - java: `./mvnw -q -B test` if the wrapper exists else `mvn -q -B test`; `./gradlew build` if a gradle project is present (`build.gradle(.kts)` at the root, or `settings.gradle(.kts)` — kotlin/Android module layouts keep their build files in module dirs, 2026-08-07; wrapper preference, runner-provided maven/gradle fallback); the local `java-test` hook trigger set includes `.kt`/`.kts`
     - rust: `cargo build` + `cargo test` (spec 0011)
   - **Unsupported / unknown stacks** (ruby, php, swift, dotnet, none): cross-stack gates installed; the workflow is **not** installed; the stage message says "stack X: transform not supported yet — audit works; supported stacks: node/python/go/java/rust" (fixes the silent-npm-gates ⚠️)
   - **Wrong-stack workflow conflict**: if the installed workflow's bytes match a different stack's template, it's reported as `conflict` with a hint naming the installed stack (delete it and re-run)
-- **Stage 3 — per-stack AGENTS.md commands**: node (package.json scripts, existing) + Makefile (all stacks, existing); java: `pom.xml` → `mvn compile` / `mvn test`, `build.gradle` → `gradle build` / `gradle test`; go: `go.mod` → `go build ./...` / `go test ./...` / `go vet ./...`; python: `pyproject.toml` or `requirements.txt` → `python -m unittest discover`
+- **Stage 3 — per-stack AGENTS.md commands**: node (package.json scripts, existing) + Makefile (all stacks, existing); java: `pom.xml` → `mvn compile` / `mvn test`, `build.gradle` → `gradle build` / `gradle test`; go: `go.mod` → `go build ./...` / e2e-aware `go test` / `go vet ./...`; python: `pyproject.toml` or `requirements.txt` → `python -m unittest discover`
 - **audit.ts `checkAgentsCommands`**: command sources extended — AGENTS.md command table entries verified against package.json scripts / Makefile targets / per-stack lifecycle (go/mvn/gradle/unittest when the build file exists) — non-node repos can now credit `agents-commands`
 - **sync.ts**: template comparison is stack-aware — `templateFor` resolves the workflow template by `primaryStack` (a python repo's workflow is compared against the python template)
 - **TOOL_VERSION 0.1.1 → 0.2.0** + docs/08 ledger row + `EXPECTED` constant updated to 0.2.0 in all four workflow templates (rule 五.7)
@@ -46,9 +46,9 @@ For any node / python / go / java / rust repository, transform installs stack-co
 1. **Stack selection**: `primaryStack` priority node > python > go > java > rust; per-stack fixtures install the matching workflow byte-identical to its template
 2. **Node regression**: a node fixture behaves exactly as before M6 (workflow content, npm verification, drift gate present)
 3. **Unsupported notice**: a ruby fixture → stage 2 installs the three cross-stack gates, does **not** install a workflow, and the message says "not supported yet" with the supported list (a rust fixture now installs the rust workflow — spec 0011)
-4. **Stage 2 verification per stack**: go fixture → buildCheck command `go build ./...` + `go test ./...` green before/after; python fixture → `python -m unittest discover` green; java pom fixture → `mvn -q -B test` green (toolchains installed locally)
+4. **Stage 2 verification per stack**: go fixture → buildCheck command `go build ./...` + the e2e-aware `go test` green before/after; python fixture → `python -m unittest discover` green; java pom fixture → `mvn -q -B test` green (toolchains installed locally)
 5. **Stage 3 per stack**: go/java/python fixtures → AGENTS.md command table lists the stack lifecycle commands, each traceable to the build file
-6. **Audit credits per-stack commands**: a go fixture whose AGENTS.md lists `go test ./...` → `agents-commands` evidence; the score reflects it (no longer always 0/2 for non-node)
+6. **Audit credits per-stack commands**: a go fixture whose AGENTS.md lists the e2e-aware `go test` → `agents-commands` evidence; the score reflects it (no longer always 0/2 for non-node)
 7. **sync stack-aware**: a python fixture with a stale version + differing workflow bytes → `outdated` and apply restores the **python** template bytes (not the node template)
 8. **Version + EXPECTED**: TOOL_VERSION equals the baked `EXPECTED` in all four workflow templates (currently "0.2.1"); docs/08 ledger row records the bump
 9. **Drift gate regression**: the M5 gate scenarios still pass against the node workflow template (extracted script: green / drift / no-manifest / stale / bad-schema)

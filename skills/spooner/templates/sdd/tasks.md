@@ -1,4 +1,4 @@
-# <feature> — tasks
+# {feature} — tasks
 
 ## Slice 1
 

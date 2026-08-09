@@ -102,6 +102,7 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 6. **Verify it took effect — not just that files were written** (the config ≠ enforcement lesson, productized): after each applied stage, prove the gates are real.
    - Re-run the audit: `cfg-hooks` must now score **1/1** (the git hooks are actually installed — the gate-active check), and the configuration/integrity scores reflect the installed gates.
    - Run `pre-commit run --all-files` once — the hooks execute; nothing is silently dead.
+   - **A first run that fails on pre-existing repo debt is the gate working, not an install failure** — hard gates are local ⊇ CI by design, so legacy repo docs (markdownlint violations — MD040/MD012/MD014 are the common ones) block the first full run. **Triage by scale**: a handful of violations (≤ ~20) → fix them; a large debt (real-world corpora run to thousands — dogfood review 2026-08-09: a Go monorepo, 24 files / ~21k errors across MD022/MD032/MD024) → fixing is not realistic in one pass — run with `SKIP=markdownlint-cli2` and report it as a finding, or extend the generated `.markdownlint-cli2.yaml` `ignores` list for vendored/upstream docs. Either way the owner decides; never roll back the install (a Makefile-less Go repo's 5 violations = fixable, a Go monorepo's ~21k = SKIP — same gate, different triage).
    - In full mode, prove commitlint actually rejects: write a deliberately invalid message (e.g. `echo "bad commit message" > .git/COMMIT_EDITMSG`), run `pre-commit run --hook-stage commit-msg --commit-msg-filename .git/COMMIT_EDITMSG` — it must **fail**; restore the file afterwards (`git log -1 --format=%B > .git/COMMIT_EDITMSG`).
 
 | Stage | What it does | Outputs |
@@ -116,7 +117,7 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
 |---|---|---|---|---|
 | node (incl. React/Vue/Next) | ✅ | ✅ | ✅ `npm run build/test` lifecycle | package.json scripts + Makefile |
 | python | ✅ | ✅ | ✅ `python3 -m unittest discover` | pyproject/requirements → `python3 -m unittest discover` |
-| go | ✅ | ✅ | ✅ `go build ./...` + `go test ./...` | go.mod → `go build/test/vet ./...` |
+| go | ✅ | ✅ | ✅ `go build ./...` + `go test` (e2e-aware — excludes /test/e2e) | go.mod → `go build/test/vet ./...` |
 | java (Maven + Gradle, incl. kotlin/Android `build.gradle.kts` / `settings.gradle(.kts)`) | ✅ | ✅ | ✅ `mvn -q -B test` / `gradle build` | pom.xml → `mvn`, build.gradle(.kts) → `gradle` |
 | rust | ✅ | ✅ | ✅ `cargo build` + `cargo test` (fmt/clippy via the M10 generated pre-commit gates) | Cargo.toml → `cargo build/test/fmt/clippy` |
 | php | ✅ | ✅ (composer.lock / phpunit / phpcs / phpstan / php-cs-fixer signals score; the full-lifecycle band is unreachable) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |

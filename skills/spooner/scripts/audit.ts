@@ -151,7 +151,12 @@ function makefileTargets(root: string): string[] {
   if (!mk) return [];
   return mk
     .split("\n")
-    .filter((line) => /^[a-zA-Z0-9_.-]+\s*:/.test(line))
+    // Real targets only: a leading alpha excludes make special targets
+    // (.PHONY …) and `:(?!=)` excludes variable assignments (VAR := …) —
+    // both previously surfaced as phantom commands (dogfood review
+    // 2026-08-09: a Go monorepo's AGENTS.md listed `make PROJECT_NAME` and
+    // `make .PHONY`; the killer-gate "never invent commands" violated).
+    .filter((line) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*\s*:(?!=)/.test(line))
     .map((line) => line.split(":")[0].trim());
 }
 
@@ -168,18 +173,29 @@ function makefileTarget(root: string, name: string): boolean {
  * Per-stack lifecycle command presence (decision #13 + spec 0011): standard
  * commands traced to build files — go.mod → go build/test, python → python3 -m
  * unittest, java → mvn/gradle, Cargo.toml → cargo build/test. The CI hard gate
- * verifies them (same trust model as package.json scripts).
+ * verifies them (same trust model as package.json scripts). The lint signal is
+ * the stack's canonical vet/lint gate — go vet / cargo clippy (dogfood review
+ * 2026-08-09: a Go repo with no Makefile scored agents-commands 0.6 forever,
+ * though the generated pre-commit config runs go vet).
  */
-function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolean; source: string | null } {
+function stackCommandSources(root: string): {
+  hasBuild: boolean;
+  hasTest: boolean;
+  hasLint: boolean;
+  source: string | null;
+} {
   const stacks = detect(root).stacks;
-  if (stacks.includes("go")) return { hasBuild: true, hasTest: true, source: "go.mod (go build/test)" };
-  if (stacks.includes("rust")) return { hasBuild: true, hasTest: true, source: "Cargo.toml (cargo build/test)" };
+  if (stacks.includes("go")) return { hasBuild: true, hasTest: true, hasLint: true, source: "go.mod (go build/test)" };
+  if (stacks.includes("rust")) return { hasBuild: true, hasTest: true, hasLint: true, source: "Cargo.toml (cargo build/test)" };
   if (stacks.includes("python")) {
     // Evidence must name a file that exists: python is detected by either
     // manifest (regression 2026-08-07 — a requirements.txt-only repo was
     // credited with a non-existent pyproject.toml).
     const manifest = existsSync(join(root, "pyproject.toml")) ? "pyproject.toml" : "requirements.txt";
-    return { hasBuild: false, hasTest: true, source: `${manifest} (python3 -m unittest)` };
+    // hasLint follows the generated ruff gate — the stack's canonical lint
+    // (dogfood review 2026-08-09: a Python repo's ruff hook ran but python
+    // had no lint signal, capping agents-commands at the test-only band).
+    return { hasBuild: false, hasTest: true, hasLint: generatedRuffGate(root)?.lint ?? false, source: `${manifest} (python3 -m unittest)` };
   }
   if (stacks.includes("java")) {
     if (
@@ -187,8 +203,8 @@ function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolea
         existsSync(join(root, f)),
       )
     )
-      return { hasBuild: true, hasTest: true, source: "build.gradle (gradle build/test)" };
-    return { hasBuild: true, hasTest: true, source: "pom.xml (mvn compile/test)" };
+      return { hasBuild: true, hasTest: true, hasLint: false, source: "build.gradle (gradle build/test)" };
+    return { hasBuild: true, hasTest: true, hasLint: false, source: "pom.xml (mvn compile/test)" };
   }
   // php: no standard build command; the test signal is phpunit (config or
   // require-dev declaration). Note: this branch fires for php-only repos —
@@ -199,10 +215,24 @@ function stackCommandSources(root: string): { hasBuild: boolean; hasTest: boolea
     return {
       hasBuild: false,
       hasTest: phpunit,
+      hasLint: false,
       source: phpunit ? "phpunit.xml (phpunit)" : (phpTestFrameworkOf(root) ?? "composer.json (no test framework)"),
     };
   }
-  return { hasBuild: false, hasTest: false, source: null };
+  return { hasBuild: false, hasTest: false, hasLint: false, source: null };
+}
+
+/** Stack-canonical lint command — go vet / cargo clippy are the lint gates
+ *  the generated pre-commit config runs (M10), so a stack repo with the gate
+ *  installed has a traceable lint command even without a Makefile (dogfood
+ *  review 2026-08-09: a Makefile-less Go repo scored cfg-lint 0.4 with .golangci.yaml + CI lint
+ *  step but no command). */
+function stackLintCommandOf(root: string): string | null {
+  const stacks = detect(root).stacks;
+  if (stacks.includes("go")) return "go vet ./...";
+  if (stacks.includes("rust")) return "cargo clippy";
+  if (stacks.includes("python") && generatedRuffGate(root)?.lint) return "ruff check";
+  return null;
 }
 
 /** CI configuration files (GitHub Actions + common providers). */
@@ -306,9 +336,21 @@ function traceableCommandsOf(content: string, root: string): string[] {
   for (const m of content.matchAll(/`make ([a-z0-9_.-]+)`/g)) {
     if (targets.includes(m[1])) found.push(`make ${m[1]}`);
   }
-  const sc = stackCommandSources(root);
-  if (sc.source !== null && /\b(go|cargo|mvn|gradle|python3 -m unittest)\b/.test(content)) {
-    found.push(sc.source);
+  // Per-stack lifecycle commands, each counted individually — a generated
+  // AGENTS.md (go build/test/vet from go.mod) must get full traceability
+  // credit, not one collapsed source string (dogfood review 2026-08-09:
+  // a Makefile-less Go repo's generated contract listed three commands yet scored "1 traceable").
+  const stackCmds: Record<string, RegExp[]> = {
+    go: [/\bgo build\b/, /\bgo test\b/, /\bgo vet\b/],
+    rust: [/\bcargo build\b/, /\bcargo test\b/, /\bcargo fmt --check\b/, /\bcargo clippy\b/],
+    python: [/\bpython3 -m unittest\b/],
+    java: [/\bmvn[^\n]*\btest\b/, /\bgradle build\b/],
+  };
+  for (const stack of detect(root).stacks) {
+    for (const re of stackCmds[stack] ?? []) {
+      const m = content.match(re);
+      if (m) found.push(m[0]);
+    }
   }
   return [...new Set(found)];
 }
@@ -454,7 +496,10 @@ function checkAgentsCommands(root: string, verify = false): CheckResult {
   const phpSource = sc.hasTest ? null : detect(root).stacks.includes("php") ? phpTestSourceOf(root) : null;
   const hasTest = testKey !== null || makefileTarget(root, "test") || sc.hasTest || phpSource !== null;
   const hasThird =
-    scriptKey(root, /^lint\b|^vet\b/) !== null || makefileTarget(root, "lint") || makefileTarget(root, "vet");
+    scriptKey(root, /^lint\b|^vet\b/) !== null ||
+    makefileTarget(root, "lint") ||
+    makefileTarget(root, "vet") ||
+    sc.hasLint;
   const sources: string[] = [];
   if (buildKey || testKey) sources.push("package.json scripts");
   if (makefileTargets(root).length > 0) sources.push("Makefile");
@@ -477,14 +522,22 @@ function checkAgentsCommands(root: string, verify = false): CheckResult {
 
   // AGENTS.md documentation of the real commands (the 1.0 band).
   const agentContent = agentFile(root) ? (readIfExists(join(root, agentFile(root)!)) ?? "") : "";
-  const documented = traceableCommandsOf(agentContent, root).length >= 2;
+  // Test-only stacks (python/php: no build concept) have a complete lifecycle
+  // with the test command alone — the build side is not "missing", it does not
+  // exist (dogfood review 2026-08-09: a Python repo capped at 0.4 forever
+  // because hasBuild: false never left the asymmetric band).
+  const testOnlyStack = sc.source !== null && !sc.hasBuild && sc.hasTest;
+  // The 1.0 band requires the commands documented in AGENTS.md — for test-only
+  // stacks the single test command IS the lifecycle (python cannot produce two
+  // traceable commands; the ≥2 rule would cap it at 0.8 — same dogfood review).
+  const documented = traceableCommandsOf(agentContent, root).length >= (testOnlyStack ? 1 : 2);
 
   let score: number;
   if (!hasBuild && !hasTest) {
     score = /\bnpm (run )?(build|test)\b|`make (build|test)`|`(go|cargo|mvn|gradle) (build|test)`/.test(agentContent)
       ? 0.2
       : 0;
-  } else if (hasBuild !== hasTest) {
+  } else if (!testOnlyStack && hasBuild !== hasTest) {
     score = 0.4;
   } else if (!hasThird) {
     score = 0.6;
@@ -562,6 +615,7 @@ function checkAgentsSdd(root: string): CheckResult {
 // --- checks: configuration (2.5) -------------------------------------------
 
 function checkCfgLint(root: string): CheckResult {
+  const ruff = generatedRuffGate(root);
   const config =
     hasPattern(root, [
       /^\.eslintrc/,
@@ -573,8 +627,8 @@ function checkCfgLint(root: string): CheckResult {
       /^phpcs\.xml/,
       /^phpstan\.neon/,
       /^psalm\.xml/,
-    ]) ?? ktlintConfigOf(root);
-  const cmd = scriptKey(root, /lint/i) ?? (makefileTarget(root, "lint") ? "lint" : null);
+    ]) ?? ktlintConfigOf(root) ?? (ruff?.lint ? "ruff (generated pre-commit gate)" : null);
+  const cmd = scriptKey(root, /lint/i) ?? (makefileTarget(root, "lint") ? "lint" : null) ?? stackLintCommandOf(root);
   const ci = /\blint\b/i.test(ciContent(root));
   let score = 0;
   if (config && cmd && ci) score = 0.5;
@@ -606,11 +660,37 @@ function ktlintConfigOf(root: string): string | null {
   return null;
 }
 
+/** The generated pre-commit config runs gofmt for go stacks (M10 gate) — a
+ *  formatter gate the audit's own stage 2 installs must be credited, or the
+ *  audit contradicts its own product (dogfood review 2026-08-09: a Makefile-less Go repo scored
+ *  cfg-format 0.2 with the gofmt hook installed and passing). */
+function generatedGofmtGate(root: string): { config: string; cmd: string } | null {
+  if (!detect(root).stacks.includes("go")) return null;
+  const pc = readIfExists(join(root, ".pre-commit-config.yaml"));
+  if (!pc) return null;
+  const m = pc.match(/\bentry: (gofmt[^\n]*)/);
+  return m ? { config: "gofmt (generated pre-commit gate)", cmd: m[1].trim() } : null;
+}
+
+/** The generated pre-commit config runs ruff / ruff-format for python stacks
+ *  (M10 gate) — the python mirror of the gofmt gate: installed and running
+ *  gates must be credited, or the audit contradicts its own product (dogfood
+ *  review 2026-08-09: a Python repo's ruff hooks ran and blocked 7 files
+ *  while cfg-format reported 0/0.5). */
+function generatedRuffGate(root: string): { lint: boolean; format: boolean } | null {
+  if (!detect(root).stacks.includes("python")) return null;
+  const pc = readIfExists(join(root, ".pre-commit-config.yaml"));
+  if (!pc || !/\bid: ruff\b/.test(pc)) return null;
+  return { lint: true, format: /\bid: ruff-format\b/.test(pc) };
+}
+
 function checkCfgFormat(root: string): CheckResult {
   // ruff provides both lint and format — a ruff.toml counts as a formatter
   // config exactly as it counts as a lint config (symmetry review 2026-08-07);
   // php-cs-fixer is the php formatter config; ktlint is the kotlin linter +
   // formatter (lint and format both count its config — 2026-08-07).
+  const gate = generatedGofmtGate(root);
+  const ruff = generatedRuffGate(root);
   const config =
     hasPattern(root, [
       /^\.prettierrc/,
@@ -619,11 +699,15 @@ function checkCfgFormat(root: string): CheckResult {
       /^rustfmt\.toml/,
       /^ruff\.toml/,
       /^\.php-cs-fixer/,
-    ]) ?? ktlintConfigOf(root);
-  const cmd = scriptKey(root, /^format\b|^fmt\b/) ?? (makefileTarget(root, "format") ? "format" : null);
+    ]) ?? ktlintConfigOf(root) ?? gate?.config ?? (ruff?.format ? "ruff-format (generated pre-commit gate)" : null);
+  const cmd =
+    scriptKey(root, /^format\b|^fmt\b/) ??
+    (makefileTarget(root, "format") ? "format" : null) ??
+    gate?.cmd ??
+    (ruff?.format ? "ruff format" : null);
   // Tool names only — the word "format" alone is noise (git log --format=%B
   // would false-positive on commitlint steps).
-  const ci = /\b(prettier|black|gofmt|rustfmt|dprint)\b/i.test(ciContent(root));
+  const ci = /\b(prettier|black|gofmt|rustfmt|dprint|ruff)\b/i.test(ciContent(root));
   let score = 0;
   if (config && cmd && ci) score = 0.5;
   else if (config && (cmd || ci)) score = 0.4;
@@ -750,7 +834,9 @@ function checkCfgCi(root: string): CheckResult {
   const hasLint = /\blint\b/i.test(content);
   const hasTest = /\btest\b/i.test(content);
   const hasSec =
-    /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content) || /^\s{0,2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
+    /\b(gitleaks|trivy|snyk|codeql|pip-audit|osv-scanner)\b/i.test(content) ||
+    /^\s{0,2}(security|gitleaks|scan|pip-audit|snyk|trivy|osv)[a-z0-9_-]*:/m.test(content) ||
+    /uses: github\/codeql-action/.test(content);
   let score = 0;
   if (content.length === 0) score = 0;
   else if (!hasLint && !hasTest) score = 0.1;
@@ -892,6 +978,27 @@ function findTestFiles(root: string): string[] {
       }
     }
   }
+  // Co-located test files (vitest/jest convention): *.test.ts / *.spec.ts sit
+  // next to their source (utils/foo.test.ts), never in a test/ dir — the
+  // directory walk above misses them (dogfood review 2026-08-10: a WXT repo's
+  // utils/*.test.ts ×5 + coverage/ scored cfg-test 0.3). Bounded full-tree
+  // walk: skip node_modules / vendored / build outputs, cap depth at 4.
+  const SKIP_DIRS = new Set(["node_modules", "dist", "build", "coverage", "out", "target", ".venv", "__pycache__"]);
+  const walk = (dir: string, depth: number) => {
+    if (depth > 4) return;
+    for (const f of entriesOf(dir) ?? []) {
+      if (f.startsWith(".")) continue;
+      const p = join(dir, f);
+      if (lstatSync(p).isDirectory()) {
+        if (SKIP_DIRS.has(f) || VENDORED_DIRS.has(f)) continue;
+        walk(p, depth + 1);
+        continue;
+      }
+      if (/\.(test|spec)\./i.test(f) || /^test_.*\.(py|js|ts)$/.test(f) || /.*_test\.(go|rs|rb)$/.test(f))
+        out.push(p);
+    }
+  };
+  walk(root, 0);
   return out;
 }
 
@@ -973,9 +1080,15 @@ function checkSecScan(root: string): CheckResult {
 function checkSecCi(root: string): CheckResult {
   const content = ciContent(root);
   // Job names at GitHub (2-space indent) or GitLab (0-space top-level) depth —
-  // step names sit at deeper indents and don't match.
-  const job = /^\s{0,2}(security|gitleaks|scan)[a-z0-9_-]*:/m.test(content);
-  const mentioned = /\b(gitleaks|trivy|snyk|codeql)\b/i.test(content);
+  // step names sit at deeper indents and don't match. Real security jobs carry
+  // diverse names — pip-audit/snyk/trivy/osv jobs are security even when the
+  // job name says so (dogfood review 2026-08-10: a Node/Python monorepo's security.yml has a
+  // `pip-audit` job that scored "no security job"); a codeql workflow is a
+  // dedicated security workflow regardless of its job name ("analyze").
+  const job =
+    /^\s{0,2}(security|gitleaks|scan|pip-audit|snyk|trivy|osv)[a-z0-9_-]*:/m.test(content) ||
+    /uses: github\/codeql-action/.test(content);
+  const mentioned = /\b(gitleaks|trivy|snyk|codeql|pip-audit|osv-scanner)\b/i.test(content);
   let score = 0;
   let detail = "CI has no security job";
   if (mentioned && !job) {
@@ -1248,7 +1361,38 @@ function checkStructLayout(root: string): CheckResult {
           lstatSync(join(root, entry, "src")).isDirectory(),
       )
     : false;
-  const organized = rootLevel || moduleSrc;
+  // Go's idiomatic layout is cmd/ + pkg/, not src/ (dogfood review 2026-08-09:
+  // a Makefile-less Go repo scored struct-layout 0 with a standard Go tree — the only major
+  // stack whose conventional layout the check did not recognize).
+  const goLayout =
+    detect(root).stacks.includes("go") &&
+    ["cmd", "pkg"].some((d) => {
+      const p = join(root, d);
+      return existsSync(p) && lstatSync(p).isDirectory();
+    });
+  // WXT browser-extension layout (wxt.dev): entrypoints/ is the extension's
+  // standard source root (dogfood review 2026-08-10: a WXT repo scored 0 with
+  // entrypoints/ + adapters/ — the WXT convention).
+  const wxtLayout =
+    detect(root).stacks.includes("node") &&
+    ["entrypoints"].some((d) => {
+      const p = join(root, d);
+      return existsSync(p) && lstatSync(p).isDirectory();
+    });
+  // Python flat layout: top-level package dirs — with or without __init__.py
+  // (namespace packages; dogfood review 2026-08-09: a Python repo's model/ +
+  // ui/ scored 0 despite being the idiomatic flat layout).
+  const pythonFlat =
+    detect(root).stacks.includes("python") &&
+    (entriesOf(root) ?? []).some(
+      (entry) =>
+        !entry.startsWith(".") &&
+        !VENDORED_DIRS.has(entry) &&
+        existsSync(join(root, entry)) &&
+        lstatSync(join(root, entry)).isDirectory() &&
+        readdirSync(join(root, entry)).some((f) => f.endsWith(".py")),
+    );
+  const organized = rootLevel || moduleSrc || goLayout || wxtLayout || pythonFlat;
   return {
     id: "struct-layout",
     category: "structure",
@@ -1256,9 +1400,15 @@ function checkStructLayout(root: string): CheckResult {
     max: 0.5,
     evidence: moduleSrc
       ? "sources organized under gradle module dirs (e.g. app/src/)"
-      : organized
-        ? "sources organized under src/ lib/ packages/"
-        : "no src/, lib/, or packages/ directory",
+      : goLayout
+        ? "sources organized under cmd/ + pkg/ (Go layout)"
+        : wxtLayout
+          ? "sources organized under entrypoints/ (WXT layout)"
+          : pythonFlat
+            ? "sources organized in flat top-level packages (Python layout)"
+            : organized
+              ? "sources organized under src/ lib/ packages/"
+              : "no src/, lib/, or packages/ directory",
     fix: "organize sources under src/, lib/, or packages/ (not covered by transform)",
   };
 }

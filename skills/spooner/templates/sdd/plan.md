@@ -1,4 +1,4 @@
-# <feature> — plan
+# {feature} — plan
 
 ## Slices
 

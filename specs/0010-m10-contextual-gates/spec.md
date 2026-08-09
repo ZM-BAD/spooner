@@ -10,8 +10,8 @@ date: 2026-08-05
 
 The installed Stage-2 gate set is one universal `.pre-commit-config.yaml` template for every repo — cross-stack core (file hygiene, markdownlint, gitleaks, commitlint) **plus hard-coded Node local hooks** (`typecheck`/`test` declared-only wrappers). Two real-world findings expose the gap:
 
-- **DAG-chat** (Python + Node monorepo, 2026-08-05 调研) runs a deeply stack-aware config: `backend/` → ruff + pylint (--fail-under=9) + pip-audit + pytest; `frontend/` → lint-staged + eslint + prettier + tsc + vitest + npm ci + build; `specs/` → markdownlint + spec validation; commitlint on commit-msg. Its 7 CI workflows mirror the local hooks (CI parity is a design goal). Its anti-patterns: auto-fix (`--fix`/`--write`) and `pip install --upgrade <tool>` hooks — non-deterministic, against our philosophy.
-- **headroom** (pure TypeScript browser extension) does **not** use pre-commit at all — it uses **husky + lint-staged** (npm-native: `"prepare": "husky"` installs hooks on `npm install`, no Python runtime needed).
+- **A Python + Node monorepo** (2026-08-05 调研) runs a deeply stack-aware config: `backend/` → ruff + pylint (--fail-under=9) + pip-audit + pytest; `frontend/` → lint-staged + eslint + prettier + tsc + vitest + npm ci + build; `specs/` → markdownlint + spec validation; commitlint on commit-msg. Its 7 CI workflows mirror the local hooks (CI parity is a design goal). Its anti-patterns: auto-fix (`--fix`/`--write`) and `pip install --upgrade <tool>` hooks — non-deterministic, against our philosophy.
+- **A pure-TypeScript browser extension** does **not** use pre-commit at all — it uses **husky + lint-staged** (npm-native: `"prepare": "husky"` installs hooks on `npm install`, no Python runtime needed).
 
 The pattern: **hook tool follows the repo's ecosystem** (pre-commit = Python-native, husky = Node-native) and **the hook set follows the stack's actual tooling**. Our current transform is blind to both — a pure-Node repo gets a Python-dependent gate file (dead or foreign), a Python repo gets Node hooks that skip via declared-only masking, and no repo gets its stack's real lint/format/test gates locally. This is the same class of error M8 fixed for CI platforms (`.github/workflows` on GitLab = dead file) — but applied to git hooks, it is still unfixed.
 
@@ -19,7 +19,7 @@ Design principles this spec pins:
 
 - **What audit credits, transform installs**: the generator mirrors the audit's tool detection (`cfg-lint`/`cfg-format`/`cfg-test`/`cfg-hooks`) — one detection source, and audit → transform parity becomes visible.
 - **No dead hooks**: a hook is emitted only for tooling actually detected in the repo (eslint config present → eslint hook; tsconfig → tsc; pyproject + tests → ruff + pytest). Tool-absent → hook absent. The declared-only discipline (CI lint-test job, existing local hooks) extends to the whole config.
-- **Deterministic and check-only**: rev-pinned hook repos (pre-commit installs pinned versions), no `--fix`, no `--write`, no `upgrade-to-latest` hooks (DAG-chat anti-patterns). A hook may fail a commit; it may never mutate files or versions.
+- **Deterministic and check-only**: rev-pinned hook repos (pre-commit installs pinned versions), no `--fix`, no `--write`, no `upgrade-to-latest` hooks (monorepo anti-patterns). A hook may fail a commit; it may never mutate files or versions.
 - **Same M8 treatment for hook tools as for CI platforms**: the probe gains the hook-tool question; a repo whose owner keeps husky/lefthook (or an existing hook tool) gets a skip with an explicit notice — never a foreign gate file.
 - **The config becomes a generated artifact** (AGENTS.md class, spec 0004): deterministic generation at transform time; sync reports "generated — re-run transform stage 2", never byte-compares; the manifest records it with `templateVersion`.
 
@@ -41,7 +41,7 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
     - java: local `mvn -q -B test` / `gradle build` hook (if pom.xml / build.gradle)
     - rust: cargo fmt --check + cargo clippy --all-targets (no `-D warnings` — soft) + cargo test (local system hooks, if Cargo.toml; spec 0011)
     - **local stack hooks are SKIP'd in the stack workflow templates** (CI pre-commit job has no repo toolchain — same mechanism as `typecheck,test`): python adds `pytest,pip-audit`, go adds `gofmt,go-vet,go-test`, java adds `java-test`; node adds `eslint` (managed — its config deps like typescript-eslint resolve from repo node_modules, which the CI pre-commit job lacks; lint runs in lint-test); managed hooks (ruff/eslint) run in CI without SKIP
-    - mixed stacks (e.g. python + node at the repo root): file-type scoped `files:` patterns (`\.py$` vs `\.[jt]sx?$`) combining the stacks' hooks; subdirectory scoping (DAG-chat-style `^frontend/`) is a **documented boundary** — consistent with detect's root-only scan (spec 0008), demand-driven later
+    - mixed stacks (e.g. python + node at the repo root): file-type scoped `files:` patterns (`\.py$` vs `\.[jt]sx?$`) combining the stacks' hooks; subdirectory scoping (monorepo-style `^frontend/`) is a **documented boundary** — consistent with detect's root-only scan (spec 0008), demand-driven later
   - **Routing** (mirrors CI-platform routing): probe answer or detected ecosystem → pre-commit → install the generated config; husky/lefthook/keep → **skip the config with an explicit notice**, manifest records what was actually installed; existing differing config → `conflict` (never overwrite) — **unless the installed bytes equal the pre-M10 universal template (tool-owned) → `write` (upgrade, not conflict)**; unsupported stack → cross-stack core only (current behavior, now generated).
 - **Manifest / sync / drift-gate contract (spec 0004 revision)**: the pre-commit config joins the `generated` class (AGENTS.md/CLAUDE.md): manifest records file + `templateVersion`; sync reports `generated` and points at `transform --stage 2`; the CI drift gate still checks existence.
 - **TOOL_VERSION bump** (generator ships new behavior + config bytes change): bump + baked `EXPECTED` sync in the workflow templates + a `docs/08` ledger row + dogfood `sync` (spec 0004/0005 contract).
@@ -49,10 +49,10 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 
 ## Non-goals
 
-- husky/lefthook **config generation** (v1 answer = skip + notice; generation is demand-driven — headroom evidence documented, not shipped)
-- Auto-fix hooks (`--fix`, `--write`, `--update`) — deterministic check-only is a hard line (DAG-chat anti-pattern)
+- husky/lefthook **config generation** (v1 answer = skip + notice; generation is demand-driven — WXT-repo evidence documented, not shipped)
+- Auto-fix hooks (`--fix`, `--write`, `--update`) — deterministic check-only is a hard line (monorepo anti-pattern)
 - Tool-level config detection beyond the audit's existing signals (decision #4 red line)
-- Monorepo multi-stack beyond python+node (DAG-chat-style directory routing for other combinations — demand-driven)
+- Monorepo multi-stack beyond python+node (monorepo-style directory routing for other combinations — demand-driven)
 - pre-push stage (community convention splits heavy checks to pre-push; our "green pre-commit implies green CI" guarantee keeps the declared test in pre-commit)
 
 ## Acceptance criteria (all must pass for shipped)
@@ -84,6 +84,6 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 
 - Over-generation (detecting tooling that doesn't run) — mitigation: generation mirrors the audit's proven detection; hooks are check-only and rev-pinned; determinism fixtures guard the matrix
 - Dead hooks on tool-absent repos — mitigation: acceptance #3 (tool-absent → no hook); the declared-only wrapper pattern for script hooks
-- Pure-Node repos forced onto Python-dependent pre-commit — mitigation: probe routes to skip + notice (headroom evidence); husky generation stays a documented demand-driven candidate
+- Pure-Node repos forced onto Python-dependent pre-commit — mitigation: probe routes to skip + notice (WXT-repo evidence); husky generation stays a documented demand-driven candidate
 - Auto-fix configs leaking in from community examples — mitigation: acceptance #10 asserts check-only on every fixture
 - Scope creep into husky generation / multi-stack combos / pre-push stages (non-goals section)

@@ -49,7 +49,7 @@ jobs:
       - name: vet
         run: go vet ./...
       - name: test
-        run: go test ./...
+        run: go test $(go list ./... | grep -v /test/e2e)
   security:
     name: secret scan (gitleaks, warn-only)
     runs-on: ubuntu-latest
@@ -71,7 +71,7 @@ jobs:
         with:
           go-version: stable
       - name: Run declared build/test commands
-        run: go build ./... && go test ./...
+        run: go build ./... && go test $(go list ./... | grep -v /test/e2e)
   manifest-consistency:
     name: .ai-native.yml consistency + template version (hard gate)
     runs-on: ubuntu-latest
@@ -83,7 +83,7 @@ jobs:
           import sys, os, re
           # baked at install time; must track the spooner TOOL_VERSION that
           # shipped this workflow (docs/08 ledger rule: every bump updates it)
-          EXPECTED = "0.10.0"
+          EXPECTED = "0.11.0"
 
           def parse_yaml(text):
               lines = [(len(l) - len(l.lstrip()), l) for l in text.split("\n")]
