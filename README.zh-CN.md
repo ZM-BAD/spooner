@@ -1,31 +1,40 @@
 # Spooner
 
-<p align="center">
+<p style="text-align:center">
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 > **让这个 git 仓库为 AI 做好准备**——AI coding agent 从第一次运行起就能在里面好好干活。检测它的 AI 编码就绪度、打出 10 分制的分数，然后就地改造：CI 门禁、AGENTS.md、spec 驱动工作流。每步可验证，永不破坏已有构建。
 
-<p align="center">
-  <img src="https://img.shields.io/badge/TypeScript-6.0-3178C6.svg?style=flat-square" alt="TypeScript 6.0"/>
-  <img src="https://img.shields.io/badge/Node.js-%3E%3D22.18-339933.svg?style=flat-square" alt="Node.js >= 22.18"/>
-  <img src="https://img.shields.io/badge/build-zero%20build-brightgreen.svg?style=flat-square" alt="Zero build"/>
+<p style="text-align:center">
   <img src="https://img.shields.io/badge/agents-10%2B-8A2BE2.svg?style=flat-square" alt="Compatible with 10+ coding agents"/>
-</p>
-<p align="center">
-  <img src="https://img.shields.io/badge/workflow-Spec--Driven-blue.svg?style=flat-square" alt="Spec-driven workflow"/>
   <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
   <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
   <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI 就绪度：AI-Native · 9.2/10"/></a>
-</p>
-<p align="center">
-  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4/10 AI-Aware → 9.2/10 AI-Native"/></a>
 </p>
 
 一个 AI 原生（AI-Native）驱动的仓库，一般要具备完备的质量检测与 AI 引导设施，比如：**pre-commit 门禁**、真正会跑的 **lint / formatter 检查**、与本地门禁**一致的 CI**、告诉 agent 怎么干活的 **AGENTS.md**、**spec 驱动的契约**（SDD 模板）等等——未来涌现的同类质量检测设施，也会纳入 Spooner 的就绪度考核。
 
 **Spooner 是一个按 [Agent Skills](https://agentskills.io/specification) 开放标准（SKILL.md）编写的、给 coding agent 用的 skill。名字来自《我，机器人》（2004）里的 Del Spooner 警探——他的左臂是机械臂，并很好地为他服务。Spooner 会评估你的仓库缺了上述哪些设施（AI 就绪度 /10），并渐进地为你补齐，防止它漂移。**
+
+## 一次运行的效果
+
+<p style="text-align:center">
+  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4.3/10 AI-Aware → 9.2/10 AI-Native"/></a>
+</p>
+
+"改造前"是这个仓库的一份零状态副本——同样的代码，减去 spooner 会安装的一切（没有 AGENTS.md、没有 pre-commit/commitlint 门禁、没有漂移 gate、没有 SDD 工作流）。跑一次管线，就从 **4.3/10（AI-Aware）提升到 9.2/10（AI-Native）**——每个得分点都有证据支撑，而不是观点（[完整报告](assets/audit-report.md)）。
+
+分数采用 10 分制，划分为五档：
+
+| 档位 | 分数 | 含义 |
+|---|---|---|
+| AI-Native | 9–10 | 开箱即用——有 AGENTS.md、真门禁、与本地钩子一致的 CI、无漂移 |
+| AI-Friendly | 7–8.9 | 设施基本齐了，还剩一两个缺口（假 hook、CI 不一致、缺 AGENTS.md） |
+| AI-Curious | 5–6.9 | 有部分面向 AI 的配置，但不完整 |
+| AI-Aware | 3–4.9 | AI 能读懂，但没有为它做任何准备 |
+| AI-Absent | 0–2.9 | AI 连看懂都费劲——没有 README、没有结构、没有可追溯命令 |
 
 ## 工作流
 
@@ -44,7 +53,7 @@
 | node（含 React/Vue/Next） | ✅ | ✅ `npm` 生命周期 |
 | python | ✅ | ✅ `python3 -m unittest discover` |
 | go | ✅ | ✅ `go build/test ./...` |
-| java（Maven + Gradle） | ✅ | ✅ `mvn test` / `gradle build` |
+| java（Maven + Gradle） | ✅ | ✅ `mvn -q -B test` / `gradle build` |
 | rust | ✅ | ✅ `cargo build/test`（fmt/clippy 门禁） |
 | ruby / php / swift / dotnet | ✅（audit 只低估不虚高） | ⚠️ 跨栈门禁 + 明确暂不支持提示 |
 
@@ -57,11 +66,12 @@
 | Claude Code | 经 CLAUDE.md（软链） | `.claude/skills/` |
 | OpenAI Codex | 原生 | `.agents/skills/` |
 | OpenCode | 原生 | `.opencode/skills/` |
-| Qwen Code | 配置开启 | `.qwen/skills/` |
+| Qwen Code | 原生 | `.qwen/skills/` |
 | Kimi Code | 原生 | `.kimi-code/skills/` |
 | CodeBuddy | 兜底（主文件 CODEBUDDY.md） | `.codebuddy/skills/` |
 | Trae | 需开关 | `.trae/skills/` |
-| Qoder | 原生 | SKILL.md 原生 |
+| Qoder | 原生 | `.qoder/skills/` |
+| ZCode | 原生 | `.zcode/skills/` |
 | Cursor | 原生 | `.cursor/skills/` |
 | VS Code | 原生 | `.github/skills/` |
 
@@ -77,7 +87,7 @@ skill 就是一个目录（`skills/spooner/`）——无构建步骤，只需 No
 npx skills add ZM-BAD/spooner
 ```
 
-[skills CLI](https://agentskills.io) 会把 `skills/spooner/` 复制到你的 agent 的 skills 目录，并从环境自动识别 agent。常用参数：
+[skills CLI](https://github.com/vercel-labs/skills) 会把 `skills/spooner/` 复制到你的 agent 的 skills 目录，并从环境自动识别 agent。常用参数：
 
 | 参数 | 含义 |
 |---|---|
@@ -118,7 +128,7 @@ node skills/spooner/scripts/audit.ts
 ```text
 spooner/
 ├── AGENTS.md / CLAUDE.md   # Agent 契约（单一事实来源；CLAUDE.md 是软链）
-├── README.md / zh-CN.md    # 中英双语文档
+├── README.md / README.zh-CN.md   # 中英双语文档
 ├── docs/                   # 本地内部设计档案（不入库，不公开）
 ├── specs/                  # SDD 工作契约（活文档：README + templates/ + <nnn>-<name>/）
 ├── skills/spooner/         # 可分发单元：SKILL.md + scripts/ + templates/
