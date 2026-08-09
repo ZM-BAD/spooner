@@ -12,7 +12,7 @@ Owner insight (2026-08-04, company-repo scenario): the installed CI workflow ass
 
 Design principles this spec pins:
 
-- **Determinism stays in the scripts**; context probing lives in the **agent layer** (SKILL.md) — the Skill form can ask questions a CLI cannot. transform.ts stays deterministic; the *mode* it runs in is decided by the agent + user from probed context.
+- **Determinism stays in the scripts**; context probing lives in the **agent layer** (SKILL.md) — the Skill form can ask questions a CLI cannot. transform.ts stays deterministic; the _mode_ it runs in is decided by the agent + user from probed context.
 - **Transformation permission comes from the repo owner's situation, not the tool's assumption.** The default answer to "should we install gates?" may be "no, just audit."
 
 ## Goal (one sentence)
@@ -28,7 +28,7 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
   4. Tech-debt constraints? (Spring/Node major upgrades, dependency policy)
   5. Gate strictness? (warn-only / hard / audit-only)
   6. Git-hook tool preference? (pre-commit / husky / lefthook / keep the existing setup — decides whether Stage 2 installs the generated pre-commit config or skips with a notice, spec 0010)
-  Mode table: **full** (GitHub + allowed → current behavior) / **no-workflow** (non-GitHub → cross-stack gates only) / **audit-only** (nothing written, report + suggestions).
+     Mode table: **full** (GitHub + allowed → current behavior) / **no-workflow** (non-GitHub → cross-stack gates only) / **audit-only** (nothing written, report + suggestions).
 - **`--gates warn-only|hard` (2026-08-10, question 5 implemented)**: the strictness answer lands on the CLI like `--ci`. `hard` renders the installed workflow with the quality jobs' `continue-on-error` removed (and the header comment adjusted); `warn-only` (default) installs the template bytes verbatim — **the template files themselves stay warn-only; hard is a transform-time render**. The manifest records the choice per stage-2 entry (`gates: warn-only|hard`, absent in no-workflow mode — the manifest is the ledger of what was actually installed); re-runs without `--gates` use the recorded choice (a strictness change is an explicit decision, `--gates hard`); a strictness switch re-renders the tool-owned workflow (any strictness render of the stack's template is tool-owned — user edits stay conflicts, and the wrong-stack hint keeps its delete-and-re-run UX).
 - **transform.ts — CI-platform detection + Stage-2 routing**:
   - Detect the repo's CI platform (`.gitlab-ci.yml` → gitlab, `Jenkinsfile` → jenkins, `.github/workflows/*.yml` → github, `azure-pipelines.yml` / `.circleci` → other, none) — the same file families the audit already scans. **Greenfield (no CI files): the origin remote host decides** (`git config --get remote.origin.url` → github/gitlab/other; no remote → GitHub assumption) — a GitLab remote must not receive a dead `.github/workflows` file (2026-08-07).
@@ -63,11 +63,11 @@ Transform asks the right context questions first (CI platform, GitHub vs interna
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | Spec + SKILL.md context probe (questions + mode table) | [x] |
-| 2 | transform.ts CI-platform detection + Stage-2 routing + manifest/report behavior | [x] |
-| 3 | Acceptance (fixtures) + spec 0002 revision + ROADMAP/AGENTS/HANDOFF sync + ship | [x] |
+| Slice | Content                                                                         | Status |
+| ----- | ------------------------------------------------------------------------------- | ------ |
+| 1     | Spec + SKILL.md context probe (questions + mode table)                          | [x]    |
+| 2     | transform.ts CI-platform detection + Stage-2 routing + manifest/report behavior | [x]    |
+| 3     | Acceptance (fixtures) + spec 0002 revision + ROADMAP/AGENTS/HANDOFF sync + ship | [x]    |
 
 ## Risks
 

@@ -28,52 +28,52 @@
 
 分数采用 10 分制，划分为五档：
 
-| 档位 | 分数 | 含义 |
-|---|---|---|
-| AI-Native | 9–10 | 开箱即用——有 AGENTS.md、真门禁、与本地钩子一致的 CI、无漂移 |
+| 档位        | 分数  | 含义                                                             |
+| ----------- | ----- | ---------------------------------------------------------------- |
+| AI-Native   | 9–10  | 开箱即用——有 AGENTS.md、真门禁、与本地钩子一致的 CI、无漂移      |
 | AI-Friendly | 7–8.9 | 设施基本齐了，还剩一两个缺口（假 hook、CI 不一致、缺 AGENTS.md） |
-| AI-Curious | 5–6.9 | 有部分面向 AI 的配置，但不完整 |
-| AI-Aware | 3–4.9 | AI 能读懂，但没有为它做任何准备 |
-| AI-Absent | 0–2.9 | AI 连看懂都费劲——没有 README、没有结构、没有可追溯命令 |
+| AI-Curious  | 5–6.9 | 有部分面向 AI 的配置，但不完整                                   |
+| AI-Aware    | 3–4.9 | AI 能读懂，但没有为它做任何准备                                  |
+| AI-Absent   | 0–2.9 | AI 连看懂都费劲——没有 README、没有结构、没有可追溯命令           |
 
 ## 工作流
 
-| 命令 | 做什么 | 何时 |
-|---|---|---|
-| `audit` | 检测就绪度并评分（可重复，体检） | 任意仓库、任意时刻 |
-| `transform` | 渐进化、可验证、可回滚的改造（按栈的 CI 门禁含 manifest 漂移 gate / AGENTS.md / SDD） | 一次性，手术 |
-| `check` | 持续检测漂移（可重复，有记录） | 每次 CI 运行 |
-| `sync` | 已装模板随工具版本重同步（版本感知、一键应用） | 工具升级后 |
-| `badge` | 渲染就绪度徽章，匹配 README 现有徽章风格（5 种 shields 风格，链接审计报告） | 改造之后、分数变动时 |
+| 命令        | 做什么                                                                                | 何时                 |
+| ----------- | ------------------------------------------------------------------------------------- | -------------------- |
+| `audit`     | 检测就绪度并评分（可重复，体检）                                                      | 任意仓库、任意时刻   |
+| `transform` | 渐进化、可验证、可回滚的改造（按栈的 CI 门禁含 manifest 漂移 gate / AGENTS.md / SDD） | 一次性，手术         |
+| `check`     | 持续检测漂移（可重复，有记录）                                                        | 每次 CI 运行         |
+| `sync`      | 已装模板随工具版本重同步（版本感知、一键应用）                                        | 工具升级后           |
+| `badge`     | 渲染就绪度徽章，匹配 README 现有徽章风格（5 种 shields 风格，链接审计报告）           | 改造之后、分数变动时 |
 
 ## 栈支持
 
-| 栈 | detect + audit | transform（门禁 + CI + AGENTS.md） |
-|---|---|---|
-| node（含 React/Vue/Next） | ✅ | ✅ `npm` 生命周期 |
-| python | ✅ | ✅ `python3 -m unittest discover` |
-| go | ✅ | ✅ `go build/test ./...` |
-| java（Maven + Gradle） | ✅ | ✅ `mvn -q -B test` / `gradle build` |
-| rust | ✅ | ✅ `cargo build/test`（fmt/clippy 门禁） |
-| ruby / php / swift / dotnet | ✅（audit 只低估不虚高） | ⚠️ 跨栈门禁 + 明确暂不支持提示 |
+| 栈                          | detect + audit           | transform（门禁 + CI + AGENTS.md）       |
+| --------------------------- | ------------------------ | ---------------------------------------- |
+| node（含 React/Vue/Next）   | ✅                       | ✅ `npm` 生命周期                        |
+| python                      | ✅                       | ✅ `python3 -m unittest discover`        |
+| go                          | ✅                       | ✅ `go build/test ./...`                 |
+| java（Maven + Gradle）      | ✅                       | ✅ `mvn -q -B test` / `gradle build`     |
+| rust                        | ✅                       | ✅ `cargo build/test`（fmt/clippy 门禁） |
+| ruby / php / swift / dotnet | ✅（audit 只低估不虚高） | ⚠️ 跨栈门禁 + 明确暂不支持提示           |
 
 ## 兼容性
 
 10+ 主流 coding agent 全部原生支持 SKILL.md 标准，AGENTS.md 近乎全支持：
 
-| Agent | AGENTS.md | Skills 目录 |
-|---|---|---|
-| Claude Code | 经 CLAUDE.md（软链） | `.claude/skills/` |
-| OpenAI Codex | 原生 | `.agents/skills/` |
-| OpenCode | 原生 | `.opencode/skills/` |
-| Qwen Code | 原生 | `.qwen/skills/` |
-| Kimi Code | 原生 | `.kimi-code/skills/` |
-| CodeBuddy | 兜底（主文件 CODEBUDDY.md） | `.codebuddy/skills/` |
-| Trae | 需开关 | `.trae/skills/` |
-| Qoder | 原生 | `.qoder/skills/` |
-| ZCode | 原生 | `.zcode/skills/` |
-| Cursor | 原生 | `.cursor/skills/` |
-| VS Code | 原生 | `.github/skills/` |
+| Agent        | AGENTS.md                   | Skills 目录          |
+| ------------ | --------------------------- | -------------------- |
+| Claude Code  | 经 CLAUDE.md（软链）        | `.claude/skills/`    |
+| OpenAI Codex | 原生                        | `.agents/skills/`    |
+| OpenCode     | 原生                        | `.opencode/skills/`  |
+| Qwen Code    | 原生                        | `.qwen/skills/`      |
+| Kimi Code    | 原生                        | `.kimi-code/skills/` |
+| CodeBuddy    | 兜底（主文件 CODEBUDDY.md） | `.codebuddy/skills/` |
+| Trae         | 需开关                      | `.trae/skills/`      |
+| Qoder        | 原生                        | `.qoder/skills/`     |
+| ZCode        | 原生                        | `.zcode/skills/`     |
+| Cursor       | 原生                        | `.cursor/skills/`    |
+| VS Code      | 原生                        | `.github/skills/`    |
 
 通用策略：**AGENTS.md** 管常驻事实（根目录，≤200 行）+ **SKILL.md** 管按需流程（标准格式）+ 每 agent 规则文件做单工具适配。
 
@@ -89,11 +89,11 @@ npx skills add ZM-BAD/spooner
 
 [skills CLI](https://github.com/vercel-labs/skills) 会把 `skills/spooner/` 复制到你的 agent 的 skills 目录，并从环境自动识别 agent。常用参数：
 
-| 参数 | 含义 |
-|---|---|
-| `-g` / `--global` | 装到用户级 skills 目录（所有项目可用） |
+| 参数                     | 含义                                                  |
+| ------------------------ | ----------------------------------------------------- |
+| `-g` / `--global`        | 装到用户级 skills 目录（所有项目可用）                |
 | `-a` / `--agent <agent>` | 指定目标 agent（`claude-code`、`codex`、`opencode`…） |
-| `-s` / `--skill <name>` | 只安装 spooner 这一个 skill |
+| `-s` / `--skill <name>`  | 只安装 spooner 这一个 skill                           |
 
 ### 手动安装（任意 agent）
 
@@ -159,13 +159,13 @@ node skills/spooner/scripts/detect.ts   # 切片 1：栈识别
 
 ## 文档导航
 
-| 文档 | 内容 |
-|---|---|
-| `AGENTS.md` | Agent 契约（单一事实来源；CLAUDE.md 是软链） |
-| `specs/README.md` | SDD 工作流：状态、约定、两层结构 |
-| `specs/ROADMAP.md` | 规划索引：当前 / 下一阶段 / 远景 / 想法 |
+| 文档                               | 内容                                           |
+| ---------------------------------- | ---------------------------------------------- |
+| `AGENTS.md`                        | Agent 契约（单一事实来源；CLAUDE.md 是软链）   |
+| `specs/README.md`                  | SDD 工作流：状态、约定、两层结构               |
+| `specs/ROADMAP.md`                 | 规划索引：当前 / 下一阶段 / 远景 / 想法        |
 | `specs/0001-m1-audit-core/spec.md` | M1 audit 契约：评分矩阵、报告 schema、验收标准 |
-| `skills/spooner/SKILL.md` | 可分发 skill 入口 |
+| `skills/spooner/SKILL.md`          | 可分发 skill 入口                              |
 
 ## 贡献者
 

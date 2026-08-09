@@ -10,7 +10,7 @@ date: 2026-08-06
 
 Four dogfood audits (a Node/Python monorepo / a WXT repo / a Node repo / spooner, 2026-08-06 — full copies, AI-readiness artifacts stripped, transform applied end-to-end) plus two owner decisions converge on one finding: **the audit report and the transform report must be truthful — scores must reflect quality, not existence, and every hint must name an action the toolset actually delivers.**
 
-1. **Existence checks overstate readiness** — a 16/20 repo with 7 hand-built workflows scored *below* a freshly transformed 18/20 copy; a 220-line user-written AGENTS.md docked 0.5 while a 42-line generated one scored full; a lint-only CI scored the same as lint+test+security; a stale/drifting manifest scored the same as a consistent one.
+1. **Existence checks overstate readiness** — a 16/20 repo with 7 hand-built workflows scored _below_ a freshly transformed 18/20 copy; a 220-line user-written AGENTS.md docked 0.5 while a 42-line generated one scored full; a lint-only CI scored the same as lint+test+security; a stale/drifting manifest scored the same as a consistent one.
 2. **Owner decision: 10-point scale with 9.5 as the excellent benchmark** — full marks is 10, but a 10 requires every check to max out (existence + quality signals + per-stack attainable ceilings), which is almost unreachable in practice (the pylint case: the standard library scores 9.x, never 10); a 9.5 is "相当不错" and 8 = good. The model scores 0–10 with 0.1 granularity (each check's score is `max × quality coefficient`, coefficients step by 0.2, so every possible score is a 0.1 multiple).
 3. **Fix hints transform cannot deliver** — `cfg-format`/`struct-layout` said "transform Stage 2" though stage 2 never touches them; `cfg-test` said "transform Stage 2 (add a test command)" while transform never invents commands (killer-gate red line: the CI template is declared-scripts-only) and the audit itself recorded "no test framework found"; `agents-length` said "trim AGENTS.md" with no target. A repo following the report gets stuck — trust damage.
 4. **Fixed suggestion copy decoupled from per-check scores** — "Add a README" fired on repos with four READMEs; fully-scoring categories repeated their copy.
@@ -85,11 +85,11 @@ The audit scores readiness on a 0–10 scale with 0.1 granularity where each of 
 
 ## Slice plan (each slice independently verifiable)
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | audit.ts: schema v2 + quality matrix + fix two-sourcing + suggestion filtering + `subStacks` + tests (1–9) | [ ] |
-| 2 | badge.ts re-map + check.ts v2 baseline + tests (13) | [ ] |
-| 3 | transform.ts: hook prompt + build-verification honesty + conflict note + TOOL_VERSION 0.6.0 + EXPECTED×5 + docs/08 row + docs cleanup + dogfood sync + badge regen (10–12, 14, 15) | [ ] |
+| Slice | Content                                                                                                                                                                            | Status |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1     | audit.ts: schema v2 + quality matrix + fix two-sourcing + suggestion filtering + `subStacks` + tests (1–9)                                                                         | [ ]    |
+| 2     | badge.ts re-map + check.ts v2 baseline + tests (13)                                                                                                                                | [ ]    |
+| 3     | transform.ts: hook prompt + build-verification honesty + conflict note + TOOL_VERSION 0.6.0 + EXPECTED×5 + docs/08 row + docs cleanup + dogfood sync + badge regen (10–12, 14, 15) | [ ]    |
 
 ## Risks
 

@@ -58,11 +58,11 @@ For any node / python / go / java / rust repository, transform installs stack-co
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | Stack model (`primaryStack`, lifecycle commands) + four per-stack workflow templates + stage-2 selection + unsupported notice + wrong-stack conflict hint + TOOL_VERSION bump + ledger + sync stack-aware `templateFor` | [x] |
-| 2 | Stage 3 per-stack AGENTS.md extraction + audit `checkAgentsCommands` per-stack command sources | [x] |
-| 3 | SKILL.md/README/AGENTS/ROADMAP/HANDOFF sync + per-stack fixtures acceptance + ship | [x] |
+| Slice | Content                                                                                                                                                                                                                 | Status |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1     | Stack model (`primaryStack`, lifecycle commands) + four per-stack workflow templates + stage-2 selection + unsupported notice + wrong-stack conflict hint + TOOL_VERSION bump + ledger + sync stack-aware `templateFor` | [x]    |
+| 2     | Stage 3 per-stack AGENTS.md extraction + audit `checkAgentsCommands` per-stack command sources                                                                                                                          | [x]    |
+| 3     | SKILL.md/README/AGENTS/ROADMAP/HANDOFF sync + per-stack fixtures acceptance + ship                                                                                                                                      | [x]    |
 
 ## Risks
 

@@ -74,11 +74,11 @@ Written on every run (the ledger, like the manifest — the date is allowed here
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | `check.ts` scaffold: CLI (`--root`/`--format`), baseline model read/write, audit re-run integration (export `runAudit` from audit.ts, `checkConsistency` from transform.ts) | [x] |
-| 2 | Drift report: score delta + gap diff + manifest drift + fixed suggestions + markdown render | [x] |
-| 3 | SKILL.md check instructions + examples + acceptance + ship | [x] |
+| Slice | Content                                                                                                                                                                     | Status |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1     | `check.ts` scaffold: CLI (`--root`/`--format`), baseline model read/write, audit re-run integration (export `runAudit` from audit.ts, `checkConsistency` from transform.ts) | [x]    |
+| 2     | Drift report: score delta + gap diff + manifest drift + fixed suggestions + markdown render                                                                                 | [x]    |
+| 3     | SKILL.md check instructions + examples + acceptance + ship                                                                                                                  | [x]    |
 
 ## Risks
 

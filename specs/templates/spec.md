@@ -1,6 +1,6 @@
 ---
-status: proposed   # proposed → approved → in-progress → shipped
-target: M1         # milestone
+status: proposed # proposed → approved → in-progress → shipped
+target: M1 # milestone
 date: YYYY-MM-DD
 ---
 
@@ -19,7 +19,7 @@ date: YYYY-MM-DD
 ## Slice plan (each slice independently verifiable)
 
 | Slice | Content | Status |
-|---|---|---|
-| 1 | | [ ] |
+| ----- | ------- | ------ |
+| 1     |         | [ ]    |
 
 ## Risks

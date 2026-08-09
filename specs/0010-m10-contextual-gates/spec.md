@@ -19,7 +19,7 @@ Design principles this spec pins:
 
 - **What audit credits, transform installs**: the generator mirrors the audit's tool detection (`cfg-lint`/`cfg-format`/`cfg-test`/`cfg-hooks`) — one detection source, and audit → transform parity becomes visible.
 - **No dead hooks**: a hook is emitted only for tooling actually detected in the repo (eslint config present → eslint hook; tsconfig → tsc; pyproject + tests → ruff + pytest). Tool-absent → hook absent. The declared-only discipline (CI lint-test job, existing local hooks) extends to the whole config.
-- **Deterministic and check-only**: rev-pinned hook repos (pre-commit installs pinned versions), no `--fix`, no `--write`, no `upgrade-to-latest` hooks (monorepo anti-patterns). A hook may fail a commit; it may never mutate files or versions.
+- **Deterministic and check-only — with one deliberate exemption**: rev-pinned hook repos (pre-commit installs pinned versions), no `--fix`, no `--write`, no `upgrade-to-latest` hooks (monorepo anti-patterns). A hook may fail a commit; it may never mutate files or versions. **The sole exemption is prettier** (2026-08-10): a repo declaring prettier gets a LOCAL `--write` hook running the project's own prettier (`node_modules/.bin/prettier`) — prettier is a deterministic formatter (same input → same output, unlike eslint/ruff `--fix`), auto-formatting is what the developer would run anyway, and a `--write` hook is the industry norm for prettier. The local form is deliberate: the mirrors-prettier managed hook lags prettier releases (v3.1.0 max at the time of writing vs 3.9.x in the wild), which would re-introduce the check-set mismatch the hook exists to close. A missing `node_modules` is not a failing build (pip-audit pattern): skip with an explicit notice; CI's declared lint remains the hard check. **SKILL.md authors** (a SKILL.md at the root or under `skills/`) additionally get a local skills-ref validation hook (same missing-tool skip pattern) — the CI-only spec check becomes local.
 - **Same M8 treatment for hook tools as for CI platforms**: the probe gains the hook-tool question; a repo whose owner keeps husky/lefthook (or an existing hook tool) gets a skip with an explicit notice — never a foreign gate file.
 - **The config becomes a generated artifact** (AGENTS.md class, spec 0004): deterministic generation at transform time; sync reports "generated — re-run transform stage 2", never byte-compares; the manifest records it with `templateVersion`.
 
@@ -74,11 +74,11 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | Spec + SKILL.md probe question (hook tool) + spec 0008 revision | [x] |
-| 2 | transform.ts detection + `generatePreCommitConfig` + routing + spec 0002 revision | [x] |
-| 3 | Manifest/sync generated class + TOOL_VERSION bump + dogfood sync + acceptance fixtures + spec 0004 revision + ship | [x] |
+| Slice | Content                                                                                                            | Status |
+| ----- | ------------------------------------------------------------------------------------------------------------------ | ------ |
+| 1     | Spec + SKILL.md probe question (hook tool) + spec 0008 revision                                                    | [x]    |
+| 2     | transform.ts detection + `generatePreCommitConfig` + routing + spec 0002 revision                                  | [x]    |
+| 3     | Manifest/sync generated class + TOOL_VERSION bump + dogfood sync + acceptance fixtures + spec 0004 revision + ship | [x]    |
 
 ## Risks
 

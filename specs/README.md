@@ -17,12 +17,12 @@ An idea becomes a spec once it is concrete enough (scope + acceptance criteria w
 
 `proposed` → `approved` → `in-progress` → `shipped`
 
-| State | Meaning | Trigger |
-|---|---|---|
-| proposed | Proposal: scope + acceptance criteria awaiting review | spec created |
-| approved | Confirmed by the owner; implementation may start | owner approval |
-| in-progress | Implementing; slices completed one by one | implementation starts |
-| shipped | All acceptance criteria pass | acceptance |
+| State       | Meaning                                               | Trigger               |
+| ----------- | ----------------------------------------------------- | --------------------- |
+| proposed    | Proposal: scope + acceptance criteria awaiting review | spec created          |
+| approved    | Confirmed by the owner; implementation may start      | owner approval        |
+| in-progress | Implementing; slices completed one by one             | implementation starts |
+| shipped     | All acceptance criteria pass                          | acceptance            |
 
 ## Directory conventions
 

@@ -55,10 +55,10 @@ Rust repositories get the same deep transform as node/python/go/java: a cargo li
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | Spec + stack model (priority/lifecycle/commands/audit credit) + `ci-workflow-rust.yml` + `rustHooks` + TOOL_VERSION/EXPECTED + spec 0006/0010 revisions | [x] |
-| 2 | Acceptance fixtures (workflow/lifecycle/stage-3/audit/pre-commit/ruby-notice) + SKILL.md/README/AGENTS docs + ledger + dogfood + ship | [x] |
+| Slice | Content                                                                                                                                                 | Status |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1     | Spec + stack model (priority/lifecycle/commands/audit credit) + `ci-workflow-rust.yml` + `rustHooks` + TOOL_VERSION/EXPECTED + spec 0006/0010 revisions | [x]    |
+| 2     | Acceptance fixtures (workflow/lifecycle/stage-3/audit/pre-commit/ruby-notice) + SKILL.md/README/AGENTS docs + ledger + dogfood + ship                   | [x]    |
 
 ## Risks
 

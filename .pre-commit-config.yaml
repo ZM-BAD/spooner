@@ -45,6 +45,15 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+  - repo: local
+    hooks:
+      - id: skills-ref-validate
+        name: SKILL.md spec validation (skills-ref)
+        entry: 'bash -c ''command -v agentskills >/dev/null 2>&1 || { echo "agentskills not installed - SKIP=skills-ref-validate or pip install skills-ref"; exit 0; }; for f in SKILL.md skills/*/SKILL.md; do [ -f "$f" ] && agentskills validate "$f" || exit 1; done'' bash'
+        language: system
+        pass_filenames: false
+        files: ^(SKILL\.md|skills/.+/SKILL\.md)$
+        stages: [pre-commit]
   - repo: https://github.com/pre-commit/mirrors-eslint
     rev: v10.0.3
     hooks:
@@ -54,6 +63,14 @@ repos:
         types: []
         additional_dependencies:
           - eslint@10.0.3
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier (auto-format, project version)
+        entry: 'bash -c ''[ -x node_modules/.bin/prettier ] || { echo "prettier not installed - SKIP=prettier or npm install"; exit 0; }; exec node_modules/.bin/prettier --write "$@"'' bash'
+        language: system
+        types_or: [javascript, jsx, ts, tsx, json, yaml, markdown, css, scss, html, graphql, less]
+        stages: [pre-commit]
   - repo: local
     hooks:
       - id: typecheck

@@ -33,55 +33,55 @@ Weight structure (2026-08-07 revision): Agent Setup 45% (the AI-specific core) /
 
 ### Agent Setup (4.5) — the product's edge, highest weight
 
-| ID | Max | Quality signal (summary) |
-|---|---|---|
-| agents-md | 0.5 | content depth + command traceability (commands trace to scripts/Makefile) |
-| agents-bridge | 0.5 | real symlink / @AGENTS.md import (content reference scores lower) |
-| agents-length | 0.5 | optimal band 30-200 lines; thin/short and over-long drop bands |
-| agents-commands | 1 | build+test traceable → full stack lifecycle → documented in AGENTS.md (tracing is static — evidence marks "static trace, not executed" unless `--verify` runs the commands; php signals are traced beyond the primary stack — phpunit.xml / phpunit in composer.json) |
-| agents-sdd | 0.5 | declaration → + spec files → + state frontmatter → + CI spec gate |
+| ID              | Max | Quality signal (summary)                                                                                                                                                                                                                                              |
+| --------------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| agents-md       | 0.5 | content depth + command traceability (commands trace to scripts/Makefile)                                                                                                                                                                                             |
+| agents-bridge   | 0.5 | real symlink / @AGENTS.md import (content reference scores lower)                                                                                                                                                                                                     |
+| agents-length   | 0.5 | optimal band 30-200 lines; thin/short and over-long drop bands                                                                                                                                                                                                        |
+| agents-commands | 1   | build+test traceable → full stack lifecycle → documented in AGENTS.md (tracing is static — evidence marks "static trace, not executed" unless `--verify` runs the commands; php signals are traced beyond the primary stack — phpunit.xml / phpunit in composer.json) |
+| agents-sdd      | 0.5 | declaration → + spec files → + state frontmatter → + CI spec gate                                                                                                                                                                                                     |
 
 ### Configuration (2) — tools & gates
 
-| ID | Max | Quality signal (summary) |
-|---|---|---|
-| cfg-lint | 0.5 | config + command + CI job depth (incl. php: phpcs.xml / phpstan.neon / psalm.xml; kotlin: ktlint) |
+| ID         | Max | Quality signal (summary)                                                                                                                                                                                                 |
+| ---------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| cfg-lint   | 0.5 | config + command + CI job depth (incl. php: phpcs.xml / phpstan.neon / psalm.xml; kotlin: ktlint)                                                                                                                        |
 | cfg-format | 0.5 | config + command + CI job depth (prettier/biome/ruff/rustfmt/.php-cs-fixer/ktlint configs — ruff.toml counts like cfg-lint; ktlint via ktlint.toml or .editorconfig `ktlint_*` keys; tool names only, no --format noise) |
-| cfg-hooks | 0.5 | mechanism → + discipline config → + hooks installed → + commit-msg stage |
-| cfg-ci | 0.5 | lint only / lint+test / lint+test+security job |
-| cfg-test | 0.5 | framework/command → + test files → + assertions (incl. php: phpunit.xml / phpunit in composer.json; .php test files with PHPUnit assertions) |
+| cfg-hooks  | 0.5 | mechanism → + discipline config → + hooks installed → + commit-msg stage                                                                                                                                                 |
+| cfg-ci     | 0.5 | lint only / lint+test / lint+test+security job                                                                                                                                                                           |
+| cfg-test   | 0.5 | framework/command → + test files → + assertions (incl. php: phpunit.xml / phpunit in composer.json; .php test files with PHPUnit assertions)                                                                             |
 
 ### Integrity (1.5) — security & consistency
 
-| ID | Max | Quality signal (summary) |
-|---|---|---|
-| sec-env | 0.5 | .env absent/ignored full; unignored or tracked drop |
-| sec-scan | 0.5 | gitleaks mentioned → declared hook → + actually installed |
-| sec-ci | 0.5 | tool mentioned vs dedicated security job |
-| drift | 0.5 | manifest exists → + version == tool → + declared files present |
+| ID       | Max | Quality signal (summary)                                       |
+| -------- | --- | -------------------------------------------------------------- |
+| sec-env  | 0.5 | .env absent/ignored full; unignored or tracked drop            |
+| sec-scan | 0.5 | gitleaks mentioned → declared hook → + actually installed      |
+| sec-ci   | 0.5 | tool mentioned vs dedicated security job                       |
+| drift    | 0.5 | manifest exists → + version == tool → + declared files present |
 
 ### Freshness (0.5) — dependency locking (time-independent; activity is not scored)
 
-| ID | Max | Quality signal (summary) |
-|---|---|---|
+| ID         | Max | Quality signal (summary)                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | fresh-deps | 0.5 | pinned + lockfile / pinned only / wildcard; go: go.sum checksum lockfile; rust: Cargo.lock; java: manifest-version pin incl. build.gradle.kts/settings.gradle(.kts) (no lockfile convention); python: pyproject.toml, or requirements.txt — exact `==` pins are the manifest pin, +uv/poetry/pdm lock → lockfile; php: composer.json + composer.lock (checksum lockfile), declared constraints without lock = manifest pin; mixed repos aggregate composer.lock into the node lockfile signal |
 
 ### Structure (1.5) — engineering structure
 
-| ID | Max | Quality signal (summary) |
-|---|---|---|
-| struct-readme | 0.5 | content with ≥3 section headings / content only / <50 chars |
+| ID            | Max | Quality signal (summary)                                                                                                                   |
+| ------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| struct-readme | 0.5 | content with ≥3 section headings / content only / <50 chars                                                                                |
 | struct-layout | 0.5 | src / lib / packages subdir, or gradle module dirs carrying src/ (settings.gradle(.kts) project with app/src — Android/kotlin, 2026-08-07) |
 
 **Calibration note**: weights are an expert-set first version (kardo-core r=0.828 structure); the calibration loop (cross-check on real repos, see "Calibration status") is the differentiator (internal archive docs/04 insight #1), not a one-off.
 
 ## Maturity assessment (deterministic rules)
 
-| Rule | Result |
-|---|---|
-| git commit count < 5 or no history | **skeleton**: score still reported + "too early" note + expected-output list |
-| ≥5 commits and a buildable command exists (scripts / Makefile) | **stable**: normal audit → transform |
-| ≥5 commits and no AGENTS.md and no CI | **legacy**: suggest conservative transform Stage 2 |
+| Rule                                                           | Result                                                                       |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| git commit count < 5 or no history                             | **skeleton**: score still reported + "too early" note + expected-output list |
+| ≥5 commits and a buildable command exists (scripts / Makefile) | **stable**: normal audit → transform                                         |
+| ≥5 commits and no AGENTS.md and no CI                          | **legacy**: suggest conservative transform Stage 2                           |
 
 ## Report output (pinned schema)
 
@@ -132,18 +132,18 @@ Conventions: `items` expands all 17 checks; `gaps` = ids where score < max; `sug
 
 ## Score by category
 
-| Category | Score | Max |
-|---|---|---|
-| Agent Setup | 4.5 | 4.5 |
-| Configuration | 1.9 | 2 |
-| Integrity | 1.5 | 1.5 |
-| Freshness | 0.5 | 0.5 |
-| Structure | 0.8 | 1.5 |
+| Category      | Score | Max |
+| ------------- | ----- | --- |
+| Agent Setup   | 4.5   | 4.5 |
+| Configuration | 1.9   | 2   |
+| Integrity     | 1.5   | 1.5 |
+| Freshness     | 0.5   | 0.5 |
+| Structure     | 0.8   | 1.5 |
 
 ## Gaps
 
-| Check | Score | Evidence | Fix |
-|---|---|---|---|
+| Check      | Score   | Evidence             | Fix                               |
+| ---------- | ------- | -------------------- | --------------------------------- |
 | cfg-format | 0.4/0.5 | .prettierrc + format | transform Stage 2 (CI format job) |
 
 ## Suggestions
@@ -162,12 +162,12 @@ Conventions: `items` expands all 17 checks; `gaps` = ids where score < max; `sug
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | scripts/detect.ts stack detection | [x] |
-| 2 | scripts/audit.ts scoring (per matrix + maturity rules) + real-repo calibration | [x] |
-| 3 | Report output (JSON + markdown, per schema) | [x] |
-| 4 | Full SKILL.md instructions + examples | [x] |
+| Slice | Content                                                                        | Status |
+| ----- | ------------------------------------------------------------------------------ | ------ |
+| 1     | scripts/detect.ts stack detection                                              | [x]    |
+| 2     | scripts/audit.ts scoring (per matrix + maturity rules) + real-repo calibration | [x]    |
+| 3     | Report output (JSON + markdown, per schema)                                    | [x]    |
+| 4     | Full SKILL.md instructions + examples                                          | [x]    |
 
 ## Calibration status
 

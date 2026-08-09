@@ -12,7 +12,16 @@
  * type stripping — no build step:
  *   node skills/spooner/scripts/transform.ts [--root <path>] [--stage 2|3|4|all] [--dry-run] [--ci github|gitlab|none] [--gates warn-only|hard] [--format json|markdown]
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { isDirectEntry } from "./entry.ts";
@@ -684,12 +693,17 @@ function pythonHooks(root: string): string | null {
     // Missing local tool is not a failing build (the audit's exit-127 rule,
     // dogfood review 2026-08-09): a machine without pip-audit must not block
     // every commit with "Executable pip-audit not found" — skip with a notice
-    // and name the escape (SKIP=pip-audit / pip install pip-audit).
+    // and name the escape (SKIP=pip-audit / pip install pip-audit). The skip
+    // logic is bash -c wrapped: system hooks never run through a shell — the
+    // entry is shlex-split and the first token exec'd directly, so a bare
+    // `command -v` builtin fails executable resolution on Linux ("Executable
+    // `command` not found", dogfood CI 2026-08-10; macOS /usr/bin/command
+    // masked it locally).
     lines.push(`  - repo: local
     hooks:
       - id: pip-audit
         name: pip-audit (python deps)
-        entry: 'command -v pip-audit >/dev/null 2>&1 || { echo "pip-audit not installed - SKIP=pip-audit or pip install pip-audit"; exit 0; }; exec pip-audit -r requirements.txt'
+        entry: 'bash -c ''command -v pip-audit >/dev/null 2>&1 || { echo "pip-audit not installed - SKIP=pip-audit or pip install pip-audit"; exit 0; }; exec pip-audit -r requirements.txt'' bash'
         language: system
         pass_filenames: false
         files: ^requirements\\.txt$
@@ -700,9 +714,26 @@ function pythonHooks(root: string): string | null {
 
 /** Node gates (only when tooling detected; eslint managed + rev-pinned,
  *  typecheck/test local — SKIP'd in the node workflow template). */
+/** The repo declares prettier (a devDependency, or a lint script running
+ *  it) — CI's declared lint runs prettier --check, so the local hook mirrors
+ *  it; prettier is the one hook allowed to write (deterministic formatter —
+ *  the same input always produces the same output, unlike eslint/ruff
+ *  --fix), spec 0010's no-write rule exempts it. */
+function prettierPresent(root: string): boolean {
+  const pkg = packageJsonOf(root);
+  const dev =
+    pkg && typeof pkg.devDependencies === "object" && pkg.devDependencies !== null
+      ? (pkg.devDependencies as Record<string, unknown>)
+      : {};
+  if (typeof dev["prettier"] === "string") return true;
+  const scripts =
+    pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
+  return typeof scripts["lint"] === "string" && /prettier/.test(scripts["lint"]);
+}
+
 function nodeHooks(root: string): string | null {
   const typecheckable = tsconfigPresent(root) || declaredScript(root, "typecheck");
-  if (!eslintPresent(root) && !typecheckable && !declaredScript(root, "test")) return null;
+  if (!eslintPresent(root) && !typecheckable && !declaredScript(root, "test") && !prettierPresent(root)) return null;
   const lines: string[] = [];
   if (eslintPresent(root)) {
     // types: [] — mirrors-eslint defaults to types: [javascript], which
@@ -718,6 +749,25 @@ function nodeHooks(root: string): string | null {
         types: []
         additional_dependencies:
           - eslint@10.0.3`);
+  }
+  if (prettierPresent(root)) {
+    // --write: prettier is deterministic — auto-formatting is safe and is
+    // what a developer would run anyway (npx prettier --write); pre-commit
+    // then flags the rewritten files for a re-add before commit.
+    // A LOCAL hook runs the repo's own prettier (node_modules) — the
+    // mirrors-prettier managed hook lags prettier releases (v3.1.0 max at
+    // the time of writing vs prettier 3.9.x in the wild), which would
+    // re-introduce the very check-set mismatch this hook exists to close.
+    // Missing node_modules is not a failing build (pip-audit pattern):
+    // skip with a notice; CI's declared lint stays the hard check.
+    lines.push(`  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier (auto-format, project version)
+        entry: 'bash -c ''[ -x node_modules/.bin/prettier ] || { echo "prettier not installed - SKIP=prettier or npm install"; exit 0; }; exec node_modules/.bin/prettier --write "$@"'' bash'
+        language: system
+        types_or: [javascript, jsx, ts, tsx, json, yaml, markdown, css, scss, html, graphql, less]
+        stages: [pre-commit]`);
   }
   // Local hooks share one `repo: local` block — emitted only when at least
   // one exists (a plain-JS repo with a test script but no tsconfig must not
@@ -748,7 +798,10 @@ ${local.join("\n")}`);
   return lines.join("\n");
 }
 
-/** Go gates (local system hooks — go toolchain is the repo's own; SKIP'd in the go workflow template). */
+/** Go gates (local system hooks — go toolchain is the repo's own; SKIP'd in the go workflow template).
+ *  go-test is bash -c wrapped: `$(...)`/`|` only work inside a shell — as a
+ *  bare system entry pre-commit execs them as literal go args ("malformed
+ *  import path", dogfood 2026-08-10). */
 function goHooks(root: string): string | null {
   if (!hasAny(root, ["go.mod"])) return null;
   return `  - repo: local
@@ -769,7 +822,7 @@ function goHooks(root: string): string | null {
         stages: [pre-commit]
       - id: go-test
         name: go test
-        entry: go test $(go list ./... | grep -v /test/e2e)
+        entry: 'bash -c ''go test $(go list ./... | grep -v /test/e2e)'' bash'
         language: system
         pass_filenames: false
         files: \\.go$
@@ -834,6 +887,35 @@ function rustHooks(root: string): string | null {
 /** Deterministic stack-aware pre-commit config (M10, spec 0010): cross-stack
  *  core always; stack gates only for tooling actually detected (no dead hooks);
  *  check-only; managed repos rev-pinned; local hooks scoped to pre-commit. */
+/** SKILL.md authors (a SKILL.md at the root or under skills/) get a
+ *  skills-ref validation gate — the CI-only spec check becomes local. The
+ *  missing tool is not a failing build (pip-audit pattern): skip with an
+ *  explicit notice; CI's SKILL.md job remains the hard check. The skip-or-run
+ *  logic is bash -c wrapped: system hooks never run through a shell — a bare
+ *  `command -v` builtin fails executable resolution on Linux (dogfood CI
+ *  2026-08-10; macOS's /usr/bin/command masked it locally). */
+function skillHooks(root: string): string | null {
+  const rootSkill = existsSync(join(root, "SKILL.md"));
+  let nested = false;
+  try {
+    nested =
+      existsSync(join(root, "skills")) &&
+      readdirSync(join(root, "skills")).some((d) => existsSync(join(root, "skills", d, "SKILL.md")));
+  } catch {
+    nested = false;
+  }
+  if (!rootSkill && !nested) return null;
+  return `  - repo: local
+    hooks:
+      - id: skills-ref-validate
+        name: SKILL.md spec validation (skills-ref)
+        entry: 'bash -c ''command -v agentskills >/dev/null 2>&1 || { echo "agentskills not installed - SKIP=skills-ref-validate or pip install skills-ref"; exit 0; }; for f in SKILL.md skills/*/SKILL.md; do [ -f "$f" ] && agentskills validate "$f" || exit 1; done'' bash'
+        language: system
+        pass_filenames: false
+        files: ^(SKILL\\.md|skills/.+/SKILL\\.md)$
+        stages: [pre-commit]`;
+}
+
 export function generatePreCommitConfig(root: string): string {
   const sections = [
     `${GENERATED_PRE_COMMIT_MARKER} (M10: stack-aware)`,
@@ -858,6 +940,7 @@ export function generatePreCommitConfig(root: string): string {
         pass_filenames: false
         always_run: true
         stages: [pre-commit]`,
+    skillHooks(root),
     pythonHooks(root),
     nodeHooks(root),
     goHooks(root),

@@ -4,7 +4,7 @@ name: ai-native
 
 on:
   push:
-    branches: ['**']
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 

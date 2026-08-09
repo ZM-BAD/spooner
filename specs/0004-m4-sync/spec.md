@@ -30,7 +30,7 @@ For any repository with a `.ai-native.yml` manifest, compare installed template 
 - CI drift gate (HANDOFF candidate #1 — separate feature)
 - Standards/conventions versioning beyond templates (docs/02 §8's "规范" part) — v2
 - Regenerating AGENTS.md / CLAUDE.md (stage 3) and the pre-commit config (stage 2, spec 0010): generated, user-owned — re-run `transform --stage 3` / `--stage 2` instead; sync reports them as `generated`, never writes
-- **Upgrading the tool itself** (getting a newer spooner skill package = distribution: git tag + release notes + `npx skills add`, docs/07 — not a workflow command; sync reconciles the *installed artifacts* after the tool advanced)
+- **Upgrading the tool itself** (getting a newer spooner skill package = distribution: git tag + release notes + `npx skills add`, docs/07 — not a workflow command; sync reconciles the _installed artifacts_ after the tool advanced)
 - Python / multi-stack templates — v2
 - LLM semantic layer (gates stay deterministic, decision #5)
 - Multi-repo batch sync — vision stage
@@ -45,7 +45,7 @@ version: "0.1.0"
 stages:
   2:
     date: "2026-08-04"
-    templateVersion: "0.1.0"   # NEW (optional): tool version at install; absent on pre-M4 manifests
+    templateVersion: "0.1.0" # NEW (optional): tool version at install; absent on pre-M4 manifests
     warnOnly: true
     files:
       - ".commitlintrc.json"
@@ -61,9 +61,7 @@ stages:
   "root": ".",
   "dryRun": true,
   "version": { "installed": "0.2.1", "current": "0.2.1" },
-  "files": [
-    { "file": ".pre-commit-config.yaml", "stage": 2, "status": "outdated", "from": "0.0.9", "to": "0.1.0" }
-  ],
+  "files": [{ "file": ".pre-commit-config.yaml", "stage": 2, "status": "outdated", "from": "0.0.9", "to": "0.1.0" }],
   "applied": true,
   "consistency": { "checked": true, "consistent": true, "missing": [] },
   "message": "replaced 1 outdated template(s)"
@@ -91,11 +89,11 @@ stages:
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | Manifest extension (transform.ts: write/read `templateVersion`, export TOOL_VERSION + template maps) + `sync.ts` scaffold: CLI, template registry, detection engine, report schema + markdown render | [x] |
-| 2 | Apply engine (replace outdated / restore missing / never touch modified, manifest update, post-apply consistency, rollback note) + check.ts integration | [x] |
-| 3 | SKILL.md sync instructions + examples + AGENTS.md/README sync + docs/08 ledger note + acceptance + ship | [x] |
+| Slice | Content                                                                                                                                                                                              | Status |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1     | Manifest extension (transform.ts: write/read `templateVersion`, export TOOL_VERSION + template maps) + `sync.ts` scaffold: CLI, template registry, detection engine, report schema + markdown render | [x]    |
+| 2     | Apply engine (replace outdated / restore missing / never touch modified, manifest update, post-apply consistency, rollback note) + check.ts integration                                              | [x]    |
+| 3     | SKILL.md sync instructions + examples + AGENTS.md/README sync + docs/08 ledger note + acceptance + ship                                                                                              | [x]    |
 
 ## Risks
 

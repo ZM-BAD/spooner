@@ -16,7 +16,7 @@
 
 An AI-native repository generally comes with complete quality gates and AI guidance: **pre-commit hooks**, **lint / formatter checks that actually run**, **CI that agrees with the local gates**, an **AGENTS.md** that tells the agent how things run, and a **spec-driven contract** (SDD templates) — to name a few. New quality gates, as they emerge, join the readiness score.
 
-**Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after Detective Del Spooner in *I, Robot* (2004), whose left arm is robotic and serves him well — Spooner evaluates which of the above your repository is missing (AI readiness /10), adds them incrementally, and keeps them from drifting.**
+**Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after Detective Del Spooner in _I, Robot_ (2004), whose left arm is robotic and serves him well — Spooner evaluates which of the above your repository is missing (AI readiness /10), adds them incrementally, and keeps them from drifting.**
 
 ## What one run does
 
@@ -28,52 +28,52 @@ The "before" is a zero-state copy of this repository — the same code, minus ev
 
 The score is on a 10-point scale, grouped into five tiers:
 
-| Tier | Score | What it means |
-|---|---|---|
-| AI-Native | 9–10 | Ready from the first run — AGENTS.md, real gates, CI that agrees with the local hooks, no drift |
-| AI-Friendly | 7–8.9 | Most facilities in place, one or two gaps left (dead hooks, CI that disagrees, no AGENTS.md) |
-| AI-Curious | 5–6.9 | Some AI-oriented setup exists, but incomplete |
-| AI-Aware | 3–4.9 | Readable by an AI agent, nothing prepared for it |
-| AI-Absent | 0–2.9 | Hard for an AI to even understand — no README, no structure, no traceable commands |
+| Tier        | Score | What it means                                                                                   |
+| ----------- | ----- | ----------------------------------------------------------------------------------------------- |
+| AI-Native   | 9–10  | Ready from the first run — AGENTS.md, real gates, CI that agrees with the local hooks, no drift |
+| AI-Friendly | 7–8.9 | Most facilities in place, one or two gaps left (dead hooks, CI that disagrees, no AGENTS.md)    |
+| AI-Curious  | 5–6.9 | Some AI-oriented setup exists, but incomplete                                                   |
+| AI-Aware    | 3–4.9 | Readable by an AI agent, nothing prepared for it                                                |
+| AI-Absent   | 0–2.9 | Hard for an AI to even understand — no README, no structure, no traceable commands              |
 
 ## The workflow
 
-| Command | What it does | When |
-|---|---|---|
-| `audit` | Detect and score AI coding readiness (repeatable — a health check) | Any repo, anytime |
-| `transform` | Incremental, verifiable, rollback-able transformations (stack-aware CI gates incl. the manifest drift gate / AGENTS.md / SDD) | Once — the surgery |
-| `check` | Continuously detect drift (repeatable, with records) | Every CI run |
-| `sync` | Re-sync installed templates to the current tool version (version-aware, one-click) | When the tool advances |
-| `badge` | Render a readiness badge matched to your README's badge style (5 shields styles, links to the audit report) | After transform, whenever the score moves |
+| Command     | What it does                                                                                                                  | When                                      |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `audit`     | Detect and score AI coding readiness (repeatable — a health check)                                                            | Any repo, anytime                         |
+| `transform` | Incremental, verifiable, rollback-able transformations (stack-aware CI gates incl. the manifest drift gate / AGENTS.md / SDD) | Once — the surgery                        |
+| `check`     | Continuously detect drift (repeatable, with records)                                                                          | Every CI run                              |
+| `sync`      | Re-sync installed templates to the current tool version (version-aware, one-click)                                            | When the tool advances                    |
+| `badge`     | Render a readiness badge matched to your README's badge style (5 shields styles, links to the audit report)                   | After transform, whenever the score moves |
 
 ## Stack support
 
-| Stack | detect + audit | transform (gates + CI + AGENTS.md) |
-|---|---|---|
-| node (incl. React/Vue/Next) | ✅ | ✅ `npm` lifecycle |
-| python | ✅ | ✅ `python3 -m unittest discover` |
-| go | ✅ | ✅ `go build/test ./...` |
-| java (Maven + Gradle) | ✅ | ✅ `mvn -q -B test` / `gradle build` |
-| rust | ✅ | ✅ `cargo build/test` (fmt/clippy gates) |
-| ruby / php / swift / dotnet | ✅ (audit under-scores only) | ⚠️ cross-stack gates + explicit notice |
+| Stack                       | detect + audit               | transform (gates + CI + AGENTS.md)       |
+| --------------------------- | ---------------------------- | ---------------------------------------- |
+| node (incl. React/Vue/Next) | ✅                           | ✅ `npm` lifecycle                       |
+| python                      | ✅                           | ✅ `python3 -m unittest discover`        |
+| go                          | ✅                           | ✅ `go build/test ./...`                 |
+| java (Maven + Gradle)       | ✅                           | ✅ `mvn -q -B test` / `gradle build`     |
+| rust                        | ✅                           | ✅ `cargo build/test` (fmt/clippy gates) |
+| ruby / php / swift / dotnet | ✅ (audit under-scores only) | ⚠️ cross-stack gates + explicit notice   |
 
 ## Compatibility
 
 All 10+ mainstream coding agents natively support the SKILL.md standard; AGENTS.md is nearly universal:
 
-| Agent | AGENTS.md | Skills directory |
-|---|---|---|
-| Claude Code | via CLAUDE.md (symlink) | `.claude/skills/` |
-| OpenAI Codex | native | `.agents/skills/` |
-| OpenCode | native | `.opencode/skills/` |
-| Qwen Code | native | `.qwen/skills/` |
-| Kimi Code | native | `.kimi-code/skills/` |
-| CodeBuddy | fallback (CODEBUDDY.md primary) | `.codebuddy/skills/` |
-| Trae | via toggle | `.trae/skills/` |
-| Qoder | native | `.qoder/skills/` |
-| ZCode | native | `.zcode/skills/` |
-| Cursor | native | `.cursor/skills/` |
-| VS Code | native | `.github/skills/` |
+| Agent        | AGENTS.md                       | Skills directory     |
+| ------------ | ------------------------------- | -------------------- |
+| Claude Code  | via CLAUDE.md (symlink)         | `.claude/skills/`    |
+| OpenAI Codex | native                          | `.agents/skills/`    |
+| OpenCode     | native                          | `.opencode/skills/`  |
+| Qwen Code    | native                          | `.qwen/skills/`      |
+| Kimi Code    | native                          | `.kimi-code/skills/` |
+| CodeBuddy    | fallback (CODEBUDDY.md primary) | `.codebuddy/skills/` |
+| Trae         | via toggle                      | `.trae/skills/`      |
+| Qoder        | native                          | `.qoder/skills/`     |
+| ZCode        | native                          | `.zcode/skills/`     |
+| Cursor       | native                          | `.cursor/skills/`    |
+| VS Code      | native                          | `.github/skills/`    |
 
 Universal strategy: **AGENTS.md** at repo root holds persistent facts (≤200 lines), **SKILL.md** holds on-demand procedures, per-agent rules files handle single-tool constraints.
 
@@ -89,11 +89,11 @@ npx skills add ZM-BAD/spooner
 
 The [skills CLI](https://github.com/vercel-labs/skills) copies `skills/spooner/` into your agent's skills directory and detects your agent from the environment. Useful flags:
 
-| Flag | Meaning |
-|---|---|
-| `-g` / `--global` | install to the user-level skills directory (available to all projects) |
-| `-a` / `--agent <agent>` | target a specific agent (`claude-code`, `codex`, `opencode`, …) |
-| `-s` / `--skill <name>` | install only the `spooner` skill |
+| Flag                     | Meaning                                                                |
+| ------------------------ | ---------------------------------------------------------------------- |
+| `-g` / `--global`        | install to the user-level skills directory (available to all projects) |
+| `-a` / `--agent <agent>` | target a specific agent (`claude-code`, `codex`, `opencode`, …)        |
+| `-s` / `--skill <name>`  | install only the `spooner` skill                                       |
 
 ### Manual install (any agent)
 
@@ -159,13 +159,13 @@ Distributed from this GitHub repository — `npx skills add ZM-BAD/spooner` inst
 
 ## Documentation
 
-| Doc | Content |
-|---|---|
-| `AGENTS.md` | Agent contract (single source of truth; CLAUDE.md is a symlink) |
-| `specs/README.md` | SDD workflow: states, conventions, two-layer structure |
-| `specs/ROADMAP.md` | Planning index: current / next / vision / ideas |
-| `specs/0001-m1-audit-core/spec.md` | M1 audit contract: scoring matrix, report schema, acceptance |
-| `skills/spooner/SKILL.md` | The distributable skill entry |
+| Doc                                | Content                                                         |
+| ---------------------------------- | --------------------------------------------------------------- |
+| `AGENTS.md`                        | Agent contract (single source of truth; CLAUDE.md is a symlink) |
+| `specs/README.md`                  | SDD workflow: states, conventions, two-layer structure          |
+| `specs/ROADMAP.md`                 | Planning index: current / next / vision / ideas                 |
+| `specs/0001-m1-audit-core/spec.md` | M1 audit contract: scoring matrix, report schema, acceptance    |
+| `skills/spooner/SKILL.md`          | The distributable skill entry                                   |
 
 ## Contributors
 

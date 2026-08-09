@@ -13,13 +13,13 @@ compatibility: Node.js >= 22.18 + git (scripts are TypeScript run natively via t
 
 ## Workflow
 
-| Step | Available | Scripts / status |
-|---|---|---|
-| audit — detect and score readiness (repeatable health check) | ✅ M1 | `scripts/detect.ts` + `scripts/audit.ts` |
-| transform — incremental, verifiable, rollback-able changes (gates → AGENTS.md → SDD) | ✅ M2 | `scripts/transform.ts` |
-| check — continuously detect drift (repeatable, with records) | ✅ M3 | `scripts/check.ts` |
-| sync — re-sync installed templates when the tool advances (versioned, one-click) | ✅ M4 | `scripts/sync.ts` |
-| badge — render a readiness badge matched to the README's existing style | ✅ M9 | `scripts/badge.ts` |
+| Step                                                                                 | Available | Scripts / status                         |
+| ------------------------------------------------------------------------------------ | --------- | ---------------------------------------- |
+| audit — detect and score readiness (repeatable health check)                         | ✅ M1     | `scripts/detect.ts` + `scripts/audit.ts` |
+| transform — incremental, verifiable, rollback-able changes (gates → AGENTS.md → SDD) | ✅ M2     | `scripts/transform.ts`                   |
+| check — continuously detect drift (repeatable, with records)                         | ✅ M3     | `scripts/check.ts`                       |
+| sync — re-sync installed templates when the tool advances (versioned, one-click)     | ✅ M4     | `scripts/sync.ts`                        |
+| badge — render a readiness badge matched to the README's existing style              | ✅ M9     | `scripts/badge.ts`                       |
 
 ## Prerequisites
 
@@ -64,11 +64,11 @@ node <skill-dir>/scripts/badge.ts --root /path/to/repo [--style flat|flat-square
 
 ### Maturity gating — what to tell the user
 
-| Maturity | Deterministic rule | Response |
-|---|---|---|
-| skeleton | fewer than 5 commits | The score is still reported, with a "too early" note. Tell the user the repo is too young to transform and to re-run after it stabilizes. |
-| stable | ≥ 5 commits, with a buildable command (or an agent file / CI present) | Normal path: report → suggest transform (Stage 2 gates first, then Stage 3 AGENTS.md). |
-| legacy | ≥ 5 commits, no agent file, no CI | Normal path with **conservative Stage 2**: the install is warn-only — a pre-existing broken build is reported **with the reason** (stderr + exit code) and the gates still install; the installed hooks are hard gates by design (local ⊇ CI — commits stay blocked until the build is fixed) |
+| Maturity | Deterministic rule                                                    | Response                                                                                                                                                                                                                                                                                      |
+| -------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| skeleton | fewer than 5 commits                                                  | The score is still reported, with a "too early" note. Tell the user the repo is too young to transform and to re-run after it stabilizes.                                                                                                                                                     |
+| stable   | ≥ 5 commits, with a buildable command (or an agent file / CI present) | Normal path: report → suggest transform (Stage 2 gates first, then Stage 3 AGENTS.md).                                                                                                                                                                                                        |
+| legacy   | ≥ 5 commits, no agent file, no CI                                     | Normal path with **conservative Stage 2**: the install is warn-only — a pre-existing broken build is reported **with the reason** (stderr + exit code) and the gates still install; the installed hooks are hard gates by design (local ⊇ CI — commits stay blocked until the build is fixed) |
 
 ### Determinism
 
@@ -93,7 +93,7 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
    4. Tech-debt constraints? (Spring/Node major upgrades, dependency policy)
    5. Gate strictness? (warn-only / hard — lands on the CLI as `--gates warn-only|hard`; hard quality jobs drop the workflow's `continue-on-error`; "audit-only" is the no-write mode above, not a --gates value)
    6. Git-hook tool preference? (pre-commit / husky / lefthook / keep the existing setup — decides whether Stage 2 installs the generated pre-commit config or skips with a notice)
-   Modes: **full** (GitHub + allowed → the stages below), **no-workflow** (non-GitHub CI → cross-stack gates only; the CI workflow is skipped with an explicit notice — see Stage 2), **audit-only** (nothing written — deliver the Stage 1 report and stop). The scripts stay deterministic; the mode is the agent's call from the probed context. **Transformation permission comes from the owner's situation, not the tool's assumption** — on a legacy repo whose owner cannot touch CI, "just audit" is a valid outcome.
+      Modes: **full** (GitHub + allowed → the stages below), **no-workflow** (non-GitHub CI → cross-stack gates only; the CI workflow is skipped with an explicit notice — see Stage 2), **audit-only** (nothing written — deliver the Stage 1 report and stop). The scripts stay deterministic; the mode is the agent's call from the probed context. **Transformation permission comes from the owner's situation, not the tool's assumption** — on a legacy repo whose owner cannot touch CI, "just audit" is a valid outcome.
 1. **Stage 1 = the audit** (above): report + plan. Show the user the score and the gap list; agree on the stage order. Default order: Stage 2 (gates) → Stage 3 (agent files) → Stage 4 (SDD).
 2. **Dry-run first, always**: `node <skill-dir>/scripts/transform.ts --root <path> --stage 2 --dry-run` — prints the exact plan (files to write / keep / conflict) and the build command that will be verified. Nothing is written.
 3. **Apply with user confirmation**: `--stage 2` writes the missing gate files and verifies the repo's declared build/test commands **before and after**; if the post-apply check fails, the report lists the files and the rollback command (`git restore …`) and exits non-zero. **Then install the git hooks**: `pre-commit install --hook-type commit-msg` — plain `pre-commit install` installs only the pre-commit stage and leaves the commitlint hook dead (config ≠ enforcement); the commit-msg hook is what actually checks every commit.
@@ -105,23 +105,23 @@ The audit ends at "what to do"; transform **does it** — in place, one verified
    - **A first run that fails on pre-existing repo debt is the gate working, not an install failure** — hard gates are local ⊇ CI by design, so legacy repo docs (markdownlint violations — MD040/MD012/MD014 are the common ones) block the first full run. **Triage by scale**: a handful of violations (≤ ~20) → fix them; a large debt (real-world corpora run to thousands — dogfood review 2026-08-09: a Go monorepo, 24 files / ~21k errors across MD022/MD032/MD024) → fixing is not realistic in one pass — run with `SKIP=markdownlint-cli2` and report it as a finding, or extend the generated `.markdownlint-cli2.yaml` `ignores` list for vendored/upstream docs. Either way the owner decides; never roll back the install (a Makefile-less Go repo's 5 violations = fixable, a Go monorepo's ~21k = SKIP — same gate, different triage).
    - In full mode, prove commitlint actually rejects: write a deliberately invalid message (e.g. `echo "bad commit message" > .git/COMMIT_EDITMSG`), run `pre-commit run --hook-stage commit-msg --commit-msg-filename .git/COMMIT_EDITMSG` — it must **fail**; restore the file afterwards (`git log -1 --format=%B > .git/COMMIT_EDITMSG`).
 
-| Stage | What it does | Outputs |
-|---|---|---|
-| 2 — gates (install warn-only; active hooks hard) | commitlint + pre-commit (markdownlint + gitleaks + **stack-aware generated config**: the pre-commit hook set follows the repo's detected tooling — ruff/pytest for python, eslint/tsc for node, gofmt/vet for go, mvn for java, cargo fmt/clippy for rust; check-only, rev-pinned; **the config hard-gates the `.ai-native.yml` ledger locally** — a self-contained manifest-consistency hook (baked EXPECTED) mirroring the CI drift gate, so stale/drifting ledgers turn local pre-commit red (runs on python3 — guaranteed wherever pre-commit runs); **husky/lefthook/yorkie ecosystems keep their own hooks — the config is skipped with an explicit notice; a dead husky dependency (no .husky/, no package.json field) installs the gates**) + **stack-aware** CI workflow (**warn-only quality jobs by default; `--gates hard` renders them hard** — continue-on-error removed, spec 0008 question 5; the choice is recorded in the manifest and re-rendered on strictness switches; hard gates either way: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file. Platform detection reads local CI files first, then the origin remote host (a greenfield repo on a GitLab remote no longer receives a dead `.github/workflows` file); the auto-detection is overridable with `--ci github\|gitlab\|none` (the Stage 0 questionnaire's answer lands on the CLI — no hand-editing the manifest) | `.commitlintrc.json`, `.pre-commit-config.yaml` (generated — re-run `--stage 2` to regenerate), `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
-| 3 — agent files | AGENTS.md generated from **real commands only** (package.json scripts / Makefile / stack lifecycle: `mvn`, `go`, `python3 -m unittest`, `cargo`) + CLAUDE.md bridge | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows) |
-| 4 — SDD (optional) | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate (**platform-routed like stage 2** — the gate installs only where the GitHub workflow applies; skipped with "… (SDD spec gate)" otherwise, 2026-08-07) | `docs/sdd/*.md`, `.github/workflows/sdd.yml` (absent in no-workflow mode), AGENTS.md convention |
+| Stage                                            | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Outputs                                                                                                                                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2 — gates (install warn-only; active hooks hard) | commitlint + pre-commit (markdownlint + gitleaks + **stack-aware generated config**: the pre-commit hook set follows the repo's detected tooling — ruff/pytest for python, eslint/tsc for node, gofmt/vet for go, mvn for java, cargo fmt/clippy for rust; check-only, rev-pinned — **sole exemption: prettier, emitted as a local `--write` hook running the project's own prettier when the repo declares it** (deterministic formatter; the managed mirror lags prettier releases); **SKILL.md authors get a local skills-ref validation hook** (missing tool → skip with a notice); **the config hard-gates the `.ai-native.yml` ledger locally** — a self-contained manifest-consistency hook (baked EXPECTED) mirroring the CI drift gate, so stale/drifting ledgers turn local pre-commit red (runs on python3 — guaranteed wherever pre-commit runs); **husky/lefthook/yorkie ecosystems keep their own hooks — the config is skipped with an explicit notice; a dead husky dependency (no .husky/, no package.json field) installs the gates**) + **stack-aware** CI workflow (**warn-only quality jobs by default; `--gates hard` renders them hard** — continue-on-error removed, spec 0008 question 5; the choice is recorded in the manifest and re-rendered on strictness switches; hard gates either way: declared lifecycle commands executable + `.ai-native.yml` consistency — drift turns CI red). **No-workflow mode** (non-GitHub CI, spec 0008): the three cross-stack gates only — the workflow is skipped with an explicit "CI workflow skipped: detected <platform>" notice, and the manifest records the gates without the workflow file. Platform detection reads local CI files first, then the origin remote host (a greenfield repo on a GitLab remote no longer receives a dead `.github/workflows` file); the auto-detection is overridable with `--ci github\|gitlab\|none` (the Stage 0 questionnaire's answer lands on the CLI — no hand-editing the manifest) | `.commitlintrc.json`, `.pre-commit-config.yaml` (generated — re-run `--stage 2` to regenerate), `.markdownlint-cli2.yaml`, `.github/workflows/ai-native.yml` (per-stack template; absent in no-workflow mode) |
+| 3 — agent files                                  | AGENTS.md generated from **real commands only** (package.json scripts / Makefile / stack lifecycle: `mvn`, `go`, `python3 -m unittest`, `cargo`) + CLAUDE.md bridge                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `AGENTS.md`, `CLAUDE.md` (symlink; `@AGENTS.md` import on Windows)                                                                                                                                            |
+| 4 — SDD (optional)                               | spec/plan/tasks templates + SDD convention in AGENTS.md + spec-existence CI gate (**platform-routed like stage 2** — the gate installs only where the GitHub workflow applies; skipped with "… (SDD spec gate)" otherwise, 2026-08-07)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `docs/sdd/*.md`, `.github/workflows/sdd.yml` (absent in no-workflow mode), AGENTS.md convention                                                                                                               |
 
 ### Stack support (M6)
 
-| Stack | detect | audit | transform gates + CI workflow | AGENTS.md commands |
-|---|---|---|---|---|
-| node (incl. React/Vue/Next) | ✅ | ✅ | ✅ `npm run build/test` lifecycle | package.json scripts + Makefile |
-| python | ✅ | ✅ | ✅ `python3 -m unittest discover` | pyproject/requirements → `python3 -m unittest discover` |
-| go | ✅ | ✅ | ✅ `go build ./...` + `go test` (e2e-aware — excludes /test/e2e) | go.mod → `go build/test/vet ./...` |
-| java (Maven + Gradle, incl. kotlin/Android `build.gradle.kts` / `settings.gradle(.kts)`) | ✅ | ✅ | ✅ `mvn -q -B test` / `gradle build` | pom.xml → `mvn`, build.gradle(.kts) → `gradle` |
-| rust | ✅ | ✅ | ✅ `cargo build` + `cargo test` (fmt/clippy via the M10 generated pre-commit gates) | Cargo.toml → `cargo build/test/fmt/clippy` |
-| php | ✅ | ✅ (composer.lock / phpunit / phpcs / phpstan / php-cs-fixer signals score; the full-lifecycle band is unreachable) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
-| ruby / swift / dotnet | ✅ | ✅ (under-scores only, never over) | ⚠️ cross-stack gates only + explicit "not supported yet" notice | — |
+| Stack                                                                                    | detect | audit                                                                                                               | transform gates + CI workflow                                                       | AGENTS.md commands                                      |
+| ---------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| node (incl. React/Vue/Next)                                                              | ✅     | ✅                                                                                                                  | ✅ `npm run build/test` lifecycle                                                   | package.json scripts + Makefile                         |
+| python                                                                                   | ✅     | ✅                                                                                                                  | ✅ `python3 -m unittest discover`                                                   | pyproject/requirements → `python3 -m unittest discover` |
+| go                                                                                       | ✅     | ✅                                                                                                                  | ✅ `go build ./...` + `go test` (e2e-aware — excludes /test/e2e)                    | go.mod → `go build/test/vet ./...`                      |
+| java (Maven + Gradle, incl. kotlin/Android `build.gradle.kts` / `settings.gradle(.kts)`) | ✅     | ✅                                                                                                                  | ✅ `mvn -q -B test` / `gradle build`                                                | pom.xml → `mvn`, build.gradle(.kts) → `gradle`          |
+| rust                                                                                     | ✅     | ✅                                                                                                                  | ✅ `cargo build` + `cargo test` (fmt/clippy via the M10 generated pre-commit gates) | Cargo.toml → `cargo build/test/fmt/clippy`              |
+| php                                                                                      | ✅     | ✅ (composer.lock / phpunit / phpcs / phpstan / php-cs-fixer signals score; the full-lifecycle band is unreachable) | ⚠️ cross-stack gates only + explicit "not supported yet" notice                     | —                                                       |
+| ruby / swift / dotnet                                                                    | ✅     | ✅ (under-scores only, never over)                                                                                  | ⚠️ cross-stack gates only + explicit "not supported yet" notice                     | —                                                       |
 
 **Primary stack rule**: node > python > go > java > rust for mixed repos (one workflow per repo). Non-supported stacks get an explicit notice — never silent npm gates. The audit's `agents-commands` check credits the stack lifecycle commands too (go/rust/java repos can now score 2/2); php test signals (phpunit.xml / phpunit in composer.json) are traced beyond the primary stack in mixed node+php repos.
 
@@ -141,13 +141,13 @@ When spooner itself advances — a new skill version whose templates changed (ne
 4. **No manifest**: a repo without `.ai-native.yml` is not synced — the report says to run `transform --stage 2` first.
 5. **Generated files are out of scope**: AGENTS.md / CLAUDE.md are reported as `generated` and never written — re-run `transform --stage 3` to regenerate them.
 
-| Status | Meaning | sync (apply) action |
-|---|---|---|
-| `up-to-date` | installed bytes == current template | nothing |
-| `outdated` | installed from an older template version (version pair in the report) | replace with the current template |
-| `modified` | same version, bytes differ (user edits) | never touch |
-| `missing` | manifest records it, file is gone | restore from the template |
-| `generated` | AGENTS.md / CLAUDE.md — not template-managed | never touch (re-run `transform --stage 3`) |
+| Status       | Meaning                                                               | sync (apply) action                        |
+| ------------ | --------------------------------------------------------------------- | ------------------------------------------ |
+| `up-to-date` | installed bytes == current template                                   | nothing                                    |
+| `outdated`   | installed from an older template version (version pair in the report) | replace with the current template          |
+| `modified`   | same version, bytes differ (user edits)                               | never touch                                |
+| `missing`    | manifest records it, file is gone                                     | restore from the template                  |
+| `generated`  | AGENTS.md / CLAUDE.md — not template-managed                          | never touch (re-run `transform --stage 3`) |
 
 ## badge — the workflow (M9)
 
@@ -172,20 +172,20 @@ The badge is the recurring-impression asset: pasted once into the README, it ren
 
 ## Score by category
 
-| Category | Score | Max |
-|---|---|---|
-| Agent Setup | 4.5 | 4.5 |
-| Configuration | 1.9 | 2 |
-| Integrity | 1.5 | 1.5 |
-| Freshness | 0.5 | 0.5 |
-| Structure | 0.8 | 1.5 |
+| Category      | Score | Max |
+| ------------- | ----- | --- |
+| Agent Setup   | 4.5   | 4.5 |
+| Configuration | 1.9   | 2   |
+| Integrity     | 1.5   | 1.5 |
+| Freshness     | 0.5   | 0.5 |
+| Structure     | 0.8   | 1.5 |
 
 ## Gaps
 
-| Check | Score | Evidence | Fix |
-|---|---|---|---|
-| cfg-format | 0.4/0.5 | .prettierrc + format | transform Stage 2 (CI format job) |
-| struct-layout | 0/0.5 | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ (not covered by transform) |
+| Check         | Score   | Evidence                              | Fix                                                                        |
+| ------------- | ------- | ------------------------------------- | -------------------------------------------------------------------------- |
+| cfg-format    | 0.4/0.5 | .prettierrc + format                  | transform Stage 2 (CI format job)                                          |
+| struct-layout | 0/0.5   | no src/, lib/, or packages/ directory | organize sources under src/, lib/, or packages/ (not covered by transform) |
 
 ## Suggestions
 
@@ -256,11 +256,11 @@ All 17 check ids: `agents-md`, `agents-bridge`, `agents-length`, `agents-command
 
 - Root: . · Stage: all · Dry-run: false
 
-| Stage | Status | Present | Missing |
-|---|---|---|---|
-| 2 | installed | .commitlintrc.json, .pre-commit-config.yaml, .markdownlint-cli2.yaml, .github/workflows/ai-native.yml | — |
-| 3 | installed | AGENTS.md, CLAUDE.md | — |
-| 4 | not-installed | — | docs/sdd/spec.md, docs/sdd/plan.md, docs/sdd/tasks.md, .github/workflows/sdd.yml |
+| Stage | Status        | Present                                                                                               | Missing                                                                          |
+| ----- | ------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 2     | installed     | .commitlintrc.json, .pre-commit-config.yaml, .markdownlint-cli2.yaml, .github/workflows/ai-native.yml | —                                                                                |
+| 3     | installed     | AGENTS.md, CLAUDE.md                                                                                  | —                                                                                |
+| 4     | not-installed | —                                                                                                     | docs/sdd/spec.md, docs/sdd/plan.md, docs/sdd/tasks.md, .github/workflows/sdd.yml |
 
 - Manifest consistency: consistent
 ```
@@ -294,13 +294,13 @@ The second run on the same repo reports `delta: 0` and "Readiness unchanged"; af
 
 - Root: . · Dry-run: true · Templates: installed 0.9.0 → current 0.10.0
 
-| File | Stage | Status | Version |
-|---|---|---|---|
-| .commitlintrc.json | 2 | outdated | 0.9.0 → 0.10.0 |
-| .pre-commit-config.yaml | 2 | generated | — |
-| AGENTS.md | 3 | generated | — |
-| CLAUDE.md | 3 | generated | — |
-| docs/sdd/spec.md | 4 | up-to-date | — |
+| File                    | Stage | Status     | Version        |
+| ----------------------- | ----- | ---------- | -------------- |
+| .commitlintrc.json      | 2     | outdated   | 0.9.0 → 0.10.0 |
+| .pre-commit-config.yaml | 2     | generated  | —              |
+| AGENTS.md               | 3     | generated  | —              |
+| CLAUDE.md               | 3     | generated  | —              |
+| docs/sdd/spec.md        | 4     | up-to-date | —              |
 
 - Manifest consistency: consistent
 

@@ -236,7 +236,7 @@ test("gatesOf: explicit wins over the manifest; manifest wins over the default; 
   assert.equal(gatesOf(repo), "warn-only");
   writeFileSync(
     join(repo, ".ai-native.yml"),
-    'schemaVersion: 1\ntool: spooner\nversion: "0.11.0"\nstages:\n  2:\n    date: "2026-08-10"\n    gates: hard\n    files:\n      - ".github/workflows/ai-native.yml"\n',
+    `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  2:\n    date: "2026-08-10"\n    gates: hard\n    files:\n      - ".github/workflows/ai-native.yml"\n`,
     "utf8",
   );
   assert.equal(gatesOf(repo), "hard");
@@ -289,6 +289,144 @@ test("preCommit: node fixture -> eslint/typecheck/test, no ruff", () => {
   assert.match(cfg, /id: typecheck/);
   assert.match(cfg, /id: test/);
   assert.doesNotMatch(cfg, /id: ruff/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: prettier devDependency -> local prettier hook with --write (project version)", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"devDependencies":{"prettier":"^3.5.3"},"scripts":{"lint":"prettier --check \\\"**/*.ts\\\""}}\n',
+  );
+  const cfg = generatePreCommitConfig(repo);
+  assert.match(cfg, /id: prettier/);
+  assert.match(cfg, /node_modules\/\.bin\/prettier --write/);
+  // local hook: the repo's own prettier, never the lagging mirrors rev
+  assert.doesNotMatch(cfg, /mirrors-prettier/);
+  // missing node_modules is not a failing build — skip with a notice
+  assert.match(cfg, /\[ -x node_modules\/\.bin\/prettier \]/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: lint script running prettier without a devDependency -> local hook too", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"scripts":{"lint":"prettier --check ."}}\n');
+  const cfg = generatePreCommitConfig(repo);
+  assert.match(cfg, /id: prettier/);
+  assert.match(cfg, /node_modules\/\.bin\/prettier --write/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: no prettier declaration -> no prettier hook (zero regression)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"scripts":{"test":"echo t"}}\n');
+  writeFileSync(join(repo, "tsconfig.json"), "{}\n");
+  const cfg = generatePreCommitConfig(repo);
+  assert.doesNotMatch(cfg, /id: prettier/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: a repo with SKILL.md gets the skills-ref validation hook", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "SKILL.md"), "# demo\n");
+  const cfg = generatePreCommitConfig(repo);
+  assert.match(cfg, /skills-ref-validate/);
+  // bash -c wrapped: system hooks never run through a shell (dogfood CI 2026-08-10)
+  assert.match(cfg, /bash -c ''command -v agentskills/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: a skill under skills/ gets the skills-ref hook; no SKILL.md -> none", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "skills", "demo"), { recursive: true });
+  writeFileSync(join(repo, "skills", "demo", "SKILL.md"), "# demo\n");
+  assert.match(generatePreCommitConfig(repo), /skills-ref-validate/);
+  rmSync(repo, { recursive: true, force: true });
+  const plain = fixture();
+  writeFileSync(join(plain, "package.json"), "{}\n");
+  assert.doesNotMatch(generatePreCommitConfig(plain), /skills-ref-validate/);
+  rmSync(plain, { recursive: true, force: true });
+});
+
+/** Raw entry of each local hook (`- repo: local` blocks), YAML quoting
+ *  stripped (`''` → `'`; double-quoted entries keep inner escapes — the
+ *  shell-syntax scan only reads what sits outside quotes). */
+function localHookEntries(config: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  let inLocal = false;
+  let id: string | null = null;
+  for (const line of config.split("\n")) {
+    if (/^\s+- repo:/.test(line)) {
+      inLocal = line.includes("repo: local");
+      id = null;
+      continue;
+    }
+    if (!inLocal) continue;
+    const idM = line.match(/^\s+- id: ([a-z0-9-]+)/);
+    if (idM) {
+      id = idM[1];
+      continue;
+    }
+    const eM = line.match(/^\s+entry:\s*(.*)$/);
+    if (eM && id) {
+      const v = eM[1].trim();
+      out[id] =
+        v.startsWith("'") && v.endsWith("'")
+          ? v.slice(1, -1).replace(/''/g, "'")
+          : v.startsWith('"') && v.endsWith('"')
+            ? v.slice(1, -1)
+            : v;
+    }
+  }
+  return out;
+}
+
+/** True when the entry has shell metacharacters outside quoted strings.
+ *  pre-commit `language: system` execs the entry WITHOUT a shell (shlex-split
+ *  + direct exec of the first token), so unquoted shell syntax can never
+ *  work — it must be wrapped in `bash -c '...'` (prettier pattern). */
+function hasUnquotedShellSyntax(entry: string): boolean {
+  let q: "'" | '"' | null = null;
+  for (let i = 0; i < entry.length; i++) {
+    const c = entry[i];
+    if (q !== null) {
+      if (c === q && entry[i - 1] !== "\\") q = null;
+      continue;
+    }
+    if (c === "'" || c === '"') q = c;
+    else if (";&|<>()$`".includes(c)) return true;
+  }
+  return false;
+}
+
+test("preCommit: local system hooks run without a shell — shell syntax must be bash -c wrapped (dogfood CI 2026-08-10)", () => {
+  // Regression: a bare `command -v agentskills ...` entry hit "Executable
+  // `command` not found" on Linux CI — pre-commit execs the first token
+  // directly, and `command` is a shell builtin, not a file. macOS's
+  // /usr/bin/command masked it locally. Same class: the go-test entry's
+  // `$(go list ... | ...)` became literal go args ("malformed import path").
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"test":"echo t"}}\n');
+  writeFileSync(join(repo, "tsconfig.json"), "{}\n");
+  writeFileSync(join(repo, "SKILL.md"), "# demo\n");
+  writeFileSync(join(repo, "requirements.txt"), "");
+  writeFileSync(join(repo, "go.mod"), "module x\n\ngo 1.21\n");
+  const config = generatePreCommitConfig(repo);
+  const entries = localHookEntries(config);
+  for (const id of ["pip-audit", "skills-ref-validate", "go-test"]) {
+    assert.ok(entries[id] !== undefined, `${id} hook generated`);
+  }
+  for (const [id, entry] of Object.entries(entries)) {
+    const first = entry.split(/\s+/, 1)[0];
+    assert.notEqual(
+      first,
+      "command",
+      `${id}: "command" is a shell builtin — pre-commit never runs a shell, wrap in bash -c`,
+    );
+    if (hasUnquotedShellSyntax(entry)) {
+      assert.equal(first, "bash", `${id}: unquoted shell syntax needs bash -c wrapping, entry starts with "${first}"`);
+    }
+  }
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -998,7 +1136,8 @@ test("parity: go workflow template + generated go-test hook carry the e2e-aware 
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n");
   const cfg = generatePreCommitConfig(repo);
-  assert.match(cfg, /entry: go test \$\(go list \.\/\.\.\. \| grep -v \/test\/e2e\)/);
+  // bash -c wrapped: `$(...)`/`|` only work inside a shell (dogfood 2026-08-10)
+  assert.match(cfg, /bash -c ''go test \$\(go list \.\/\.\.\. \| grep -v \/test\/e2e\)/);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -1008,7 +1147,8 @@ test("preCommit: pip-audit hook skips with a notice when the tool is missing (do
   writeFileSync(join(repo, "requirements.txt"), "requests\n");
   const cfg = generatePreCommitConfig(repo);
   assert.match(cfg, /id: pip-audit/);
-  assert.match(cfg, /command -v pip-audit >\/dev\/null 2>&1/);
+  // bash -c wrapped: system hooks never run through a shell (dogfood CI 2026-08-10)
+  assert.match(cfg, /bash -c ''command -v pip-audit >\/dev\/null 2>&1/);
   assert.match(cfg, /pip-audit not installed - SKIP=pip-audit or pip install pip-audit/);
   rmSync(repo, { recursive: true, force: true });
 });
@@ -1067,4 +1207,97 @@ test("parity: node template's declared-commands job uses the prefix-family rule"
     "check/verify chain external tooling (pre-commit) missing in the clean-checkout gate",
   );
   rmSync(fixture(), { recursive: true, force: true });
+});
+
+// --- CI-local parity: run: blocks must be bash-valid -------------------------
+
+/** Extract every `run:` block (inline or `|` literal) from workflow YAML —
+ *  zero-dependency line scan (run: blocks are the one thing parity's byte
+ *  comparison and check-yaml's syntax check never execute locally). */
+function runBlocks(text: string): string[] {
+  const out: string[] = [];
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\s*)run:\s*(.*)$/);
+    if (!m) continue;
+    const rest = m[2].trim();
+    if (rest !== "" && rest !== "|") {
+      out.push(rest);
+      continue;
+    }
+    if (rest === "|") {
+      const indent = m[1].length;
+      const block: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && (lines[j].trim() === "" || lines[j].length - lines[j].trimStart().length > indent)) {
+        block.push(lines[j]);
+        j++;
+      }
+      out.push(block.join("\n"));
+      i = j - 1;
+    }
+  }
+  return out;
+}
+
+test("runBlocks: extracts inline and literal run: blocks", () => {
+  const yaml = `jobs:
+  lint:
+    steps:
+      - name: inline
+        run: echo hi
+      - name: literal
+        run: |
+          node -e '
+            const x = 1;
+          '
+      - name: empty
+        run: |
+`;
+  const blocks = runBlocks(yaml);
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[0], "echo hi");
+  assert.match(blocks[1], /node -e/);
+  assert.equal(blocks[2], "");
+  assert.equal(
+    blocks[1],
+    `          node -e '
+            const x = 1;
+          '`,
+  );
+});
+
+test("parity: every run: block in the workflow templates passes bash -n (the apostrophe class)", () => {
+  // A template's run: blocks are never executed locally (parity compares
+  // bytes, check-yaml parses YAML only) — a broken quote inside a
+  // node -e '...' single-quoted command failed CI-only (2026-08-09).
+  // bash -n is the cheapest syntax gate: quote mismatches die here.
+  for (const tpl of [
+    "ci-workflow-node.yml",
+    "ci-workflow-python.yml",
+    "ci-workflow-go.yml",
+    "ci-workflow-java.yml",
+    "ci-workflow-rust.yml",
+    "sdd-ci-workflow.yml",
+  ]) {
+    const blocks = runBlocks(readTemplate(tpl));
+    assert.ok(blocks.length > 0, `${tpl}: no run: blocks found`);
+    for (const b of blocks) {
+      assert.doesNotThrow(
+        () => execFileSync("bash", ["-n"], { input: b }),
+        `${tpl} has a run: block that fails bash -n:\n${b}`,
+      );
+    }
+  }
+});
+
+test("runBlocks: a broken single-quote is caught by bash -n (regression: the apostrophe class)", () => {
+  const bad = `node -e '
+  const s = "the audit's fine";
+'`;
+  assert.throws(() => execFileSync("bash", ["-n"], { input: bad }), /unexpected|quote/);
+  const good = `node -e '
+  const s = "the audit is fine";
+'`;
+  assert.doesNotThrow(() => execFileSync("bash", ["-n"], { input: good }));
 });

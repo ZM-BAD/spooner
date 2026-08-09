@@ -35,15 +35,15 @@ For any repository with the installed CI workflow, fail the build when the `.ai-
 ## Gate job (pinned behavior)
 
 ```yaml
-  manifest-consistency:
-    name: manifest consistency + template version (hard gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - run: |
-          node -e '<self-contained script: parse .ai-native.yml (pinned schema v1),
-                    fail on missing/unparseable manifest, missing files (with the
-                    restoring stage), or version older than the baked EXPECTED>'
+manifest-consistency:
+  name: manifest consistency + template version (hard gate)
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v7.0.1
+    - run: |
+        node -e '<self-contained script: parse .ai-native.yml (pinned schema v1),
+                  fail on missing/unparseable manifest, missing files (with the
+                  restoring stage), or version older than the baked EXPECTED>'
 ```
 
 Exit 0 + a one-line "consistent (N stage(s) at vX)" summary on green; exit 1 + the specific remediation on red. Deterministic: same repo state → same outcome.
@@ -64,11 +64,11 @@ Exit 0 + a one-line "consistent (N stage(s) at vX)" summary on green; exit 1 + t
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | `ci-workflow.yml` fifth job (self-contained parser + file-drift + version-staleness gates) + TOOL_VERSION bump + docs/08 ledger + maintenance rule | [x] |
-| 2 | Dogfood: sync spooner (workflow replaced + manifest stamped) + gate script verified against fixtures (green / drift / no-manifest / stale / bad-schema) | [x] |
-| 3 | SKILL.md/README/AGENTS/ROADMAP/HANDOFF sync + acceptance + ship | [x] |
+| Slice | Content                                                                                                                                                 | Status |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 1     | `ci-workflow.yml` fifth job (self-contained parser + file-drift + version-staleness gates) + TOOL_VERSION bump + docs/08 ledger + maintenance rule      | [x]    |
+| 2     | Dogfood: sync spooner (workflow replaced + manifest stamped) + gate script verified against fixtures (green / drift / no-manifest / stale / bad-schema) | [x]    |
+| 3     | SKILL.md/README/AGENTS/ROADMAP/HANDOFF sync + acceptance + ship                                                                                         | [x]    |
 
 ## Risks
 

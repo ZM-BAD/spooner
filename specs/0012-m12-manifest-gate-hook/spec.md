@@ -50,11 +50,11 @@ The generated pre-commit config gains a self-contained `manifest-consistency` ho
 
 ## Slice plan (each slice independently verifiable)
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | Generator emits the self-contained hook (script + baked EXPECTED) + behavior tests (2-6, 10) | [x] |
-| 2 | Parity test (7) + migration-rule widening (8) + tests | [x] |
-| 3 | SKIP ×5 + TOOL_VERSION 0.5.0 + EXPECTED×5 + docs/08 ledger + dogfood sync | [x] |
+| Slice | Content                                                                                      | Status |
+| ----- | -------------------------------------------------------------------------------------------- | ------ |
+| 1     | Generator emits the self-contained hook (script + baked EXPECTED) + behavior tests (2-6, 10) | [x]    |
+| 2     | Parity test (7) + migration-rule widening (8) + tests                                        | [x]    |
+| 3     | SKIP ×5 + TOOL_VERSION 0.5.0 + EXPECTED×5 + docs/08 ledger + dogfood sync                    | [x]    |
 
 ## Risks
 

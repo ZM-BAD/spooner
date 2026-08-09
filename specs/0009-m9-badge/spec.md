@@ -12,7 +12,7 @@ The distribution engine is the open gap before launch (docs/06): the before/afte
 
 Design principles this spec pins:
 
-- **Zero dependency, zero build, deterministic**: the badge is rendered locally as SVG (Node builtins + string templates) from the audit result — no shields.io endpoint, no hosted service, no data exfiltration (company-repo privacy, decision-consistent with M8). "shields-style" geometry (20px height, 11px Verdana, rounded pill) — parity with shields.io rendering is *not* a goal (the Rust `shields` crate achieves bitwise parity; we don't need to claim it).
+- **Zero dependency, zero build, deterministic**: the badge is rendered locally as SVG (Node builtins + string templates) from the audit result — no shields.io endpoint, no hosted service, no data exfiltration (company-repo privacy, decision-consistent with M8). "shields-style" geometry (20px height, 11px Verdana, rounded pill) — parity with shields.io rendering is _not_ a goal (the Rust `shields` crate achieves bitwise parity; we don't need to claim it).
 - **Fit the host README, don't impose**: the ecosystem convention is "one style per row" (mixed heights look broken — `for-the-badge` ~28px vs `flat` ~20px). The badge must slot into the repo's existing badge row, so the generator probes the root README and matches the dominant existing style; the human always wins via `--style`.
 - **Consistency > freshness**: a dated existing style (e.g. `plastic`) is matched anyway — the badge is the owner's reputational asset and the owner's visual choice; the tool follows, it never judges aesthetics.
 - **Scripts don't mutate the repo**: badge.ts renders and reports; README insertion is an agent step with user confirmation (transform territory, M8 permission philosophy).
@@ -36,15 +36,16 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
   - `--style` always overrides the probe.
 - **Pinned tier/color mapping** (label = tier, message = `x/10`; 10-scale with 9.5 as the excellent benchmark — a 10 is almost unreachable; message-side colors follow the shields convention):
 
-  | Score | Tier label | Color |
-  |---|---|---|
-  | 9-10 | AI-Native | `#4c1` (green) |
-  | 7-8.9 | AI-Friendly | `#4c1` (green) |
-  | 5-6.9 | AI-Curious | `#dfb317` (yellow) |
-  | 3-4.9 | AI-Aware | `#e05d44` (red) |
-  | 0-2.9 | AI-Absent | `#e05d44` (red) |
+  | Score | Tier label  | Color              |
+  | ----- | ----------- | ------------------ |
+  | 9-10  | AI-Native   | `#4c1` (green)     |
+  | 7-8.9 | AI-Friendly | `#4c1` (green)     |
+  | 5-6.9 | AI-Curious  | `#dfb317` (yellow) |
+  | 3-4.9 | AI-Aware    | `#e05d44` (red)    |
+  | 0-2.9 | AI-Absent   | `#e05d44` (red)    |
 
   Color bands: >= 8 green, 5-7.9 yellow, < 5 red. Fixed hex colors only (renders correctly in both GitHub themes).
+
 - **SKILL.md**: a badge step (after transform) — run badge.ts, review the snippet + probe report, insert into the README badge row with user confirmation.
 - No TOOL_VERSION bump (no workflow-template bytes change — new script + SKILL.md instructions only, same precedent as spec 0008).
 
@@ -74,11 +75,11 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
 
 ## Slice plan
 
-| Slice | Content | Status |
-|---|---|---|
-| 1 | badge.ts core renderer: 5 style templates + pinned tiers/colors + audit reuse + artifacts + snippet | [x] |
-| 2 | README style probe + decision chain + `--style` override + evidence report | [x] |
-| 3 | SKILL.md badge step + acceptance fixtures + ROADMAP/HANDOFF sync + ship | [x] |
+| Slice | Content                                                                                             | Status |
+| ----- | --------------------------------------------------------------------------------------------------- | ------ |
+| 1     | badge.ts core renderer: 5 style templates + pinned tiers/colors + audit reuse + artifacts + snippet | [x]    |
+| 2     | README style probe + decision chain + `--style` override + evidence report                          | [x]    |
+| 3     | SKILL.md badge step + acceptance fixtures + ROADMAP/HANDOFF sync + ship                             | [x]    |
 
 ## Risks
 

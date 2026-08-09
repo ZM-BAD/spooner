@@ -1,11 +1,11 @@
 # markdownlint-cli2 config (installed by spooner transform Stage 2)
 config:
-  MD013: false   # line length: no limit for Chinese text/tables
-  MD024: false   # duplicate headings: bilingual docs mirror sections
-  MD033: false   # inline HTML: allow badges
-  MD036: false   # emphasis-as-heading: common in Chinese docs (e.g. "借人")
-  MD041: false   # first line H1: allow intro quote before heading
-  MD060: false   # compact tables: repo style (|col|col|), not enforcing gfm spacing
+  MD013: false # line length: no limit for Chinese text/tables
+  MD024: false # duplicate headings: bilingual docs mirror sections
+  MD033: false # inline HTML: allow badges
+  MD036: false # emphasis-as-heading: common in Chinese docs (e.g. "借人")
+  MD041: false # first line H1: allow intro quote before heading
+  MD060: false # compact tables: repo style (|col|col|), not enforcing gfm spacing
 globs:
   - "**/*.md"
 ignores:
