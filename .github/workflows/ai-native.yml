@@ -90,10 +90,12 @@ jobs:
           node -e '
             const { execSync } = require("node:child_process");
             const scripts = require("./package.json").scripts || {};
-            // self-contained build/test families only: check/verify chain
-            // external tooling (pre-commit etc.) and are excluded from the gate
-            const keys = ["build", "compile", "typecheck", "test", "spec"];
-            const declared = keys.filter((k) => typeof scripts[k] === "string");
+            // prefix-family rule — one source of truth with the audit's
+            // scriptKey and transform's declaredNpmLifecycle (dogfood review
+            // 2026-08-10: a Node repo's check:metadata was credited by the
+            // audit but skipped here)
+            const fam = (k) => ["build", "compile", "typecheck", "check", "verify", "test", "spec"].some((f) => k === f || k.startsWith(f + ":"));
+            const declared = Object.keys(scripts).filter(fam);
             if (declared.length === 0) { console.log("no build/test scripts declared"); process.exit(0); }
             for (const k of declared) { console.log("> npm run " + k); execSync("npm run " + k, { stdio: "inherit" }); }
           '

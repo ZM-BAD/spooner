@@ -946,3 +946,22 @@ test("stage2: foreign commitlint config -> skip notice naming the cleanup (dogfo
   assert.ok(!r.files.some((f) => f.file === ".commitlintrc.json" && f.action === "write"));
   rmSync(repo, { recursive: true, force: true });
 });
+
+// --- dogfood review 2026-08-10: script recognition unification ---
+
+test("stackLifecycle: prefix-family scripts (check:metadata) are declared commands (dogfood: node)", () => {
+  const repo = nodeRepo(fixture());
+  writeFileSync(
+    join(repo, "package.json"),
+    '{"name":"x","scripts":{"lint":"eslint .","check:metadata":"node scripts/check-metadata.mjs"}}\n',
+  );
+  const lc = stackLifecycle(repo);
+  assert.equal(lc.build, "npm run check:metadata");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("parity: node template's declared-commands job uses the prefix-family rule", () => {
+  assert.match(readTemplate("ci-workflow-node.yml"), /startsWith\(f \+ ":"\)/);
+  assert.match(readTemplate("ci-workflow-node.yml"), /"check", "verify"/);
+  rmSync(fixture(), { recursive: true, force: true });
+});

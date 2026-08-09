@@ -892,9 +892,16 @@ function declaredNpmLifecycle(root: string): { build: string | null; test: strin
   const pkg = packageJsonOf(root);
   const scripts =
     pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
-  const build =
-    ["build", "compile", "typecheck", "check", "verify"].find((k) => typeof scripts[k] === "string") ?? null;
-  const test = ["test", "spec"].find((k) => typeof scripts[k] === "string") ?? null;
+  // Prefix-family rule, one source of truth with the audit's scriptKey and
+  // the CI template's declared-commands job: a key matches by exact name OR a
+  // `family:` variant (build:prod, check:metadata). The three recognizers
+  // must agree or the audit credits commands the verification never runs
+  // (dogfood review 2026-08-10: a Node repo's check:metadata was credited as
+  // build:true while transform reported "no command declared").
+  const familyKey = (families: string[]): string | null =>
+    Object.keys(scripts).find((k) => families.some((f) => k === f || k.startsWith(`${f}:`))) ?? null;
+  const build = familyKey(["build", "compile", "typecheck", "check", "verify"]);
+  const test = familyKey(["test", "spec"]);
   return { build: build ? `npm run ${build}` : null, test: test ? `npm run ${test}` : null };
 }
 
