@@ -1,16 +1,16 @@
 # Spooner
 
-<p style="text-align:center">
+<p align="center">
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 > **Make this git repository ready for AI** — so AI coding agents can work in it from the first run. Audit its AI coding readiness, score it out of 10, then transform it in place: CI gates, AGENTS.md, a spec-driven workflow. Every step verifiable, never breaking the existing build.
 
-<p style="text-align:center">
-  <img src="https://img.shields.io/badge/agents-10%2B-8A2BE2.svg?style=flat-square" alt="Compatible with 10+ coding agents"/>
-  <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
-  <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
+<p align="center">
+  <img src="https://img.shields.io/static/v1?label=agents&message=10%2B&color=8A2BE2&style=flat-square" alt="Compatible with 10+ coding agents"/>
+  <img src="https://img.shields.io/static/v1?label=Agent%20Skills&message=%E2%9C%93&color=green&style=flat-square" alt="Agent Skills standard"/>
+  <a href="https://github.com/ZM-BAD/spooner/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZM-BAD/spooner/ci.yml?style=flat-square&label=CI&cacheSeconds=300" alt="CI status"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ZM-BAD/spooner?style=flat-square&label=License" alt="License"/></a>
   <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI readiness: AI-Native · 9.2/10"/></a>
 </p>
 
@@ -20,7 +20,7 @@ An AI-native repository generally comes with complete quality gates and AI guida
 
 ## What one run does
 
-<p style="text-align:center">
+<p align="center">
   <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI readiness: 4.3/10 AI-Aware → 9.2/10 AI-Native after one transform"/></a>
 </p>
 
