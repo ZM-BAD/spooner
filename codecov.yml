@@ -1,0 +1,9 @@
+# Codecov configuration — monitoring only, no gates.
+# Uploads are informational: status checks are disabled so coverage
+# fluctuations (or the experimental Node coverage flag) never block merges.
+coverage:
+  status:
+    project: off
+    patch: off
+
+comment: false

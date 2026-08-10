@@ -12,6 +12,9 @@ dist/
 build/
 out/
 
+# Test coverage output (uploaded by CI; local runs write here)
+coverage/
+
 # OS / editor
 .DS_Store
 *.swp

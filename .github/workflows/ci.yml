@@ -32,6 +32,11 @@ jobs:
   typecheck:
     name: TypeScript 6 typecheck + tests
     runs-on: ubuntu-latest
+    # id-token: write enables Codecov's tokenless (OIDC) upload on this
+    # public repo — without it the upload step fails 403 silently.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.0.0
@@ -40,9 +45,36 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run test:coverage
       - name: Smoke — run TS scripts zero-build
         run: node skills/spooner/scripts/detect.ts && node skills/spooner/scripts/audit.ts
+      - name: Coverage summary
+        run: |
+          # Monitoring only: if the (experimental) coverage run wrote no lcov
+          # file, skip the summary instead of failing the test gate.
+          [ -f coverage/lcov.info ] || exit 0
+          echo '## 📊 Test Coverage' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node --input-type=module -e "
+            import { readFileSync } from 'node:fs';
+            const t = readFileSync('coverage/lcov.info', 'utf8');
+            const s = { LF: 0, LH: 0, BRF: 0, BRH: 0, FNF: 0, FNH: 0 };
+            for (const line of t.split('\n')) {
+              const [k, v] = line.split(':');
+              if (k in s) s[k] += Number(v);
+            }
+            const pct = (h, f) => (f > 0 ? ((h / f) * 100).toFixed(1) + '%' : 'n/a');
+            console.log('Lines      : ' + s.LH + '/' + s.LF + ' (' + pct(s.LH, s.LF) + ')');
+            console.log('Branches   : ' + s.BRH + '/' + s.BRF + ' (' + pct(s.BRH, s.BRF) + ')');
+            console.log('Functions  : ' + s.FNH + '/' + s.FNF + ' (' + pct(s.FNH, s.FNF) + ')');
+          " >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          files: ./coverage/lcov.info
+          flags: unittests
+          fail_ci_if_error: false
 
   commitlint:
     name: commitlint (Conventional Commits)

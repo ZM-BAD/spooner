@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint:md": "markdownlint-cli2 \"**/*.md\"",
     "test": "node --test \"skills/spooner/test/*.test.ts\"",
+    "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=tap --test-reporter-destination=stdout --test-coverage-exclude='**/*.test.ts' \"skills/spooner/test/*.test.ts\"",
     "check": "npm run typecheck && npm run lint:md && npm run lint && npm run test",
     "verify": "npm run check && pre-commit run --all-files",
     "lint": "eslint . && prettier --check \"**/*.{js,ts,mjs,cjs}\"",
