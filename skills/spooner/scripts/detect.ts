@@ -12,35 +12,74 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { isDirectEntry } from "./entry.ts";
 
-/** Known manifests mapped to their stacks */
-const MANIFESTS = [
-  ["node", "package.json"],
-  ["node", "pnpm-workspace.yaml"],
+/**
+ * Stack signals, three kinds (spec 0014):
+ * - file: exact root-path match (the M1 model)
+ * - glob: top-level entries matching "*.suffix" (dirs or files) — the csproj
+ *   scan precedent generalized (apple *.xcodeproj / *.xcworkspace, later
+ *   haskell *.cabal, lua *.rockspec)
+ * - all: every path must exist (file or dir) — unity's corroborating pair
+ *   (ProjectVersion.txt must exist; Assets/ alone is not a Unity signal)
+ */
+type StackSignal = { stack: string; file: string } | { stack: string; glob: string } | { stack: string; all: string[] };
+
+const STACK_SIGNALS: StackSignal[] = [
+  { stack: "node", file: "package.json" },
+  { stack: "node", file: "pnpm-workspace.yaml" },
   // Rush monorepos have no root package.json — rush.json is the root signal
-  // (dogfood review 2026-08-10: a Rush monorepo scored stacks: empty with
-  // 2442 commits and a full apps/ + libraries/ tree, systematically
-  // under-scored).
-  ["node", "rush.json"],
+  // (a Rush monorepo without it scores stacks: empty despite a full
+  // apps/ + libraries/ tree, systematically under-scored).
+  { stack: "node", file: "rush.json" },
   // HarmonyOS apps have no standard manifest in the list — oh-package.json5
-  // is the ohpm manifest (hvigor + AppScope + entry/ structure; dogfood
-  // review 2026-08-10: a HarmonyOS repo scored stacks: empty despite the full
-  // HarmonyOS layout). Detected but transform-unsupported (cross-stack gates
-  // + notice), like ruby/php/swift/dotnet.
-  ["harmonyos", "oh-package.json5"],
-  ["harmonyos", "build-profile.json5"],
-  ["python", "pyproject.toml"],
-  ["python", "requirements.txt"],
-  ["go", "go.mod"],
-  ["rust", "Cargo.toml"],
-  ["java", "pom.xml"],
-  ["java", "build.gradle"],
-  ["java", "build.gradle.kts"],
-  ["java", "settings.gradle"],
-  ["java", "settings.gradle.kts"],
-  ["ruby", "Gemfile"],
-  ["php", "composer.json"],
-  ["swift", "Package.swift"],
-] as const;
+  // is the ohpm manifest (hvigor + AppScope + entry/ structure; a HarmonyOS
+  // repo without it scores stacks: empty despite the full layout). Detected
+  // but transform-unsupported (cross-stack gates + notice), like
+  // ruby/php/swift/dotnet.
+  { stack: "harmonyos", file: "oh-package.json5" },
+  { stack: "harmonyos", file: "build-profile.json5" },
+  { stack: "python", file: "pyproject.toml" },
+  { stack: "python", file: "requirements.txt" },
+  { stack: "go", file: "go.mod" },
+  { stack: "rust", file: "Cargo.toml" },
+  { stack: "java", file: "pom.xml" },
+  { stack: "java", file: "build.gradle" },
+  { stack: "java", file: "build.gradle.kts" },
+  { stack: "java", file: "settings.gradle" },
+  { stack: "java", file: "settings.gradle.kts" },
+  { stack: "ruby", file: "Gemfile" },
+  { stack: "php", file: "composer.json" },
+  { stack: "swift", file: "Package.swift" },
+  // ---- A group (spec 0014, official-doc verified) --------------------------
+  // apple: xcodeproj/workspace dirs (glob), Tuist Project.swift, CocoaPods
+  // Podfile (apple, not ruby — CocoaPods docs place it beside .xcodeproj),
+  // Carthage Cartfile (developer.apple.com / tuist.dev / guides.cocoapods.org
+  // / Carthage Artifacts.md).
+  { stack: "apple", glob: "*.xcodeproj" },
+  { stack: "apple", glob: "*.xcworkspace" },
+  { stack: "apple", file: "Project.swift" },
+  { stack: "apple", file: "Podfile" },
+  { stack: "apple", file: "Cartfile" },
+  // c/cpp: cmake.org (CMakeLists.txt), mesonbuild.com ("meson.build at the
+  // project root"), vcpkg manifest mode (vcpkg.json), conan (conanfile.txt at
+  // root — conanfile.py intentionally not used: python-ambiguity).
+  { stack: "c/cpp", file: "CMakeLists.txt" },
+  { stack: "c/cpp", file: "meson.build" },
+  { stack: "c/cpp", file: "vcpkg.json" },
+  { stack: "c/cpp", file: "conanfile.txt" },
+  // dart/flutter: pubspec.yaml is the shared root manifest (dart.dev package
+  // layout — "that's what makes it a package"); the two cannot be separated
+  // by static matching (merged stack).
+  { stack: "dart/flutter", file: "pubspec.yaml" },
+  // unity: ProjectVersion.txt (must) + Assets/ dir (corroborating) —
+  // docs.unity3d.com lists both as the project's core structure; top-level
+  // csproj is NOT a signal (generated artifact, usually gitignored).
+  { stack: "unity", all: ["ProjectSettings/ProjectVersion.txt", "Assets"] },
+  // zig: build.zig is the project's build script (ziglang.org build system).
+  // The rest of the spec-0014 Tier-2 list (elixir/erlang/scala/clojure/
+  // haskell/r/julia/lua/perl/bazel) is deferred until the skill has real
+  // adoption — demand-driven.
+  { stack: "zig", file: "build.zig" },
+];
 
 export interface ManifestHit {
   stack: string;
@@ -54,12 +93,33 @@ export interface DetectResult {
   manifests: ManifestHit[];
 }
 
+/** Top-level entries matching a "*.suffix" glob (dirs and files alike). */
+function globHits(root: string, glob: string): string[] {
+  // Only "*.suffix" patterns are supported — any other shape is a bug, fail loudly
+  if (!glob.startsWith("*.") || glob.includes("/")) {
+    throw new Error(`detect: unsupported glob pattern "${glob}" (only "*.suffix")`);
+  }
+  const suffix = glob.slice(1);
+  return readdirSync(root).filter((f) => f.endsWith(suffix));
+}
+
 export function detect(root: string): DetectResult {
-  const manifests: ManifestHit[] = MANIFESTS.map(([stack, file]) => ({
-    stack,
-    file,
-    exists: existsSync(join(root, file)),
-  }));
+  const manifests: ManifestHit[] = [];
+  for (const signal of STACK_SIGNALS) {
+    if ("file" in signal) {
+      manifests.push({ stack: signal.stack, file: signal.file, exists: existsSync(join(root, signal.file)) });
+    } else if ("glob" in signal) {
+      for (const f of globHits(root, signal.glob)) {
+        manifests.push({ stack: signal.stack, file: f, exists: true });
+      }
+    } else {
+      manifests.push({
+        stack: signal.stack,
+        file: signal.all[0],
+        exists: signal.all.every((p) => existsSync(join(root, p))),
+      });
+    }
+  }
 
   // *.csproj cannot be enumerated statically; scan the top-level directory
   const dotnetFiles = readdirSync(root).filter((f) => f.endsWith(".csproj"));
