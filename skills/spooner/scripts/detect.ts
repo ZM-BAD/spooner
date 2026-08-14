@@ -23,6 +23,13 @@ import { isDirectEntry } from "./entry.ts";
  */
 type StackSignal = { stack: string; file: string } | { stack: string; glob: string } | { stack: string; all: string[] };
 
+/** Python project root signals — single-sourced here (spec 0015's
+ *  command-source rule extended to detection): transform's python gates
+ *  consume this list, so detect and the generated gates can never diverge.
+ *  Official packaging files only (setuptools/pyproject) — tool configs
+ *  (.pylintrc / ruff.toml) are NOT project signals. */
+export const PYTHON_FILES = ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"];
+
 const STACK_SIGNALS: StackSignal[] = [
   { stack: "node", file: "package.json" },
   { stack: "node", file: "pnpm-workspace.yaml" },
@@ -37,8 +44,7 @@ const STACK_SIGNALS: StackSignal[] = [
   // ruby/php/swift/dotnet.
   { stack: "harmonyos", file: "oh-package.json5" },
   { stack: "harmonyos", file: "build-profile.json5" },
-  { stack: "python", file: "pyproject.toml" },
-  { stack: "python", file: "requirements.txt" },
+  ...PYTHON_FILES.map((file) => ({ stack: "python", file })),
   { stack: "go", file: "go.mod" },
   { stack: "rust", file: "Cargo.toml" },
   { stack: "java", file: "pom.xml" },

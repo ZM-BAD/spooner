@@ -34,7 +34,9 @@ import {
   manifestWithStage,
   primaryStack,
   checkConsistency,
+  renderWorkflow,
   type ManifestConsistency,
+  type GatesStrictness,
 } from "./transform.ts";
 
 const SCHEMA_VERSION = 1;
@@ -68,6 +70,9 @@ interface ManifestEntry {
   /** template file in templates/, null when not template-managed (e.g. AGENTS.md) */
   template: string | null;
   templateVersion: string;
+  /** Gate strictness the installed workflow was rendered with (stage-2
+   *  manifest record; absent for non-workflow files / pre-0008 installs). */
+  gates?: GatesStrictness;
 }
 
 /** Dotted numeric version compare: "0.9.0" < "0.10.0" (true); non-numeric → string fallback. */
@@ -105,17 +110,32 @@ function templateFor(file: string, root: string): string | null {
 
 /** Every manifest file entry across stages (stage ascending, then file). */
 function manifestEntries(
-  manifest: { stages: Record<string, { files: string[]; templateVersion?: string }> },
+  manifest: { stages: Record<string, { files: string[]; templateVersion?: string; gates?: GatesStrictness }> },
   root: string,
 ): ManifestEntry[] {
   const out: ManifestEntry[] = [];
   for (const [k, s] of Object.entries(manifest.stages)) {
     const stage = Number.parseInt(k, 10);
     for (const file of s.files) {
-      out.push({ stage, file, template: templateFor(file, root), templateVersion: s.templateVersion ?? TOOL_VERSION });
+      out.push({
+        stage,
+        file,
+        template: templateFor(file, root),
+        templateVersion: s.templateVersion ?? TOOL_VERSION,
+        // The workflow is the only template file whose installed bytes depend
+        // on the strictness render — carry the stage-2 record through classify.
+        gates: file === ".github/workflows/ai-native.yml" ? s.gates : undefined,
+      });
     }
   }
   return out.sort((a, b) => a.stage - b.stage || a.file.localeCompare(b.file));
+}
+
+/** The template bytes an installed file is compared against — the workflow
+ *  compares against its recorded strictness render, everything else verbatim. */
+function currentBytes(e: ManifestEntry): string {
+  const tpl = templateContent(e.template as string);
+  return e.gates && e.file === ".github/workflows/ai-native.yml" ? renderWorkflow(tpl, e.gates) : tpl;
 }
 
 /** Deterministic per-file classification (byte comparison + version comparison). */
@@ -123,7 +143,7 @@ function classify(root: string, e: ManifestEntry): SyncFileReport {
   if (!e.template) return { file: e.file, stage: e.stage, status: "generated", from: null, to: null };
   const target = join(root, e.file);
   if (!existsSync(target)) return { file: e.file, stage: e.stage, status: "missing", from: null, to: null };
-  if (readFileSync(target, "utf8") === templateContent(e.template)) {
+  if (readFileSync(target, "utf8") === currentBytes(e)) {
     return { file: e.file, stage: e.stage, status: "up-to-date", from: null, to: null };
   }
   if (versionLt(e.templateVersion, TOOL_VERSION)) {
@@ -179,11 +199,13 @@ export function run(root: string, dryRun: boolean): SyncReport {
     };
   }
 
-  // Apply: replace outdated + restore missing with current template bytes; never touch modified.
+  // Apply: replace outdated + restore missing with current template bytes
+  // (the workflow re-rendered at the manifest's recorded strictness — a hard
+  // install must not be silently downgraded to warn-only); never touch modified.
   const touchedStages = new Set<number>();
   for (const { entry } of toApply) {
     mkdirSync(join(root, entry.file, ".."), { recursive: true });
-    writeFileSync(join(root, entry.file), templateContent(entry.template as string), "utf8");
+    writeFileSync(join(root, entry.file), currentBytes(entry), "utf8");
     touchedStages.add(entry.stage);
   }
   // Version-record reconciliation: a stage whose files all match the current

@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { run } from "../scripts/sync.ts";
-import { TEMPLATE_DIR, TOOL_VERSION } from "../scripts/transform.ts";
+import { TEMPLATE_DIR, TOOL_VERSION, renderWorkflow } from "../scripts/transform.ts";
 
 function readTemplate(name: string): string {
   return readFileSync(join(TEMPLATE_DIR, name), "utf8");
@@ -84,5 +84,66 @@ test("no manifest: report says run transform stage 2 first", () => {
   const r = run(repo, true);
   assert.equal(r.files.length, 0);
   assert.match(r.message ?? "", /run transform stage 2 first/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- hard-gate strictness must survive sync (review hardening 2026-08-11) ----
+
+/** Manifest with a stage-2 workflow entry carrying a recorded gate strictness. */
+function writeWorkflowManifest(repo: string, version: string, gates: string): void {
+  writeFileSync(
+    join(repo, ".ai-native.yml"),
+    `schemaVersion: 1\ntool: spooner\nversion: "${version}"\nstages:\n  2:\n    date: "2026-08-04"\n    templateVersion: "${version}"\n    gates: ${gates}\n    files:\n      - ".github/workflows/ai-native.yml"\n`,
+  );
+}
+
+test("hard-rendered workflow at the current version is up-to-date (manifest gates: hard)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), "{}\n");
+  writeWorkflowManifest(repo, TOOL_VERSION, "hard");
+  const wf = join(repo, ".github/workflows/ai-native.yml");
+  mkdirSync(join(wf, ".."), { recursive: true });
+  writeFileSync(wf, renderWorkflow(readTemplate("ci-workflow-node.yml"), "hard"));
+  assert.equal(statusOf(repo, ".github/workflows/ai-native.yml"), "up-to-date");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("outdated workflow is re-synced with the recorded gates — hard stays hard", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), "{}\n");
+  writeWorkflowManifest(repo, "0.9.0", "hard");
+  const wf = join(repo, ".github/workflows/ai-native.yml");
+  mkdirSync(join(wf, ".."), { recursive: true });
+  writeFileSync(wf, "# old install\nname: ai-native\n");
+  const r = run(repo, false);
+  assert.ok(r.applied);
+  const written = readFileSync(wf, "utf8");
+  assert.ok(!written.includes("continue-on-error"), "sync downgraded hard gates to warn-only");
+  assert.match(written, /hard gates:/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("gates: hard recorded — non-workflow file still compares verbatim, never rendered", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, ".ai-native.yml"),
+    `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  2:\n    date: "2026-08-04"\n    templateVersion: "${TOOL_VERSION}"\n    gates: hard\n    files:\n      - ".commitlintrc.json"\n`,
+  );
+  writeFileSync(join(repo, ".commitlintrc.json"), readTemplate("commitlintrc.json"));
+  assert.equal(statusOf(repo, ".commitlintrc.json"), "up-to-date");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("pre-0008 manifest (no gates record): warn-only workflow bytes stay up-to-date", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), "{}\n");
+  writeFileSync(
+    join(repo, ".ai-native.yml"),
+    `schemaVersion: 1\ntool: spooner\nversion: "${TOOL_VERSION}"\nstages:\n  2:\n    date: "2026-08-04"\n    templateVersion: "${TOOL_VERSION}"\n    files:\n      - ".github/workflows/ai-native.yml"\n`,
+  );
+  const wf = join(repo, ".github/workflows/ai-native.yml");
+  mkdirSync(join(wf, ".."), { recursive: true });
+  writeFileSync(wf, readTemplate("ci-workflow-node.yml"));
+  assert.equal(statusOf(repo, ".github/workflows/ai-native.yml"), "up-to-date");
   rmSync(repo, { recursive: true, force: true });
 });

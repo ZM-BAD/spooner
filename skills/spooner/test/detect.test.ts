@@ -14,6 +14,13 @@ function stacksOf(repo: string): string[] {
   return detect(repo).stacks;
 }
 
+test("python: setup.py-only repo is python (parity with transform's python gates)", (t) => {
+  const repo = fixture();
+  t.after(() => rmSync(repo, { recursive: true, force: true }));
+  writeFileSync(join(repo, "setup.py"), "from setuptools import setup\n");
+  assert.ok(stacksOf(repo).includes("python"));
+});
+
 // --- spec 0014 slice 1: A-group root signals (official-doc verified) ---
 
 test("apple: *.xcodeproj dir detected", (t) => {

@@ -20,7 +20,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { isDirectEntry } from "./entry.ts";
-import { detect } from "./detect.ts";
+import { detect, PYTHON_FILES } from "./detect.ts";
 import { lifecycleOf } from "./stacks.ts";
 import { readManifest, stackLifecycle, TOOL_VERSION } from "./transform.ts";
 
@@ -197,10 +197,12 @@ function stackCommandSources(root: string): {
     return { hasBuild: lc.build, hasTest: lc.test, hasLint: lc.lint, source: "Cargo.toml (cargo build/test)" };
   }
   if (stacks.includes("python")) {
-    // Evidence must name a file that exists: python is detected by either
-    // manifest (a requirements.txt-only repo must not be credited with a
-    // non-existent pyproject.toml).
-    const manifest = existsSync(join(root, "pyproject.toml")) ? "pyproject.toml" : "requirements.txt";
+    // Evidence must name a file that exists: resolve against the detect
+    // signals in order (regression — a requirements.txt-only repo was
+    // credited with a non-existent pyproject.toml; setup.py joined the signal
+    // set, so the resolver must too).
+    // Unreachable fallback: stacks.includes("python") implies one signal exists.
+    const manifest = PYTHON_FILES.find((f) => existsSync(join(root, f))) ?? "pyproject.toml";
     // hasLint follows the generated ruff gate — the stack's canonical lint
     // (a Python repo whose ruff hook ran but whose branch had no lint signal
     // would cap agents-commands at the test-only band).
@@ -335,8 +337,9 @@ function hasCi(root: string): boolean {
  *  sub-stack scan. */
 const SUBSTACK_MANIFESTS: readonly [string, string][] = [
   ["node", "package.json"],
-  ["python", "pyproject.toml"],
-  ["python", "requirements.txt"],
+  // Single-sourced from detect's python signals (hardening) —
+  // the "mirrors detect.ts" comment below stays true only while this holds.
+  ...PYTHON_FILES.map((file) => ["python", file] as [string, string]),
   ["go", "go.mod"],
   ["rust", "Cargo.toml"],
   ["java", "pom.xml"],

@@ -349,6 +349,16 @@ test("agents-commands evidence: requirements.txt-only python — no phantom pypr
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("agents-commands evidence: setup.py-only python — names setup.py, no phantom requirements.txt (parity hardening 2026-08-11)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "setup.py"), "from setuptools import setup\n");
+  const r = item(repo, "agents-commands");
+  assert.ok(r, "agents-commands missing");
+  assert.match(r.evidence, /setup\.py/, `evidence: ${r.evidence}`);
+  assert.doesNotMatch(r.evidence, /requirements\.txt/, `evidence names a file that does not exist: ${r.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 // --- acceptance 6: hook quality ----------------------------------------------
 
 test("cfg-hooks: no config -> 0", () => {
@@ -389,6 +399,15 @@ test("subStacks: root node + backend/python -> python named with its dir", () =>
   assert.deepEqual(r.subStacks, [{ stack: "python", dir: "backend" }]);
   // the sub-stack note surfaces in the markdown report (rendering side)
   assert.match(renderMarkdown(r), /Sub-stacks: python \(backend\/\)/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("subStacks: setup.py subdir named as python (SUBSTACK_MANIFESTS mirrors PYTHON_FILES, hardening 2026-08-11)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), "{}\n");
+  mkdirSync(join(repo, "pkg"), { recursive: true });
+  writeFileSync(join(repo, "pkg", "setup.py"), "from setuptools import setup\n");
+  assert.deepEqual(runAudit(repo).subStacks, [{ stack: "python", dir: "pkg" }]);
   rmSync(repo, { recursive: true, force: true });
 });
 

@@ -25,7 +25,7 @@ import {
 import { execFileSync, spawn } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { isDirectEntry } from "./entry.ts";
-import { detect } from "./detect.ts";
+import { detect, PYTHON_FILES } from "./detect.ts";
 import { DYNAMIC_LIFECYCLE_STACKS, GO_TEST_COMMAND, STACK_COMMANDS } from "./stacks.ts";
 
 const MANIFEST_FILE = ".ai-native.yml";
@@ -70,12 +70,21 @@ export type GatesStrictness = "warn-only" | "hard";
  *  TOOL_VERSION bump). */
 export function renderWorkflow(tpl: string, gates: GatesStrictness): string {
   if (gates === "warn-only") return tpl;
-  return tpl
-    .replace(/^[ \t]*continue-on-error: true\n/gm, "")
-    .replace(
-      "# CI workflow installed by spooner transform Stage 2 (node stack; warn-only\n# quality gates; hard gates: declared-command executability + .ai-native.yml consistency)",
-      "# CI workflow installed by spooner transform Stage 2 (node stack; hard gates:\n# quality jobs + declared-command executability + .ai-native.yml consistency)",
-    );
+  return (
+    tpl
+      .replace(/^[ \t]*continue-on-error: true\n/gm, "")
+      // Header + quality-job names must not claim warn-only in a hard render —
+      // the stack description varies per template (java's runs three lines), so
+      // match the warn-only claims generically and keep the rest of the text.
+      .replace("; warn-only\n# quality gates; hard gates: ", "; hard gates:\n# quality jobs + ")
+      .replace("; warn-only quality gates; hard gates:\n# ", "; hard gates:\n# quality jobs + ")
+      .replace(/, warn-only\)/g, ")")
+      // Bare "(warn-only)" sits at end-of-line ("lint + test (warn-only)\n") —
+      // eat the leading space so the rendered line keeps no trailing whitespace
+      // (the generated trailing-whitespace hook would strip it, making sync
+      // report an untouched hard install as permanently "modified").
+      .replace(/ \(warn-only\)\n/g, "\n")
+  );
 }
 
 interface Manifest {
@@ -460,15 +469,10 @@ function hasAny(root: string, names: string[]): boolean {
 }
 
 function pythonPresent(root: string): boolean {
-  return hasAny(root, [
-    "pyproject.toml",
-    "setup.py",
-    "setup.cfg",
-    "requirements.txt",
-    ".pylintrc",
-    "ruff.toml",
-    ".ruff.toml",
-  ]);
+  // Single-sourced from detect's python signals (hardening 2026-08-11) —
+  // the audit, the CI workflow, and the ruff/pytest gates must agree on
+  // what makes a directory a python project.
+  return hasAny(root, PYTHON_FILES);
 }
 
 function pytestPresent(root: string): boolean {

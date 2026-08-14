@@ -178,6 +178,35 @@ test("renderWorkflow: hard strips continue-on-error and updates the header; warn
   assert.ok(diff.includes("continue-on-error"));
 });
 
+test("renderWorkflow: hard header is stack-generic — all five templates claim hard gates, never warn-only", () => {
+  for (const stack of ["node", "python", "go", "java", "rust"]) {
+    const tpl = readFileSync(join(TEMPLATE_DIR, `ci-workflow-${stack}.yml`), "utf8");
+    const hard = renderWorkflow(tpl, "hard");
+    assert.ok(!hard.includes("continue-on-error"), `${stack}: continue-on-error left in hard render`);
+    assert.ok(!hard.includes("warn-only"), `${stack}: hard header still claims warn-only gates`);
+    assert.match(
+      hard,
+      /hard gates:\n# quality jobs \+ declared-command executability \+ \.ai-native\.yml consistency/,
+      `${stack}: hard header does not claim hard quality jobs`,
+    );
+  }
+});
+
+test("renderWorkflow: hard render leaves no trailing whitespace (the generated trailing-whitespace hook would strip it → false sync 'modified')", () => {
+  for (const stack of ["node", "python", "go", "java", "rust"]) {
+    const hard = renderWorkflow(readFileSync(join(TEMPLATE_DIR, `ci-workflow-${stack}.yml`), "utf8"), "hard");
+    for (const line of hard.split("\n")) {
+      assert.ok(!/[ \t]$/.test(line), `${stack}: trailing whitespace in hard render: ${JSON.stringify(line)}`);
+    }
+  }
+});
+
+test("renderWorkflow: hard render is idempotent (double render is stable)", () => {
+  const tpl = readFileSync(join(TEMPLATE_DIR, "ci-workflow-node.yml"), "utf8");
+  const once = renderWorkflow(tpl, "hard");
+  assert.equal(renderWorkflow(once, "hard"), once);
+});
+
 test("stage 2: --gates hard installs the workflow without continue-on-error + records gates in the manifest", async () => {
   const repo = nodeRepo(fixture());
   git(repo, ["init", "-q"]);
