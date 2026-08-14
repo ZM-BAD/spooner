@@ -16,11 +16,12 @@
  * type stripping — no build step:
  *   node skills/spooner/scripts/audit.ts [--root <path>] [--format json|markdown]
  */
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { isDirectEntry } from "./entry.ts";
 import { detect } from "./detect.ts";
+import { lifecycleOf } from "./stacks.ts";
 import { readManifest, stackLifecycle, TOOL_VERSION } from "./transform.ts";
 
 /**
@@ -65,7 +66,7 @@ const CATEGORY_ORDER: readonly Category[] = ["agent-setup", "configuration", "in
 
 /**
  * Category weights — the single adjustable knob for the score distribution
- * (2026-08-07 normalization layer, decoupled from the check structure: raw
+ * (normalization layer, decoupled from the check structure: raw
  * check scores scale to these weights per category). Agent Setup is the
  * AI-specific core and carries the most weight; Configuration / Integrity are
  * generic devops practices (helpful to AI but not AI-specific) and are
@@ -154,9 +155,9 @@ function makefileTargets(root: string): string[] {
       .split("\n")
       // Real targets only: a leading alpha excludes make special targets
       // (.PHONY …) and `:(?!=)` excludes variable assignments (VAR := …) —
-      // both previously surfaced as phantom commands (dogfood review
-      // 2026-08-09: a Go monorepo's AGENTS.md listed `make PROJECT_NAME` and
-      // `make .PHONY`; the killer-gate "never invent commands" violated).
+      // both otherwise surface as phantom commands in the command table
+      // (`make PROJECT_NAME` / `make .PHONY` would violate the
+      // "never invent commands" killer gate).
       .filter((line) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*\s*:(?!=)/.test(line))
       .map((line) => line.split(":")[0].trim())
   );
@@ -176,9 +177,9 @@ function makefileTarget(root: string, name: string): boolean {
  * commands traced to build files — go.mod → go build/test, python → python3 -m
  * unittest, java → mvn/gradle, Cargo.toml → cargo build/test. The CI hard gate
  * verifies them (same trust model as package.json scripts). The lint signal is
- * the stack's canonical vet/lint gate — go vet / cargo clippy (dogfood review
- * 2026-08-09: a Go repo with no Makefile scored agents-commands 0.6 forever,
- * though the generated pre-commit config runs go vet).
+ * the stack's canonical vet/lint gate — go vet / cargo clippy (a Go repo
+ * with no Makefile would cap agents-commands at 0.6 forever, though the
+ * generated pre-commit config runs go vet).
  */
 function stackCommandSources(root: string): {
   hasBuild: boolean;
@@ -187,17 +188,22 @@ function stackCommandSources(root: string): {
   source: string | null;
 } {
   const stacks = detect(root).stacks;
-  if (stacks.includes("go")) return { hasBuild: true, hasTest: true, hasLint: true, source: "go.mod (go build/test)" };
-  if (stacks.includes("rust"))
-    return { hasBuild: true, hasTest: true, hasLint: true, source: "Cargo.toml (cargo build/test)" };
+  if (stacks.includes("go")) {
+    const lc = lifecycleOf("go");
+    return { hasBuild: lc.build, hasTest: lc.test, hasLint: lc.lint, source: "go.mod (go build/test)" };
+  }
+  if (stacks.includes("rust")) {
+    const lc = lifecycleOf("rust");
+    return { hasBuild: lc.build, hasTest: lc.test, hasLint: lc.lint, source: "Cargo.toml (cargo build/test)" };
+  }
   if (stacks.includes("python")) {
     // Evidence must name a file that exists: python is detected by either
-    // manifest (regression 2026-08-07 — a requirements.txt-only repo was
-    // credited with a non-existent pyproject.toml).
+    // manifest (a requirements.txt-only repo must not be credited with a
+    // non-existent pyproject.toml).
     const manifest = existsSync(join(root, "pyproject.toml")) ? "pyproject.toml" : "requirements.txt";
     // hasLint follows the generated ruff gate — the stack's canonical lint
-    // (dogfood review 2026-08-09: a Python repo's ruff hook ran but python
-    // had no lint signal, capping agents-commands at the test-only band).
+    // (a Python repo whose ruff hook ran but whose branch had no lint signal
+    // would cap agents-commands at the test-only band).
     return {
       hasBuild: false,
       hasTest: true,
@@ -217,7 +223,7 @@ function stackCommandSources(root: string): {
   // php: no standard build command; the test signal is phpunit (config or
   // require-dev declaration). Note: this branch fires for php-only repos —
   // mixed repos resolve the primary stack first (node etc.), and agents-commands
-  // adds the php signal separately (2026-08-07).
+  // adds the php signal separately.
   if (stacks.includes("php")) {
     const phpunit = existsSync(join(root, "phpunit.xml")) || existsSync(join(root, "phpunit.xml.dist"));
     return {
@@ -227,19 +233,76 @@ function stackCommandSources(root: string): {
       source: phpunit ? "phpunit.xml (phpunit)" : (phpTestFrameworkOf(root) ?? "composer.json (no test framework)"),
     };
   }
+  // A group (spec 0014): detected but transform-unsupported —
+  // the audit credits their canonical lifecycle where one exists. Branch
+  // order is the implicit priority (php's pattern: appended after php, before
+  // the fallback). Evidence names the actually-present signal file — never
+  // hard-code a manifest that may not exist (the python pyproject/requirements
+  // precedent). unity has no canonical lifecycle command (documented ceiling).
+  if (stacks.includes("apple")) {
+    // Evidence must name a real file — the actual top-level apple entry, never
+    // a glob literal (spec 0001 "evidence names files that actually exist";
+    // the xcworkspace-only fallback must not emit the literal "*.xcodeproj").
+    // readdirSync order is FS-dependent — pick deterministically
+    // (lexicographically smallest) for cross-platform determinism.
+    const topLevel = (entriesOf(root) ?? []).sort();
+    const appleEntry =
+      topLevel.find((f) => f.endsWith(".xcodeproj")) ?? topLevel.find((f) => f.endsWith(".xcworkspace"));
+    const manifest = existsSync(join(root, "Podfile"))
+      ? "Podfile"
+      : existsSync(join(root, "Project.swift"))
+        ? "Project.swift"
+        : existsSync(join(root, "Cartfile"))
+          ? "Cartfile"
+          : (appleEntry ?? "xcode project");
+    const lc = lifecycleOf("apple");
+    return { hasBuild: lc.build, hasTest: lc.test, hasLint: lc.lint, source: `${manifest} (xcodebuild build/test)` };
+  }
+  if (stacks.includes("dart/flutter")) {
+    // test-only band (like python): flutter test is the canonical test
+    // command; dart has no standard build concept. hasLint mirrors
+    // stackLintCommandOf — `dart analyze` is the official static analysis
+    // (dart.dev) and counts as the stack's canonical lint. Booleans derive
+    // from the shared STACK_COMMANDS table (spec 0015 slice 2).
+    const lc = lifecycleOf("dart/flutter");
+    return { hasBuild: lc.build, hasTest: lc.test, hasLint: lc.lint, source: "pubspec.yaml (flutter test)" };
+  }
+  // zig: canonical lifecycle (ziglang.org build system — zig build /
+  // zig build test are unambiguous). The rest of the spec-0014 Tier-2 list
+  // is deferred until the skill has real adoption;
+  // clojure/haskell etc. would stay uncredited anyway (split toolchains —
+  // honest under-scoring).
+  if (stacks.includes("zig")) {
+    const lc = lifecycleOf("zig");
+    return { hasBuild: lc.build, hasTest: lc.test, hasLint: lc.lint, source: "build.zig (zig build / zig build test)" };
+  }
+  if (stacks.includes("c/cpp")) {
+    const manifest = existsSync(join(root, "CMakeLists.txt"))
+      ? "CMakeLists.txt"
+      : existsSync(join(root, "meson.build"))
+        ? "meson.build"
+        : existsSync(join(root, "vcpkg.json"))
+          ? "vcpkg.json"
+          : "conanfile.txt";
+    const lc = lifecycleOf("c/cpp");
+    return { hasBuild: lc.build, hasTest: lc.test, hasLint: lc.lint, source: `${manifest} (cmake --build / ctest)` };
+  }
   return { hasBuild: false, hasTest: false, hasLint: false, source: null };
 }
 
 /** Stack-canonical lint command — go vet / cargo clippy are the lint gates
  *  the generated pre-commit config runs (M10), so a stack repo with the gate
- *  installed has a traceable lint command even without a Makefile (dogfood
- *  review 2026-08-09: a Makefile-less Go repo scored cfg-lint 0.4 with .golangci.yaml + CI lint
- *  step but no command). */
+ *  installed has a traceable lint command even without a Makefile (a
+ *  Makefile-less Go repo with .golangci.yaml + CI lint step but no command
+ *  would score cfg-lint only 0.4). */
 function stackLintCommandOf(root: string): string | null {
   const stacks = detect(root).stacks;
   if (stacks.includes("go")) return "go vet ./...";
   if (stacks.includes("rust")) return "cargo clippy";
   if (stacks.includes("python") && generatedRuffGate(root)?.lint) return "ruff check";
+  // dart/flutter's canonical static analysis (dart.dev: `dart analyze` is the
+  // official linter for both Dart and Flutter projects — spec 0014 D group).
+  if (stacks.includes("dart/flutter")) return "dart analyze";
   return null;
 }
 
@@ -266,7 +329,10 @@ function hasCi(root: string): boolean {
 
 // --- monorepo sub-stack note (M13) -----------------------------------------
 
-/** Known manifests per stack — mirrors detect.ts, applied to subdirectories. */
+/** Known manifests per stack — mirrors detect.ts, applied to subdirectories.
+ *  Exact-match representatives only (spec 0014): glob signals
+ *  (*.xcodeproj / *.cabal / *.rockspec) do not participate in the bounded
+ *  sub-stack scan. */
 const SUBSTACK_MANIFESTS: readonly [string, string][] = [
   ["node", "package.json"],
   ["python", "pyproject.toml"],
@@ -279,6 +345,11 @@ const SUBSTACK_MANIFESTS: readonly [string, string][] = [
   ["ruby", "Gemfile"],
   ["php", "composer.json"],
   ["swift", "Package.swift"],
+  ["apple", "Podfile"],
+  ["c/cpp", "CMakeLists.txt"],
+  ["dart/flutter", "pubspec.yaml"],
+  ["unity", "ProjectSettings/ProjectVersion.txt"],
+  ["zig", "build.zig"],
 ];
 
 /** Vendored/build/tooling dirs that must never count as sub-stacks. */
@@ -325,12 +396,58 @@ function subStacksOf(root: string): { stack: string; dir: string }[] {
 
 // --- checks: agent-setup (3.0) ---------------------------------------------
 
-function agentFile(root: string): string | null {
-  for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+/** Root-level agent instruction files by ecosystem (official docs):
+ *  AGENTS.md is the open standard (agents.md —
+ *  Codex/Jules/Cursor/Copilot/Devin/Kilo/Augment/Windsurf/Cline read it
+ *  natively, Qwen reads it too; AGENT.md is the standard's backward-compat
+ *  variant); the rest are agent-specific primaries — QWEN.md (Qwen Code),
+ *  CLAUDE.md (Claude Code — does NOT read AGENTS.md natively), GEMINI.md
+ *  (Gemini CLI — needs config to read AGENTS.md), .github/copilot-instructions.md
+ *  (Copilot), .cursorrules (Cursor legacy), .windsurfrules (Windsurf legacy),
+ *  CONVENTIONS.md (Aider default), .clinerules (Cline). Directory rule sets
+ *  (.cursor/rules/, .windsurf/rules/, .amazonq/rules/…) are scoped rules, not
+ *  the agent contract — out of scope (roadmap candidate). */
+const AGENT_FILES = [
+  "AGENTS.md",
+  "AGENT.md",
+  "CLAUDE.md",
+  "QWEN.md",
+  "GEMINI.md",
+  ".github/copilot-instructions.md",
+  ".cursorrules",
+  ".windsurfrules",
+  "CONVENTIONS.md",
+  ".clinerules",
+] as const;
+
+/** All root-level agent contract files present (files or symlinks). */
+function agentFiles(root: string): string[] {
+  return AGENT_FILES.filter((name) => {
     const p = join(root, name);
-    if (existsSync(p) && (lstatSync(p).isFile() || lstatSync(p).isSymbolicLink())) return name;
-  }
-  return null;
+    try {
+      const st = lstatSync(p);
+      return st.isFile() || st.isSymbolicLink();
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** The repo's primary agent contract — the most content-rich file (most
+ *  traceable commands, then longest). No fixed priority: a Qwen-only repo
+ *  (Alibaba-internal style — only Qwen Code / Qwen LLM) has QWEN.md as its
+ *  primary; an AGENTS.md + thin QWEN.md repo keeps AGENTS.md (the open
+ *  standard). Respect = score what the repo actually uses. */
+function primaryAgentFile(root: string): string | null {
+  const files = agentFiles(root);
+  if (files.length === 0) return null;
+  const ranked = files
+    .map((f) => {
+      const content = readIfExists(join(root, f)) ?? "";
+      return { file: f, traceable: traceableCommandsOf(content, root).length, lines: content.split("\n").length };
+    })
+    .sort((a, b) => b.traceable - a.traceable || b.lines - a.lines);
+  return ranked[0].file;
 }
 
 /** Commands mentioned in a file that trace to real sources (scripts/Makefile/stack). */
@@ -346,13 +463,19 @@ function traceableCommandsOf(content: string, root: string): string[] {
   }
   // Per-stack lifecycle commands, each counted individually — a generated
   // AGENTS.md (go build/test/vet from go.mod) must get full traceability
-  // credit, not one collapsed source string (dogfood review 2026-08-09:
-  // a Makefile-less Go repo's generated contract listed three commands yet scored "1 traceable").
+  // credit, not one collapsed source string (a Makefile-less Go repo's
+  // generated contract listing three commands must not score "1 traceable").
   const stackCmds: Record<string, RegExp[]> = {
     go: [/\bgo build\b/, /\bgo test\b/, /\bgo vet\b/],
     rust: [/\bcargo build\b/, /\bcargo test\b/, /\bcargo fmt --check\b/, /\bcargo clippy\b/],
     python: [/\bpython3 -m unittest\b/],
     java: [/\bmvn[^\n]*\btest\b/, /\bgradle build\b/],
+    // A group (spec 0014): canonical lifecycle commands, traceable to the
+    // stack's own manifest (detect + stackCommandSources).
+    apple: [/\bxcodebuild test\b/, /\bxcodebuild build\b/],
+    "c/cpp": [/\bcmake --build\b/, /\bctest\b/],
+    "dart/flutter": [/\bflutter test\b/],
+    zig: [/\bzig build test\b/, /\bzig build\b/],
   };
   for (const stack of detect(root).stacks) {
     for (const re of stackCmds[stack] ?? []) {
@@ -364,7 +487,7 @@ function traceableCommandsOf(content: string, root: string): string[] {
 }
 
 function checkAgentsMd(root: string): CheckResult {
-  const file = agentFile(root);
+  const file = primaryAgentFile(root);
   if (!file) {
     return {
       id: "agents-md",
@@ -401,31 +524,105 @@ function checkAgentsMd(root: string): CheckResult {
 }
 
 function checkAgentsBridge(root: string): CheckResult {
-  const claude = join(root, "CLAUDE.md");
-  let detail = "CLAUDE.md: missing";
-  let score = 0;
-  if (existsSync(claude)) {
-    const isLink = lstatSync(claude).isSymbolicLink();
-    const isFile = lstatSync(claude).isFile();
-    const content = isFile ? (readIfExists(claude) ?? "") : "";
-    if (isLink) {
-      detail = "CLAUDE.md: symlink to AGENTS.md";
-      score = 0.5;
-    } else if (/^\s*@AGENTS\.md\b/m.test(content)) {
-      detail = "CLAUDE.md: @AGENTS.md import bridge";
-      score = 0.5;
-    } else if (/\bAGENTS\.md\b/i.test(content)) {
-      detail = "CLAUDE.md: content reference to AGENTS.md only";
-      score = 0.3;
-    } else {
-      detail = "CLAUDE.md: exists but no bridge to AGENTS.md";
-    }
+  const files = agentFiles(root);
+  if (files.length === 0) {
+    return {
+      id: "agents-bridge",
+      category: "agent-setup",
+      score: 0,
+      max: 0.5,
+      evidence: "agent file: missing",
+      fix: "transform Stage 3",
+    };
   }
-  return { id: "agents-bridge", category: "agent-setup", score, max: 0.5, evidence: detail, fix: "transform Stage 3" };
+  // A single agent contract is complete by itself — no bridge needed. The
+  // old rule demanded CLAUDE.md → AGENTS.md links regardless of the repo's
+  // ecosystem; a Qwen-only repo (Alibaba-internal style — Qwen Code + Qwen
+  // LLM only) is fully served by QWEN.md alone.
+  if (files.length === 1) {
+    return {
+      id: "agents-bridge",
+      category: "agent-setup",
+      score: 0.5,
+      max: 0.5,
+      evidence: `single agent file: ${files[0]} (no bridge needed)`,
+      fix: "transform Stage 3",
+    };
+  }
+  // Multiple contracts: check content unification between agent files in ANY
+  // direction — a symlink or @import between any two files unifies them (a
+  // reverse link like AGENTS.md → CLAUDE.md counts; the direction is not
+  // sacred, only the unification is). The target match is
+  // by realpath, not the literal readlink string: `CLAUDE.md → ./AGENTS.md`
+  // (or ../AGENTS.md) is a common form and an exact-name compare would score
+  // it as "no bridge" (a regression from the any-symlink 0.5). entry.ts
+  // realpath precedent; broken links fall to catch.
+  const content = (f: string) => readIfExists(join(root, f)) ?? "";
+  const linkPairs = files.flatMap((f) => {
+    const p = join(root, f);
+    try {
+      if (!lstatSync(p).isSymbolicLink()) return [];
+      const targetReal = realpathSync(p);
+      return files.filter((t) => t !== f && realpathSync(join(root, t)) === targetReal).map((t) => [f, t] as const);
+    } catch {
+      return [];
+    }
+  });
+  if (linkPairs.length > 0) {
+    const [from, to] = linkPairs[0];
+    return {
+      id: "agents-bridge",
+      category: "agent-setup",
+      score: 0.5,
+      max: 0.5,
+      evidence: `${from} symlinks to ${to} — agent files unified`,
+      fix: "transform Stage 3",
+    };
+  }
+  const importPairs = files.flatMap((f) =>
+    files
+      .filter((t) => t !== f && new RegExp(`^\\s*@${t.replace(/\./g, "\\.")}\\b`, "m").test(content(f)))
+      .map((t) => [f, t] as const),
+  );
+  if (importPairs.length > 0) {
+    const [from, to] = importPairs[0];
+    return {
+      id: "agents-bridge",
+      category: "agent-setup",
+      score: 0.5,
+      max: 0.5,
+      evidence: `${from} imports @${to} — agent files unified`,
+      fix: "transform Stage 3",
+    };
+  }
+  const refPairs = files.flatMap((f) =>
+    files
+      .filter((t) => t !== f && new RegExp(`\\b${t.replace(/\./g, "\\.")}\\b`, "i").test(content(f)))
+      .map((t) => [f, t] as const),
+  );
+  if (refPairs.length > 0) {
+    const [from, to] = refPairs[0];
+    return {
+      id: "agents-bridge",
+      category: "agent-setup",
+      score: 0.3,
+      max: 0.5,
+      evidence: `${from} references ${to} (content only)`,
+      fix: "transform Stage 3",
+    };
+  }
+  return {
+    id: "agents-bridge",
+    category: "agent-setup",
+    score: 0,
+    max: 0.5,
+    evidence: `${files.join(", ")} coexist without any bridge — agents read different contracts`,
+    fix: "transform Stage 3",
+  };
 }
 
 function checkAgentsLength(root: string): CheckResult {
-  const file = agentFile(root);
+  const file = primaryAgentFile(root);
   if (!file) {
     return {
       id: "agents-length",
@@ -471,9 +668,9 @@ function checkAgentsLength(root: string): CheckResult {
  * Actually run the traced lifecycle commands (build + test, same command
  * strings as transform's stackLifecycle — one source of truth). Returns null
  * when all passed, or a note explaining why verification could not pass.
- * Static tracing only proves the commands exist, not that they run (review
- * 2026-08-07) — this is the audit-side counterpart of transform stage 2's
- * build verification; missing tools are not failing builds (exit 127).
+ * Static tracing only proves the commands exist, not that they run — this
+ * is the audit-side counterpart of transform stage 2's build verification;
+ * missing tools are not failing builds (exit 127).
  */
 function verificationNote(root: string): string | null {
   const { build, test } = stackLifecycle(root);
@@ -498,24 +695,55 @@ function checkAgentsCommands(root: string, verify = false): CheckResult {
   const buildKey = scriptKey(root, /^(build|compile|typecheck|check|verify)\b/);
   const testKey = scriptKey(root, /^(test|spec)\b/);
   const sc = stackCommandSources(root);
-  const hasBuild = buildKey !== null || makefileTarget(root, "build") || sc.hasBuild;
   // PHP signal beyond the primary stack — mixed node+php repos trace phpunit
-  // even though primaryStack() resolves to node (2026-08-07).
+  // even though primaryStack() resolves to node.
   const phpSource = sc.hasTest ? null : detect(root).stacks.includes("php") ? phpTestSourceOf(root) : null;
+  // c/cpp second-stack build signal — a test-only primary (python/php/
+  // dart-flutter) can sit on a build-carrying stack: python+c/cpp repos build
+  // the C++ core with cmake, and that build concept is real (reporting
+  // build: false would contradict the c/cpp branch's own cmake credit).
+  // Same manifest probe as stackCommandSources' c/cpp branch —
+  // evidence names the actually-present file (spec 0001). sc.source === null
+  // = no primary lifecycle at all; sc.hasBuild = primary already carries a
+  // build concept (node+apple stays node-only, spec 0014 acceptance 10b).
+  const cppSource =
+    sc.source !== null && !sc.hasBuild && detect(root).stacks.includes("c/cpp")
+      ? `${
+          existsSync(join(root, "CMakeLists.txt"))
+            ? "CMakeLists.txt"
+            : existsSync(join(root, "meson.build"))
+              ? "meson.build"
+              : existsSync(join(root, "vcpkg.json"))
+                ? "vcpkg.json"
+                : "conanfile.txt"
+        } (cmake --build / ctest)`
+      : null;
+  // cppSource feeds hasBuild itself (not just the evidence string) — the
+  // evidence may say "(build: true)" while the band logic reads an unmerged
+  // hasBuild and scores 0 (asymmetry).
+  const hasBuild = buildKey !== null || makefileTarget(root, "build") || sc.hasBuild || cppSource !== null;
   const hasTest = testKey !== null || makefileTarget(root, "test") || sc.hasTest || phpSource !== null;
   const hasThird =
     scriptKey(root, /^lint\b|^vet\b/) !== null ||
     makefileTarget(root, "lint") ||
     makefileTarget(root, "vet") ||
-    sc.hasLint;
+    sc.hasLint ||
+    // Any detected stack's canonical lint gate (stackLintCommandOf: go vet /
+    // cargo clippy / ruff check / dart analyze) — the first-matched branch of
+    // stackCommandSources must not swallow another stack's real lint concept
+    // (apple+dart/flutter repos lose dart analyze because the apple branch
+    // fires first — an AGENTS.md documenting dart analyze would still score
+    // 0.6 with "add a lint command").
+    stackLintCommandOf(root) !== null;
   const sources: string[] = [];
   if (buildKey || testKey) sources.push("package.json scripts");
   if (makefileTargets(root).length > 0) sources.push("Makefile");
   if (sc.source) sources.push(sc.source);
   if (phpSource && !sources.includes(phpSource)) sources.push(phpSource);
+  if (cppSource && !sources.includes(cppSource)) sources.push(cppSource);
   // Tracing is static — the score proves the commands exist in real files, not
   // that they run. --verify executes them (note null = all passed); otherwise
-  // the evidence says so instead of implying verified behavior (2026-08-07).
+  // the evidence says so instead of implying verified behavior.
   const verifyNote = verify ? verificationNote(root) : undefined;
   const evidence =
     sources.length > 0
@@ -528,16 +756,35 @@ function checkAgentsCommands(root: string, verify = false): CheckResult {
         }`
       : "no build/test commands found in package.json, Makefile, or stack build files";
 
-  // AGENTS.md documentation of the real commands (the 1.0 band).
-  const agentContent = agentFile(root) ? (readIfExists(join(root, agentFile(root)!)) ?? "") : "";
+  // Primary agent contract documentation of the real commands (the 1.0 band).
+  const agentContent = primaryAgentFile(root) ? (readIfExists(join(root, primaryAgentFile(root)!)) ?? "") : "";
   // Test-only stacks (python/php: no build concept) have a complete lifecycle
   // with the test command alone — the build side is not "missing", it does not
-  // exist (dogfood review 2026-08-09: a Python repo capped at 0.4 forever
-  // because hasBuild: false never left the asymmetric band).
+  // exist (a Python repo would cap at 0.4 forever because hasBuild: false
+  // never leaves the asymmetric band).
   const testOnlyStack = sc.source !== null && !sc.hasBuild && sc.hasTest;
+  // No-lint stacks (c/cpp, zig, apple): no canonical lint command exists in
+  // the ecosystem (cmake/ctest, zig build, xcodebuild) — the third command is
+  // not missing either (test-only band's mirror: c/cpp with a complete
+  // build+test lifecycle must not cap at 0.6 forever). Only
+  // when the repo's command sources are exclusively these stacks — a mixed
+  // repo with node/python/go/rust/java/dart-flutter keeps a real lint
+  // concept, so the gap is genuine there (node+apple scores like node-only,
+  // spec 0014 acceptance 10b).
+  const stacks = detect(root).stacks;
+  const noLintStack =
+    sc.source !== null &&
+    !sc.hasLint &&
+    stacks.some((s) => ["c/cpp", "zig", "apple"].includes(s)) &&
+    // php carries a real lint concept (cfg-lint credits phpcs.xml / phpstan
+    // .neon / psalm.xml, cfg-format credits php-cs-fixer) — php belongs in the
+    // lint-capable list, or php+c/cpp repos would score the no-lint band 0.8
+    // with zero traceable commands (contradicting the "the gap is genuine"
+    // principle).
+    !stacks.some((s) => ["node", "python", "go", "rust", "java", "dart/flutter", "php"].includes(s));
   // The 1.0 band requires the commands documented in AGENTS.md — for test-only
   // stacks the single test command IS the lifecycle (python cannot produce two
-  // traceable commands; the ≥2 rule would cap it at 0.8 — same dogfood review).
+  // traceable commands; the ≥2 rule would cap it at 0.8).
   const documented = traceableCommandsOf(agentContent, root).length >= (testOnlyStack ? 1 : 2);
 
   let score: number;
@@ -547,20 +794,31 @@ function checkAgentsCommands(root: string, verify = false): CheckResult {
       : 0;
   } else if (!testOnlyStack && hasBuild !== hasTest) {
     score = 0.4;
-  } else if (!hasThird) {
+  } else if (!hasThird && !noLintStack) {
     score = 0.6;
   } else if (!documented) {
     score = 0.8;
   } else {
     score = 1;
   }
+  // Fix copy per band — never say "add" when the commands already exist
+  // (a fix suggesting commands that are traceable AND already documented in
+  // the generated AGENTS.md).
+  const fix =
+    !hasBuild && !hasTest
+      ? "add real build/test commands, then document them in AGENTS.md"
+      : !testOnlyStack && hasBuild !== hasTest
+        ? "add the missing build/test command, then document it in AGENTS.md"
+        : !hasThird && !noLintStack
+          ? "add a lint command (the stack's canonical lint gate), then document the commands in AGENTS.md"
+          : "document the traced commands in AGENTS.md";
   return {
     id: "agents-commands",
     category: "agent-setup",
     score,
     max: 1,
     evidence,
-    fix: "add real build/test commands, then document them in AGENTS.md",
+    fix,
   };
 }
 
@@ -579,7 +837,7 @@ function specFilesOf(dir: string): string[] {
 }
 
 function checkAgentsSdd(root: string): CheckResult {
-  const file = agentFile(root);
+  const file = primaryAgentFile(root);
   const content = file ? (readIfExists(join(root, file)) ?? "") : "";
   const mentions = /\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(content);
   const specDir = existsSync(join(root, "specs"))
@@ -635,6 +893,7 @@ function checkCfgLint(root: string): CheckResult {
       /^phpcs\.xml/,
       /^phpstan\.neon/,
       /^psalm\.xml/,
+      /^analysis_options\.yaml$/,
     ]) ??
     ktlintConfigOf(root) ??
     (ruff?.lint ? ruff.label : null);
@@ -663,7 +922,7 @@ function checkCfgLint(root: string): CheckResult {
 }
 
 /** ktlint config signal (kotlin): ktlint.toml, or the .editorconfig `ktlint_*`
- *  keys (ktlint's standard configuration — kotlin/Android, 2026-08-07). */
+ *  keys (ktlint's standard configuration — kotlin/Android). */
 function ktlintConfigOf(root: string): string | null {
   if (existsSync(join(root, "ktlint.toml"))) return "ktlint.toml";
   if (/ktlint_/i.test(readIfExists(join(root, ".editorconfig")) ?? "")) return ".editorconfig (ktlint)";
@@ -672,10 +931,10 @@ function ktlintConfigOf(root: string): string | null {
 
 /** The generated pre-commit config runs gofmt for go stacks (M10 gate) — a
  *  formatter gate the audit's own stage 2 installs must be credited, or the
- *  audit contradicts its own product (dogfood review 2026-08-09: a Makefile-less Go repo scored
- *  cfg-format 0.2 with the gofmt hook installed and passing). Repo-owned
- *  gofmt hooks are credited too, but only tool-owned configs are labeled
- *  "generated" (dogfood review 2026-08-10: an upstream repo's mislabel). */
+ *  audit contradicts its own product (a Makefile-less Go repo with the gofmt
+ *  hook installed and passing would score cfg-format 0.2). Repo-owned gofmt
+ *  hooks are credited too, but only tool-owned configs are labeled
+ *  "generated" (a mislabel contradicts the report's own evidence). */
 function generatedGofmtGate(root: string): { config: string; cmd: string } | null {
   if (!detect(root).stacks.includes("go")) return null;
   const pc = readIfExists(join(root, ".pre-commit-config.yaml"));
@@ -692,12 +951,12 @@ const GENERATED_PRE_COMMIT_MARKER = "# pre-commit config generated by spooner tr
 
 /** The generated pre-commit config runs ruff / ruff-format for python stacks
  *  (M10 gate) — the python mirror of the gofmt gate: installed and running
- *  gates must be credited, or the audit contradicts its own product (dogfood
- *  review 2026-08-09: a Python repo's ruff hooks ran and blocked 7 files
- *  while cfg-format reported 0/0.5). A repo-owned ruff config is credited the
- *  same way (a running hook is a running hook) but only tool-owned configs
- *  are labeled "generated" (dogfood review 2026-08-10: an upstream repo's own
- *  pre-commit config was mislabeled as a spooner product). */
+ *  gates must be credited, or the audit contradicts its own product (a
+ *  Python repo whose ruff hooks ran and blocked 7 files while cfg-format
+ *  reported 0/0.5). A repo-owned ruff config is credited the same way (a
+ *  running hook is a running hook) but only tool-owned configs are labeled
+ *  "generated" (a repo's own pre-commit config must not be mislabeled as a
+ *  spooner product). */
 function generatedRuffGate(
   root: string,
 ): { lint: boolean; format: boolean; label: string; formatLabel: string } | null {
@@ -716,9 +975,9 @@ function generatedRuffGate(
 
 function checkCfgFormat(root: string): CheckResult {
   // ruff provides both lint and format — a ruff.toml counts as a formatter
-  // config exactly as it counts as a lint config (symmetry review 2026-08-07);
-  // php-cs-fixer is the php formatter config; ktlint is the kotlin linter +
-  // formatter (lint and format both count its config — 2026-08-07).
+  // config exactly as it counts as a lint config (symmetry); php-cs-fixer is
+  // the php formatter config; ktlint is the kotlin linter + formatter (lint
+  // and format both count its config).
   const gate = generatedGofmtGate(root);
   const ruff = generatedRuffGate(root);
   const config =
@@ -729,6 +988,8 @@ function checkCfgFormat(root: string): CheckResult {
       /^rustfmt\.toml/,
       /^ruff\.toml/,
       /^\.php-cs-fixer/,
+      /^\.clang-format/,
+      /^\.swiftformat/,
     ]) ??
     ktlintConfigOf(root) ??
     gate?.config ??
@@ -739,8 +1000,11 @@ function checkCfgFormat(root: string): CheckResult {
     gate?.cmd ??
     (ruff?.format ? "ruff format" : null);
   // Tool names only — the word "format" alone is noise (git log --format=%B
-  // would false-positive on commitlint steps).
-  const ci = /\b(prettier|black|gofmt|rustfmt|dprint|ruff)\b/i.test(ciContent(root));
+  // would false-positive on commitlint steps). A group (spec 0014 D group):
+  // swiftformat / clang-format / cmake-format joined the whitelist.
+  const ci = /\b(prettier|black|gofmt|rustfmt|dprint|ruff|swiftformat|clang-format|cmake-format)\b/i.test(
+    ciContent(root),
+  );
   let score = 0;
   if (config && cmd && ci) score = 0.5;
   else if (config && (cmd || ci)) score = 0.4;
@@ -781,7 +1045,7 @@ function checkCfgHooks(root: string): CheckResult {
   // package.json fields (yorkie / husky v4 — the actual hook installers),
   // then lint-staged's config last: .lintstagedrc is NOT a hook mechanism,
   // it runs via a host hook — a yorkie repo with .lintstagedrc must be
-  // recognized as yorkie (2026-08-07).
+  // recognized as yorkie.
   const mechanism =
     hasPattern(root, [/^\.pre-commit-config\.ya?ml$/, /^lefthook\.ya?ml$/, /^\.husky$/]) ??
     pkgHookFieldOf(root) ??
@@ -792,8 +1056,8 @@ function checkCfgHooks(root: string): CheckResult {
     if (mechanism.endsWith("(package.json)")) {
       // field mechanisms (husky v4 / yorkie): the field names lint-staged etc.,
       // the commit discipline lives in the separate commitlint/markdownlint
-      // config — a .commitlintrc was falsely reported "no commitlint discipline"
-      // because only the mechanism file content was read (2026-08-07)
+      // config — a .commitlintrc beside a .lintstagedrc must not falsely report
+      // "no commitlint discipline" because only the mechanism file was read
       discipline = disciplineConfig;
     } else {
       const p = join(root, mechanism);
@@ -806,8 +1070,8 @@ function checkCfgHooks(root: string): CheckResult {
     }
   }
   // Hook files must actually REFER to the mechanism's tool — existence alone
-  // proves nothing (a yorkie-installed .git/hooks/pre-commit was counted as
-  // pre-commit's own hook; dead/stale hook scripts as active; 2026-08-07).
+  // proves nothing (a yorkie-installed .git/hooks/pre-commit would be counted
+  // as pre-commit's own hook; dead/stale hook scripts as active).
   // The pre-commit pattern is the generated hook's own marker — a bare
   // "pre-commit" word is NOT enough (yorkie/husky runner scripts pass the
   // hook name as an argument: "node …/yorkie/bin/runner.js pre-commit").
@@ -926,8 +1190,8 @@ function checkCfgTest(root: string): CheckResult {
     scriptKey(root, /^test\b|^spec\b/) ??
     (makefileTarget(root, "test") ? "test" : null) ??
     // stack lifecycle commands count as a test command (mvn test / cargo test
-    // / go test / python3 -m unittest) — java repos were falsely reported as
-    // having no test framework (2026-08-07)
+    // / go test / python3 -m unittest) — java repos would otherwise be
+    // reported as having no test framework
     (sc.hasTest ? sc.source : null);
   const config =
     hasPattern(root, [
@@ -968,7 +1232,7 @@ function checkCfgTest(root: string): CheckResult {
 
 /** Test-file scan: known test dirs + root-level test files + test dirs inside
  *  one-level subdirs (monorepo-style). collect recurses — java lives at
- *  src/test/java/… (package dirs), python at tests/unit/… (2026-08-07). */
+ *  src/test/java/… (package dirs), python at tests/unit/…. */
 function findTestFiles(root: string): string[] {
   const out: string[] = [];
   const collect = (dir: string) => {
@@ -1013,9 +1277,9 @@ function findTestFiles(root: string): string[] {
   }
   // Co-located test files (vitest/jest convention): *.test.ts / *.spec.ts sit
   // next to their source (utils/foo.test.ts), never in a test/ dir — the
-  // directory walk above misses them (dogfood review 2026-08-10: a WXT repo's
-  // utils/*.test.ts ×5 + coverage/ scored cfg-test 0.3). Bounded full-tree
-  // walk: skip node_modules / vendored / build outputs, cap depth at 4.
+  // directory walk above misses them (a repo's utils/*.test.ts ×5 + coverage/
+  // would score cfg-test only 0.3). Bounded full-tree walk: skip
+  // node_modules / vendored / build outputs, cap depth at 4.
   const SKIP_DIRS = new Set(["node_modules", "dist", "build", "coverage", "out", "target", ".venv", "__pycache__"]);
   const walk = (dir: string, depth: number) => {
     if (depth > 4) return;
@@ -1114,9 +1378,9 @@ function checkSecCi(root: string): CheckResult {
   // Job names at GitHub (2-space indent) or GitLab (0-space top-level) depth —
   // step names sit at deeper indents and don't match. Real security jobs carry
   // diverse names — pip-audit/snyk/trivy/osv jobs are security even when the
-  // job name says so (dogfood review 2026-08-10: a Node/Python monorepo's security.yml has a
-  // `pip-audit` job that scored "no security job"); a codeql workflow is a
-  // dedicated security workflow regardless of its job name ("analyze").
+  // job name says so (a Node/Python monorepo's security.yml with a `pip-audit`
+  // job must not score "no security job"); a codeql workflow is a dedicated
+  // security workflow regardless of its job name ("analyze").
   const job =
     /^\s{0,2}(security|gitleaks|scan|pip-audit|snyk|trivy|osv)[a-z0-9_-]*:/m.test(content) ||
     /uses: github\/codeql-action/.test(content);
@@ -1177,7 +1441,7 @@ function checkDrift(root: string): CheckResult {
     detail = `.ai-native.yml consistent (v${version}, ${declared.length} declared file(s) present)`;
   }
   // Version current but files missing → the fix names the restore stage
-  // (review 2026-08-06: it used to say "none" — misleading at 0.3).
+  // (a "none" fix would be misleading at 0.3).
   const fix = !current
     ? "run sync to apply the current templates"
     : allPresent
@@ -1210,7 +1474,7 @@ function checkFreshDeps(root: string): CheckResult {
     const wildcard = Object.values(deps).some((v) => String(v).includes("*"));
     const pinned = !wildcard;
     // PHP co-exists in mixed repos — a committed composer.lock locks the PHP
-    // side; "no lockfile" must not be reported while it exists (2026-08-07).
+    // side; "no lockfile" must not be reported while it exists.
     const locks = [...(lock ? [lock] : []), ...(existsSync(join(root, "composer.lock")) ? ["composer.lock"] : [])];
     const score = pinned && locks.length > 0 ? 0.5 : pinned ? 0.3 : 0.1;
     const evidence =
@@ -1239,11 +1503,11 @@ function checkFreshDeps(root: string): CheckResult {
       fix: "commit a lockfile",
     };
   }
-  // requirements.txt is a python dependency manifest — a fully-pinned file was
-  // scored 0 with the false "no dependency manifest" (blind spot review
-  // 2026-08-07); pyproject.toml above wins when both exist (same precedence as
-  // stackCommandSources). pip has no lockfile convention — exact `==` pins are
-  // the manifest pin, like java's pom.xml.
+  // requirements.txt is a python dependency manifest — a fully-pinned file
+  // must not score 0 with the false "no dependency manifest"; pyproject.toml
+  // above wins when both exist (same precedence as stackCommandSources). pip
+  // has no lockfile convention — exact `==` pins are the manifest pin, like
+  // java's pom.xml.
   if (existsSync(join(root, "requirements.txt"))) {
     const depLines = (readIfExists(join(root, "requirements.txt")) ?? "")
       .split("\n")
@@ -1269,7 +1533,7 @@ function checkFreshDeps(root: string): CheckResult {
   }
   // composer.json is a php manifest — composer.lock is its checksum lockfile
   // (php convention: commit it); without it the declared constraints are the
-  // manifest pin (php was never scored — "no dependency manifest" — 2026-08-07).
+  // manifest pin (php must not score "no dependency manifest").
   if (existsSync(join(root, "composer.json"))) {
     const composerLock = existsSync(join(root, "composer.lock"));
     return {
@@ -1283,8 +1547,8 @@ function checkFreshDeps(root: string): CheckResult {
       fix: "commit composer.lock for reproducible installs",
     };
   }
-  // go/rust: the checksum lockfiles are the lockfile signal (review 2026-08-06
-  // — these stacks scored 0 forever with the misleading "no dependency manifest").
+  // go/rust: the checksum lockfiles are the lockfile signal (these stacks
+  // would score 0 forever with the misleading "no dependency manifest").
   if (existsSync(join(root, "go.mod"))) {
     const sum = existsSync(join(root, "go.sum"));
     return {
@@ -1307,6 +1571,158 @@ function checkFreshDeps(root: string): CheckResult {
         ? "Cargo.toml + Cargo.lock (pinned + lockfile)"
         : "Cargo.toml declares versions, no Cargo.lock",
       fix: "commit Cargo.lock for reproducible builds",
+    };
+  }
+  // zig: build.zig.zon is the dependency manifest and its .dependencies
+  // entries carry mandatory hash locks (the zig build system verifies them),
+  // so the manifest is the checksum lock — like go.sum, one file (it must
+  // not score 0 with the false "no dependency manifest").
+  if (existsSync(join(root, "build.zig.zon"))) {
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: 0.5,
+      max: 0.5,
+      evidence: "build.zig.zon (dependencies carry hash locks — zig's checksum manifest)",
+      fix: "commit build.zig.zon (zig dependency manifest + hashes)",
+    };
+  }
+  // dart/flutter: pubspec.yaml is the manifest, pubspec.lock its checksum
+  // lockfile — dart pub's package-lock.json equivalent, committed by Flutter
+  // convention (it must not score 0 with the false "no dependency manifest").
+  if (existsSync(join(root, "pubspec.yaml"))) {
+    const flutterLock = existsSync(join(root, "pubspec.lock"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: flutterLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: flutterLock
+        ? "pubspec.yaml + pubspec.lock (dart pub checksum lockfile)"
+        : "pubspec.yaml declares versions, no pubspec.lock",
+      fix: "commit pubspec.lock for reproducible installs",
+    };
+  }
+  // unity: Packages/manifest.json is the Unity Package Manager manifest —
+  // it pins exact UPM versions (no ranges); packages-lock.json is its
+  // lockfile (Unity 2021.2+, committed by convention). Both live under
+  // Packages/ (the pair must not score 0 with the false
+  // "no dependency manifest").
+  if (existsSync(join(root, "Packages", "manifest.json"))) {
+    const upmLock = existsSync(join(root, "Packages", "packages-lock.json"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: upmLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: upmLock
+        ? "Packages/manifest.json + packages-lock.json (UPM lockfile)"
+        : "Packages/manifest.json pins exact UPM versions (no packages-lock.json)",
+      fix: "commit Packages/packages-lock.json for reproducible installs",
+    };
+  }
+  // ruby: Gemfile is the manifest, Gemfile.lock bundler's checksum lockfile
+  // (bundler.io: "checking Gemfile.lock into version control" is the
+  // documented convention). Parity-gap closure, spec 0015 slice 1.
+  if (existsSync(join(root, "Gemfile"))) {
+    const bundleLock = existsSync(join(root, "Gemfile.lock"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: bundleLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: bundleLock ? "Gemfile + Gemfile.lock (bundler lockfile)" : "Gemfile declares versions, no Gemfile.lock",
+      fix: "commit Gemfile.lock for reproducible installs",
+    };
+  }
+  // swift: Package.swift is the SPM manifest, Package.resolved its lockfile
+  // (swift.org: Package.resolved records exact resolved versions, committed
+  // for app targets). Parity-gap closure, spec 0015 slice 1.
+  if (existsSync(join(root, "Package.swift"))) {
+    const spmLock = existsSync(join(root, "Package.resolved"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: spmLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: spmLock
+        ? "Package.swift + Package.resolved (SPM lockfile)"
+        : "Package.swift declares versions, no Package.resolved",
+      fix: "commit Package.resolved for reproducible installs",
+    };
+  }
+  // dotnet: *.csproj PackageReference pins versions; packages.lock.json is
+  // NuGet's lockfile (learn.microsoft.com: packages.lock.json for reproducible
+  // restore). Parity-gap closure, spec 0015 slice 1.
+  const csproj = (entriesOf(root) ?? []).find((f) => f.endsWith(".csproj"));
+  if (csproj) {
+    const nugetLock = existsSync(join(root, "packages.lock.json"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: nugetLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: nugetLock
+        ? `${csproj} + packages.lock.json (NuGet lockfile)`
+        : `${csproj} pins PackageReference versions (no packages.lock.json)`,
+      fix: "commit packages.lock.json for reproducible restore",
+    };
+  }
+  // harmonyos: oh-package.json5 is the ohpm manifest (harmonyos.com ohpm:
+  // dependency declarations live in oh-package.json5). Parity-gap closure,
+  // spec 0015 slice 1 — lockfile convention unverified, manifest-only.
+  if (existsSync(join(root, "oh-package.json5"))) {
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: 0.3,
+      max: 0.5,
+      evidence: "oh-package.json5 declares dependency versions (ohpm manifest)",
+      fix: "n/a (ohpm lockfile convention not verified)",
+    };
+  }
+  // apple: Podfile / Cartfile / Project.swift declare dependency versions
+  // (CocoaPods guides: Podfile at project root; Carthage Artifacts.md:
+  // Cartfile in working dir). Podfile.lock is CocoaPods' checksum lockfile
+  // (guides.cocoapods.org: committing Podfile.lock is the documented
+  // convention) — 0.5 with it, like ruby's Gemfile.lock (the evidence must
+  // not claim "no lockfile convention" when one exists).
+  if (existsSync(join(root, "Podfile")) || existsSync(join(root, "Cartfile"))) {
+    const podLock = existsSync(join(root, "Podfile.lock"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: podLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: existsSync(join(root, "Podfile"))
+        ? podLock
+          ? "Podfile + Podfile.lock (CocoaPods checksum lockfile)"
+          : "Podfile declares CocoaPods versions (no Podfile.lock)"
+        : "Cartfile declares Carthage versions (no lockfile convention)",
+      fix: podLock ? "n/a" : "commit Podfile.lock for reproducible installs",
+    };
+  }
+  // c/cpp split: vcpkg.json (manifest mode — learn.microsoft.com: vcpkg.json
+  // name required, pins dependency versions) and conanfile.txt (docs.conan.io:
+  // [requires] at the project root) DO carry version semantics; CMakeLists.txt
+  // / meson.build do not (they declare build targets, not dependencies — the
+  // parity ceiling: the blanket c/cpp ceiling would contradict the
+  // spec-0014 signals). conan.lock is Conan's generated lockfile
+  // (`conan lock create`, docs.conan.io) — 0.5 with it, like ruby's Gemfile.lock.
+  if (existsSync(join(root, "vcpkg.json")) || existsSync(join(root, "conanfile.txt"))) {
+    const isConan = !existsSync(join(root, "vcpkg.json")) && existsSync(join(root, "conanfile.txt"));
+    const conanLock = isConan && existsSync(join(root, "conan.lock"));
+    return {
+      id: "fresh-deps",
+      category: "freshness",
+      score: conanLock ? 0.5 : 0.3,
+      max: 0.5,
+      evidence: conanLock
+        ? "conanfile.txt + conan.lock (Conan lockfile)"
+        : isConan
+          ? "conanfile.txt [requires] pins versions (no conan.lock)"
+          : "vcpkg.json pins manifest-mode versions (vcpkg has no committed lockfile convention)",
+      fix: conanLock ? "n/a" : isConan ? "commit conan.lock (conan lock create) for reproducible builds" : "n/a",
     };
   }
   // java pins versions in the manifest itself — no lockfile convention.
@@ -1338,8 +1754,8 @@ function checkFreshDeps(root: string): CheckResult {
 // --- checks: structure (1.0) --------------------------------------------------
 
 /** Case-insensitive root README lookup — a lowercase `readme.md` must score
- *  the same on macOS (case-insensitive FS) and Linux CI (sensitive); the
- *  fixed-name existsSync variant silently diverged between the two (2026-08-07). */
+ *  the same on macOS (case-insensitive FS) and Linux CI (sensitive); a
+ *  fixed-name existsSync variant would silently diverge between the two. */
 export function readmeFileOf(root: string): string | null {
   for (const f of entriesOf(root) ?? []) {
     if (/^readme(\.md)?$/i.test(f) && lstatSync(join(root, f)).isFile()) return f;
@@ -1380,7 +1796,7 @@ function checkStructLayout(root: string): CheckResult {
     return existsSync(p) && lstatSync(p).isDirectory();
   });
   // Gradle/Android module layout: settings.gradle(.kts) + module dirs carrying
-  // their own src/ (app/src/main/…) — no root src/, scored 0 (2026-08-07).
+  // their own src/ (app/src/main/…) — no root src/ must not score 0.
   const gradleProject = ["settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"].some((f) =>
     existsSync(join(root, f)),
   );
@@ -1393,9 +1809,9 @@ function checkStructLayout(root: string): CheckResult {
           lstatSync(join(root, entry, "src")).isDirectory(),
       )
     : false;
-  // Go's idiomatic layout is cmd/ + pkg/, not src/ (dogfood review 2026-08-09:
-  // a Makefile-less Go repo scored struct-layout 0 with a standard Go tree — the only major
-  // stack whose conventional layout the check did not recognize).
+  // Go's idiomatic layout is cmd/ + pkg/, not src/ (a Makefile-less Go repo
+  // with a standard Go tree must not score struct-layout 0 — the only major
+  // stack whose conventional layout the check would not recognize).
   const goLayout =
     detect(root).stacks.includes("go") &&
     ["cmd", "pkg"].some((d) => {
@@ -1403,8 +1819,8 @@ function checkStructLayout(root: string): CheckResult {
       return existsSync(p) && lstatSync(p).isDirectory();
     });
   // WXT browser-extension layout (wxt.dev): entrypoints/ is the extension's
-  // standard source root (dogfood review 2026-08-10: a WXT repo scored 0 with
-  // entrypoints/ + adapters/ — the WXT convention).
+  // standard source root (a WXT repo with entrypoints/ + adapters/ must not
+  // score 0 — that is the WXT convention).
   const wxtLayout =
     detect(root).stacks.includes("node") &&
     ["entrypoints"].some((d) => {
@@ -1412,8 +1828,8 @@ function checkStructLayout(root: string): CheckResult {
       return existsSync(p) && lstatSync(p).isDirectory();
     });
   // Python flat layout: top-level package dirs — with or without __init__.py
-  // (namespace packages; dogfood review 2026-08-09: a Python repo's model/ +
-  // ui/ scored 0 despite being the idiomatic flat layout).
+  // (namespace packages; a Python repo's model/ + ui/ must not score 0
+  // despite being the idiomatic flat layout).
   const pythonFlat =
     detect(root).stacks.includes("python") &&
     (entriesOf(root) ?? []).some(
@@ -1424,7 +1840,20 @@ function checkStructLayout(root: string): CheckResult {
         lstatSync(join(root, entry)).isDirectory() &&
         readdirSync(join(root, entry)).some((f) => f.endsWith(".py")),
     );
-  const organized = rootLevel || moduleSrc || goLayout || wxtLayout || pythonFlat;
+  // C/C++'s idiomatic layout: include/ (src/ is already in the generic list —
+  // spec 0014 C group; flutter lib/ is likewise already covered).
+  const cCppLayout =
+    detect(root).stacks.includes("c/cpp") &&
+    ["include"].some((d) => {
+      const p = join(root, d);
+      return existsSync(p) && lstatSync(p).isDirectory();
+    });
+  const organized = rootLevel || moduleSrc || goLayout || wxtLayout || pythonFlat || cCppLayout;
+  // Apple has no strong layout convention — spec 0014 C group documents the
+  // ceiling instead of recognizing target-dir layouts (a standard
+  // multi-target Xcode tree must not score 0 with a misleading "organize
+  // sources under src/" fix — an Xcode repo cannot reasonably do that).
+  const appleCeiling = !organized && detect(root).stacks.includes("apple");
   return {
     id: "struct-layout",
     category: "structure",
@@ -1438,10 +1867,16 @@ function checkStructLayout(root: string): CheckResult {
           ? "sources organized under entrypoints/ (WXT layout)"
           : pythonFlat
             ? "sources organized in flat top-level packages (Python layout)"
-            : organized
-              ? "sources organized under src/ lib/ packages/"
-              : "no src/, lib/, or packages/ directory",
-    fix: "organize sources under src/, lib/, or packages/ (not covered by transform)",
+            : cCppLayout
+              ? "sources organized under include/ + src/ (C/C++ layout)"
+              : organized
+                ? "sources organized under src/ lib/ packages/"
+                : appleCeiling
+                  ? "Xcode target-dir layout — no recognized convention (documented ceiling)"
+                  : "no src/, lib/, or packages/ directory",
+    fix: appleCeiling
+      ? "not covered — Xcode projects have no recognized layout convention to score"
+      : "organize sources under src/, lib/, or packages/ (not covered by transform)",
   };
 }
 
@@ -1501,8 +1936,8 @@ export function runAudit(root: string, verify = false): AuditResult {
     checkStructLayout(root),
   ];
 
-  // Normalization layer (2026-08-07, decoupled): each category's raw check
-  // scores scale from the check maxima to the category weight — the weights
+  // Normalization layer (decoupled): each category's raw check scores scale
+  // from the check maxima to the category weight — the weights
   // table is the single knob, the check structure stays untouched. Full marks
   // = 10 (every check maxed); 9.5 is the excellent benchmark, not a cap.
   const byCategory = Object.fromEntries(
@@ -1533,7 +1968,7 @@ export function runAudit(root: string, verify = false): AuditResult {
   const subStacks = subStacksOf(root);
   const hasBuildCmd =
     scriptKey(root, /^(build|compile|typecheck|check|verify)\b/) !== null || makefileTarget(root, "build");
-  const { maturity, note } = assessMaturity(root, hasBuildCmd, agentFile(root) !== null, hasCi(root));
+  const { maturity, note } = assessMaturity(root, hasBuildCmd, primaryAgentFile(root) !== null, hasCi(root));
 
   return {
     schemaVersion: 3,

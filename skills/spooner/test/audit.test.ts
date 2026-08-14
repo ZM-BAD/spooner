@@ -66,14 +66,14 @@ test("scale: totals carry no float tails — 0.1 display granularity (regression
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("freshness: activity is not scored — a dormant repo matches an active one (2026-08-07)", () => {
+test("freshness: activity is not scored — a dormant repo matches an active one ", () => {
   const build = (commitDate: string) => {
     const repo = fixture();
     git(repo, ["init", "-q"]);
     writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"test":"true"}}\n');
     git(repo, ["add", "."]);
     // CI runners have no global git identity — a bare commit fails there
-    // ("Please tell me who you are") while local machines pass (2026-08-07).
+    // ("Please tell me who you are") while local machines pass .
     git(repo, ["commit", "-q", "-m", "init"], {
       GIT_AUTHOR_DATE: commitDate,
       GIT_COMMITTER_DATE: commitDate,
@@ -232,7 +232,7 @@ test("drift: version current but a declared file missing -> 0.3 with a restore-s
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- freshness: per-stack dependency locks (review 2026-08-06) -----------------
+// --- freshness: per-stack dependency locks ------------------------------------
 
 test("fresh-deps: go.mod + go.sum -> 0.5 (checksum lockfile)", () => {
   const repo = fixture();
@@ -259,6 +259,79 @@ test("fresh-deps: Cargo.toml + Cargo.lock -> 0.5; without lock -> 0.3", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("fresh-deps: build.zig.zon -> 0.5 (zig manifest carries mandatory hash locks)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "build.zig.zon"), ".{\n    .name = .x,\n    .dependencies = .{},\n}\n");
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /build\.zig\.zon/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: pubspec.yaml + pubspec.lock -> 0.5; without lock -> 0.3 (dart/flutter)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pubspec.yaml"), "name: x\nenvironment:\n  sdk: ^3.0.0\n");
+  writeFileSync(join(repo, "pubspec.lock"), "packages: {}\n");
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /pubspec\.lock \(dart pub checksum lockfile\)/);
+  rmSync(join(repo, "pubspec.lock"));
+  assert.equal(item(repo, "fresh-deps")?.score, 0.3);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-lint: analysis_options.yaml counts as dart/flutter lint config", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pubspec.yaml"), "name: x\n");
+  writeFileSync(join(repo, "analysis_options.yaml"), "include: package:flutter_lints/flutter.yaml\n");
+  const r = item(repo, "cfg-lint");
+  assert.ok((r?.score ?? 0) >= 0.4, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: unity Packages/manifest.json pins UPM versions -> 0.3; +packages-lock.json -> 0.5", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "Packages"), { recursive: true });
+  writeFileSync(
+    join(repo, "Packages", "manifest.json"),
+    '{\n  "dependencies": {\n    "com.unity.xr.arfoundation": "6.5.0"\n  }\n}\n',
+  );
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.3, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /manifest\.json pins exact UPM versions/);
+  writeFileSync(join(repo, "Packages", "packages-lock.json"), '{ "dependencies": {} }\n');
+  assert.equal(item(repo, "fresh-deps")?.score, 0.5);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: vcpkg.json pins manifest-mode versions -> 0.3 (the c/cpp ceiling contradicted the spec-0014 signal)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "vcpkg.json"), '{"name": "demo", "dependencies": ["fmt"]}\n');
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.3, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /vcpkg\.json/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: conanfile.txt -> 0.3; + conan.lock -> 0.5 (Conan lockfile)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "conanfile.txt"), "[requires]\nfmt/11.0.0\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.3);
+  writeFileSync(join(repo, "conan.lock"), '{\n  "version": "0.5",\n  "requires": []\n}\n');
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0.5, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /conan\.lock/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: CMakeLists.txt alone stays 0 (no dependency semantics — the true c/cpp ceiling)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.16)\n");
+  const r = item(repo, "fresh-deps");
+  assert.equal(r?.score, 0, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("fresh-deps: java manifest pins versions -> 0.3 (no lockfile convention)", () => {
   const repo = fixture();
   writeFileSync(join(repo, "pom.xml"), "<project/>\n");
@@ -266,7 +339,7 @@ test("fresh-deps: java manifest pins versions -> 0.3 (no lockfile convention)", 
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("agents-commands evidence: requirements.txt-only python — no phantom pyproject.toml (regression 2026-08-07)", () => {
+test("agents-commands evidence: requirements.txt-only python — no phantom pyproject.toml", () => {
   const repo = fixture();
   writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\n");
   const r = item(repo, "agents-commands");
@@ -441,19 +514,58 @@ test("agents-commands: package.json build+test+lint -> 0.8 (documented -> 1.0)",
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("agents-commands: go.mod -> 0.8 via stack lifecycle incl. go vet (M6 + dogfood 2026-08-09)", () => {
+test("agents-commands: go.mod -> 0.8 via stack lifecycle incl. go vet (M6)", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n");
   const r = item(repo, "agents-commands");
   // 0.8, not 0.6: go vet is the stack's canonical lint gate (the generated
   // pre-commit config runs it) — a Makefile-less Go repo no longer stalls at
-  // build+test-only (dogfood review: a Makefile-less Go repo scored 0.6 forever)
+  // build+test-only (a Makefile-less Go repo would score 0.6 forever)
   assert.equal(r?.score, 0.8);
   assert.match(r?.evidence ?? "", /go\.mod/);
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- review regression: cross-platform security jobs --------------------------
+test("agents-commands: zig beats c/cpp for lifecycle credit when both manifests exist", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "build.zig"), "pub fn build(b: *std.Build) void {}\n");
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.20)\n");
+  const r = item(repo, "agents-commands");
+  // zig is the dedicated signal — its lifecycle must win over the generic
+  // c/cpp branch (zig main build + auxiliary CMakeLists.txt)
+  assert.match(r?.evidence ?? "", /build\.zig \(zig build \/ zig build test\)/);
+  assert.doesNotMatch(r?.evidence ?? "", /CMakeLists\.txt/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: no-lint stacks (c/cpp) are not capped at 0.6 — documented cmake lifecycle reaches 1.0", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.20)\n");
+  const contract = [
+    "# x — agent contract",
+    "## Commands (all real and executable)",
+    "| Command | Purpose |",
+    "|---|---|",
+    "| `cmake --build` | build |",
+    "| `ctest` | test |",
+  ].join("\n");
+  writeFileSync(join(repo, "AGENTS.md"), contract);
+  const r = item(repo, "agents-commands");
+  assert.equal(r?.score, 1, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: no-lint stack without documentation scores 0.8, fix says document not add", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.20)\n");
+  const r = item(repo, "agents-commands");
+  assert.equal(r?.score, 0.8, `evidence: ${r?.evidence}`);
+  assert.match(r?.fix ?? "", /document the traced commands/);
+  assert.doesNotMatch(r?.fix ?? "", /add real build\/test/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- regression: cross-platform security jobs ---------------------------------
 
 test("sec-ci: GitLab top-level security job counts as dedicated (0-indent)", () => {
   const repo = fixture();
@@ -473,7 +585,7 @@ test("sec-ci: GitHub step named 'security scan' is not a job (deep indent)", () 
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- 2026-08-07 review regressions -------------------------------------------
+// --- regressions --------------------------------------------------------------
 
 test("struct-readme: lowercase readme.md scores identically to README.md (case-insensitive lookup)", () => {
   const lower = fixture();
@@ -508,7 +620,7 @@ test("cfg-test: java repo with junit + src/test scores full (regression: no test
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- review regression: ruff.toml symmetry, requirements.txt blind spot, static trace (2026-08-07) ---
+// --- regression: ruff.toml symmetry, requirements.txt blind spot, static trace ---
 
 test("cfg-format: ruff.toml counts as a formatter config (symmetry with cfg-lint)", () => {
   const repo = fixture();
@@ -574,7 +686,7 @@ test("agents-commands --verify: missing tool is not a failing build (exit 127)",
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- php signals: composer locking, phpunit tracing, php tool configs (2026-08-07) ---
+// --- php signals: composer locking, phpunit tracing, php tool configs ---
 
 test("fresh-deps: php-only repo with composer.lock scores 0.5, not 'no dependency manifest'", () => {
   const repo = fixture();
@@ -613,7 +725,7 @@ test("cfg-test: php repo with phpunit.xml + PHPUnit assertions scores full", () 
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("agents-commands: php-only repo traces phpunit — test-only lifecycle reaches 0.6, not 0.4 (dogfood 2026-08-09)", () => {
+test("agents-commands: php-only repo traces phpunit — test-only lifecycle reaches 0.6, not 0.4", () => {
   const repo = fixture();
   writeFileSync(join(repo, "composer.json"), '{"require-dev":{"phpunit/phpunit":"^11.0"}}\n');
   writeFileSync(join(repo, "phpunit.xml"), '<?xml version="1.0"?><phpunit/>\n');
@@ -621,6 +733,54 @@ test("agents-commands: php-only repo traces phpunit — test-only lifecycle reac
   // php has no build concept — the test command IS the complete lifecycle
   assert.equal(r?.score, 0.6, `evidence: ${r?.evidence}`);
   assert.match(r?.evidence ?? "", /phpunit/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: apple+dart/flutter keeps dart analyze lint (the apple branch short-circuits it)", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "MyApp.xcodeproj"));
+  writeFileSync(join(repo, "pubspec.yaml"), "name: x\n");
+  writeFileSync(
+    join(repo, "AGENTS.md"),
+    "# Contract\n## Commands\n| Command | Purpose |\n|---|---|\n| `flutter test` | test |\n| `dart analyze` | lint |\n",
+  );
+  const r = item(repo, "agents-commands");
+  assert.ok(
+    (r?.score ?? 0) >= 0.8,
+    `dart analyze documented + traceable must not lose the lint signal — got ${r?.score} "${r?.evidence}"`,
+  );
+  assert.doesNotMatch(r?.fix ?? "", /add a lint command/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: php+c/cpp without phpunit keeps the cmake build signal (the php branch would erase it)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "composer.json"), "{}\n");
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.0)\n");
+  const r = item(repo, "agents-commands");
+  assert.match(r?.evidence ?? "", /cmake --build/);
+  assert.ok((r?.score ?? 0) > 0, `php+c/cpp must credit the cmake build — got ${r?.score} "${r?.evidence}"`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-bridge: relative-path symlink (CLAUDE.md -> ./AGENTS.md) unifies", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "AGENTS.md"),
+    "# contract\n## Commands\n| Command | Purpose |\n|---|---|\n| `go build ./...` | build |\n",
+  );
+  symlinkSync("./AGENTS.md", join(repo, "CLAUDE.md"));
+  const r = item(repo, "agents-bridge");
+  assert.equal(r?.score, 0.5, `relative symlink must unify — got ${r?.score} "${r?.evidence}"`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: xcworkspace-only repo names the real workspace entry, never the glob literal", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "MyApp.xcworkspace"));
+  const r = item(repo, "agents-commands");
+  assert.match(r?.evidence ?? "", /MyApp\.xcworkspace \(xcodebuild build\/test\)/);
+  assert.doesNotMatch(r?.evidence ?? "", /\*\.xcodeproj/);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -644,7 +804,7 @@ test("cfg-lint/cfg-format: php tool configs score (phpstan.neon / .php-cs-fixer.
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- hook-ecosystem honesty: yorkie recognition + existence ≠ execution (2026-08-07) ---
+// --- hook-ecosystem honesty: yorkie recognition + existence ≠ execution ---
 
 test("cfg-hooks: yorkie field mechanism + matching hook content scores full (vue2 chain)", () => {
   const repo = fixture();
@@ -700,7 +860,7 @@ test("cfg-hooks: .lintstagedrc + .commitlintrc.json -> discipline recognized, ho
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- kotlin/Android: gradle kts, ktlint, module layout (2026-08-07) ---
+// --- kotlin/Android: gradle kts, ktlint, module layout ---
 
 test("kotlin Android repo: build.gradle.kts scores fresh-deps + struct-layout module dirs", () => {
   const repo = fixture();
@@ -739,9 +899,9 @@ test("cfg-test: kotlin tests in app/src/test/java score (module dirs + .kt exten
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-09: go-stack fairness --------------------
+// --- go-stack fairness --------------------------------------------------------
 
-test("struct-layout: go cmd/ + pkg/ layout scores (dogfood: go)", () => {
+test("struct-layout: go cmd/ + pkg/ layout scores", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module example.com/godemo\n\ngo 1.24\n");
   mkdirSync(join(repo, "cmd"), { recursive: true });
@@ -759,7 +919,7 @@ test("struct-layout: go repo without cmd/pkg stays 0 (no false credit)", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("cfg-format: generated gofmt gate counts as config + command (dogfood: go)", () => {
+test("cfg-format: generated gofmt gate counts as config + command", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module example.com/godemo\n\ngo 1.24\n");
   writeFileSync(
@@ -779,7 +939,7 @@ test("cfg-format: no gofmt gate -> no credit (unchanged behavior)", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("cfg-lint: go stack traces go vet as the lint command (dogfood: go)", () => {
+test("cfg-lint: go stack traces go vet as the lint command", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module example.com/godemo\n\ngo 1.24\n");
   writeFileSync(join(repo, ".golangci.yaml"), "run:\n  timeout: 5m\n");
@@ -794,7 +954,7 @@ test("cfg-lint: go stack traces go vet as the lint command (dogfood: go)", () =>
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("agents-md: generated go contract lists 3 traceable commands (dogfood: go)", () => {
+test("agents-md: generated go contract lists 3 traceable commands", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module example.com/godemo\n\ngo 1.24\n");
   const contract = [
@@ -814,7 +974,7 @@ test("agents-md: generated go contract lists 3 traceable commands (dogfood: go)"
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("agents-commands: go stack with documented contract reaches 1.0 (dogfood: go)", () => {
+test("agents-commands: go stack with documented contract reaches 1.0", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module example.com/godemo\n\ngo 1.24\n");
   const contract = [
@@ -832,7 +992,7 @@ test("agents-commands: go stack with documented contract reaches 1.0 (dogfood: g
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("makefile: assignments and special targets are not phantom targets (dogfood: go-monorepo)", () => {
+test("makefile: assignments and special targets are not phantom targets", () => {
   const repo = fixture();
   writeFileSync(
     join(repo, "Makefile"),
@@ -865,9 +1025,9 @@ test("makefile: assignments and special targets are not phantom targets (dogfood
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-09: python stack fairness --------
+// --- python stack fairness --------
 
-test("cfg-lint/cfg-format: generated ruff gate counts as config + command (dogfood: python)", () => {
+test("cfg-lint/cfg-format: generated ruff gate counts as config + command", () => {
   const repo = fixture();
   writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\n");
   writeFileSync(
@@ -888,7 +1048,7 @@ test("cfg-lint/cfg-format: generated ruff gate counts as config + command (dogfo
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("agents-commands: python test-only lifecycle + ruff gate + documentation reaches 1.0 (dogfood: python)", () => {
+test("agents-commands: python test-only lifecycle + ruff gate + documentation reaches 1.0", () => {
   const repo = fixture();
   writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\n");
   writeFileSync(
@@ -908,7 +1068,7 @@ test("agents-commands: python test-only lifecycle + ruff gate + documentation re
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("struct-layout: python flat top-level packages score (dogfood: python)", () => {
+test("struct-layout: python flat top-level packages score", () => {
   const repo = fixture();
   writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\n");
   mkdirSync(join(repo, "model"), { recursive: true });
@@ -921,9 +1081,9 @@ test("struct-layout: python flat top-level packages score (dogfood: python)", ()
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-10: security job names ----------------
+// --- security job names ----------------
 
-test("sec-ci/cfg-ci: a pip-audit job is a dedicated security job (dogfood: monorepo)", () => {
+test("sec-ci/cfg-ci: a pip-audit job is a dedicated security job", () => {
   const repo = ciFixture(
     "jobs:\n  pip-audit:\n    runs-on: ubuntu-latest\n    steps: [{ run: pip-audit -r requirements.txt }]\n",
   );
@@ -945,9 +1105,9 @@ test("sec-ci: a codeql workflow is a dedicated security job despite its job name
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-10: co-located tests + WXT layout ----
+// --- co-located tests + WXT layout ----
 
-test("cfg-test: co-located *.test.ts files count (vitest convention — dogfood: wxt)", () => {
+test("cfg-test: co-located *.test.ts files count (vitest convention)", () => {
   const repo = fixture();
   writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"test":"vitest"}}\n');
   mkdirSync(join(repo, "utils"), { recursive: true });
@@ -961,7 +1121,7 @@ test("cfg-test: co-located *.test.ts files count (vitest convention — dogfood:
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("struct-layout: WXT entrypoints/ layout scores (dogfood: wxt)", () => {
+test("struct-layout: WXT entrypoints/ layout scores", () => {
   const repo = fixture();
   writeFileSync(join(repo, "package.json"), '{"name":"x"}\n');
   mkdirSync(join(repo, "entrypoints", "popup"), { recursive: true });
@@ -972,7 +1132,19 @@ test("struct-layout: WXT entrypoints/ layout scores (dogfood: wxt)", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("detect: rush.json marks a Rush monorepo as node (dogfood: rush)", () => {
+test("struct-layout: apple Xcode target-dir tree — ceiling evidence, not a src/ fix", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "MyApp.xcodeproj"));
+  mkdirSync(join(repo, "MyApp"), { recursive: true });
+  writeFileSync(join(repo, "MyApp", "AppDelegate.swift"), "import AppKit\n");
+  const r = item(repo, "struct-layout");
+  assert.equal(r?.score, 0, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /no recognized convention \(documented ceiling\)/);
+  assert.match(r?.fix ?? "", /not covered — Xcode projects have no recognized layout/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("detect: rush.json marks a Rush monorepo as node", () => {
   const repo = fixture();
   writeFileSync(
     join(repo, "rush.json"),
@@ -985,7 +1157,7 @@ test("detect: rush.json marks a Rush monorepo as node (dogfood: rush)", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("cfg-lint/cfg-format: a repo-owned ruff config is credited but not labeled generated (dogfood: repo-owned)", () => {
+test("cfg-lint/cfg-format: a repo-owned ruff config is credited but not labeled generated", () => {
   const repo = fixture();
   writeFileSync(join(repo, "requirements.txt"), "requests==2.31.0\n");
   writeFileSync(
@@ -1001,12 +1173,237 @@ test("cfg-lint/cfg-format: a repo-owned ruff config is credited but not labeled 
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("detect: oh-package.json5 marks a HarmonyOS app as harmonyos (dogfood: harmonyos)", () => {
+test("detect: oh-package.json5 marks a HarmonyOS app as harmonyos", () => {
   const repo = fixture();
   writeFileSync(join(repo, "oh-package.json5"), '{ "modelVersion": "26.0.0", "name": "harmonyapp" }\n');
   mkdirSync(join(repo, "entry"), { recursive: true });
   writeFileSync(join(repo, "entry", "oh-package.json5"), '{ "name": "entry" }\n');
   const r = runAudit(repo);
   assert.deepEqual(r.stacks, ["harmonyos"]);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- spec 0014 slice 2: A-group audit integration ----------------------------
+
+test("agents-commands: c/cpp credits cmake/ctest, evidence names the present manifest", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.16)\n");
+  writeFileSync(
+    join(repo, "AGENTS.md"),
+    "# app\n\n## Commands\n\n- build: `cmake --build build`\n- test: `ctest --test-dir build`\n",
+  );
+  const r = item(repo, "agents-commands");
+  // no-lint band: c/cpp has no canonical lint
+  // command — documented cmake lifecycle reaches 1.0
+  assert.equal(r?.score, 1, "c/cpp no-lint band + documented → 1.0");
+  assert.match(r?.evidence ?? "", /CMakeLists\.txt/, `evidence: ${r?.evidence}`);
+  assert.match(r?.evidence ?? "", /cmake --build/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: c/cpp evidence names the present signal file, not a phantom (spec 0014)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "vcpkg.json"), '{"name": "demo"}\n');
+  const r = item(repo, "agents-commands");
+  assert.match(r?.evidence ?? "", /vcpkg\.json/, `evidence: ${r?.evidence}`);
+  assert.doesNotMatch(r?.evidence ?? "", /CMakeLists\.txt/, `phantom manifest named: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: dart/flutter is test-only — flutter test documented reaches 1.0", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pubspec.yaml"), "name: app\n");
+  writeFileSync(join(repo, "AGENTS.md"), "# app\n\n- test: `flutter test`\n");
+  const r = item(repo, "agents-commands");
+  assert.equal(r?.score, 1, "test-only + dart analyze lint + documented → top band");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: apple credits xcodebuild with Podfile evidence", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Podfile"), "platform :ios, '15.0'\n");
+  writeFileSync(join(repo, "AGENTS.md"), "# app\n\n- build: `xcodebuild build`\n- test: `xcodebuild test`\n");
+  const r = item(repo, "agents-commands");
+  assert.equal(r?.score, 1, "apple no-lint band + documented → 1.0");
+  assert.match(r?.evidence ?? "", /Podfile/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: unity has no canonical lifecycle — honest 0 (documented ceiling)", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "Assets"), { recursive: true });
+  mkdirSync(join(repo, "ProjectSettings"), { recursive: true });
+  writeFileSync(join(repo, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 2022.3.20f1\n");
+  assert.equal(item(repo, "agents-commands")?.score, 0);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("struct-layout: c/cpp include/ layout recognized (spec 0014 C group)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.16)\n");
+  mkdirSync(join(repo, "include"));
+  const r = item(repo, "struct-layout");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /include/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-format: .clang-format + CI clang-format credited (spec 0014 D group)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.16)\n");
+  writeFileSync(join(repo, ".clang-format"), "BasedOnStyle: LLVM\n");
+  mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(repo, ".github", "workflows", "ci.yml"), "jobs:\n  lint:\n    run: clang-format --dry-run src\n");
+  const r = item(repo, "cfg-format");
+  assert.equal(r?.score, 0.4, "config + CI tool name, no format command → 0.4 band");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- spec 0014 slice 3: B-group audit credit (unambiguous canonicals only) ---
+
+test("agents-commands: zig credits zig build/test (spec 0014 slice 3)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "build.zig"), "pub fn build(b: *std.Build) void {}\n");
+  writeFileSync(join(repo, "AGENTS.md"), "# app\n\n- build: `zig build`\n- test: `zig build test`\n");
+  const r = item(repo, "agents-commands");
+  assert.equal(r?.score, 1, "zig no-lint band + documented → 1.0");
+  assert.match(r?.evidence ?? "", /build\.zig/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: apple xcodeproj-only evidence names the real entry, not the glob literal", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "MyApp.xcodeproj"));
+  const r = item(repo, "agents-commands");
+  assert.match(r?.evidence ?? "", /MyApp\.xcodeproj/, `evidence: ${r?.evidence}`);
+  assert.doesNotMatch(r?.evidence ?? "", /\*\.xcodeproj/, `glob literal in evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: node+apple mixed repo scores the same as node-only (spec 0014 acceptance 10b)", () => {
+  const nodeOnly = fixture();
+  writeFileSync(join(nodeOnly, "package.json"), '{"name": "app", "scripts": {"build": "tsc", "test": "vitest run"}}\n');
+  const mixed = fixture();
+  writeFileSync(join(mixed, "package.json"), '{"name": "app", "scripts": {"build": "tsc", "test": "vitest run"}}\n');
+  mkdirSync(join(mixed, "MyApp.xcodeproj"));
+  assert.equal(
+    item(mixed, "agents-commands")?.score,
+    item(nodeOnly, "agents-commands")?.score,
+    "top-level apple signal must not change node scores",
+  );
+  rmSync(nodeOnly, { recursive: true, force: true });
+  rmSync(mixed, { recursive: true, force: true });
+});
+
+test("subStacks: new-stack manifest in a subdir is named (spec 0014 acceptance 7)", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "ios"), { recursive: true });
+  writeFileSync(join(repo, "ios", "Podfile"), "platform :ios, '15.0'\n");
+  const r = runAudit(repo);
+  assert.ok(
+    r.subStacks.some((s) => s.stack === "apple" && s.dir === "ios"),
+    `subStacks: ${JSON.stringify(r.subStacks)}`,
+  );
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-commands: python+c/cpp mixed stack traces the C++ core's cmake build (build: true)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pyproject.toml"), "[project]\n");
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.18)\n");
+  const r = item(repo, "agents-commands");
+  assert.ok(r, "agents-commands missing");
+  assert.match(r.evidence, /CMakeLists\.txt \(cmake --build \/ ctest\)/, `evidence: ${r.evidence}`);
+  assert.match(r.evidence, /build: true/, `evidence: ${r.evidence}`);
+  assert.match(r.evidence, /test: true/, `evidence: ${r.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- agent-file ecosystem : beyond AGENTS.md/CLAUDE.md ----------
+
+test("agents-md: QWEN.md alone is a full agent contract — traceable commands score 0.5 (Qwen-only repo)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pyproject.toml"), "[project]\n");
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.18)\n");
+  writeFileSync(
+    join(repo, "QWEN.md"),
+    "# qwen contract\n\n- test: `python3 -m unittest discover -q`\n- build: `cmake --build`\n",
+  );
+  const r = item(repo, "agents-md");
+  assert.ok(r, "agents-md missing");
+  assert.equal(r.score, 0.5);
+  assert.match(r.evidence, /QWEN\.md/, `evidence: ${r.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-bridge: a single agent file (QWEN.md) needs no bridge — full score ", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "QWEN.md"), "# qwen contract\n");
+  const r = item(repo, "agents-bridge");
+  assert.ok(r, "agents-bridge missing");
+  assert.equal(r.score, 0.5);
+  assert.match(r.evidence, /single agent file: QWEN\.md/, `evidence: ${r.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-bridge: AGENTS.md alone is complete — no bridge demanded ", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "AGENTS.md"), "# contract\n");
+  assert.equal(item(repo, "agents-bridge")?.score, 0.5);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-bridge: reverse symlink (AGENTS.md -> CLAUDE.md) unifies — full score either direction", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CLAUDE.md"), "# AI policy\n");
+  symlinkSync("CLAUDE.md", join(repo, "AGENTS.md"));
+  const r = item(repo, "agents-bridge");
+  assert.ok(r, "agents-bridge missing");
+  assert.equal(r.score, 0.5);
+  assert.match(r.evidence, /AGENTS\.md symlinks to CLAUDE\.md/, `evidence: ${r.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-bridge: coexisting files without any bridge are independent contracts — 0 ", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "AGENTS.md"), "# a\n");
+  writeFileSync(join(repo, "QWEN.md"), "# b\n");
+  const r = item(repo, "agents-bridge");
+  assert.equal(r?.score, 0);
+  assert.match(r?.evidence ?? "", /without any bridge/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-bridge: @import between any agent files unifies (QWEN.md imports AGENTS.md)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "AGENTS.md"), "# contract\n");
+  writeFileSync(join(repo, "QWEN.md"), "# qwen\n\n@AGENTS.md\n");
+  const r = item(repo, "agents-bridge");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /QWEN\.md imports @AGENTS\.md/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-md: primary = most content-rich file (thin AGENTS.md + rich QWEN.md scores QWEN.md) ", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pyproject.toml"), "[project]\n");
+  writeFileSync(join(repo, "AGENTS.md"), "# thin\n");
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.18)\n");
+  writeFileSync(
+    join(repo, "QWEN.md"),
+    "# qwen\n\n- test: `python3 -m unittest discover -q`\n- build: `cmake --build`\n- ctest: `ctest`\n",
+  );
+  const r = item(repo, "agents-md");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /QWEN\.md/, `primary must be QWEN.md: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-length: GEMINI.md is a recognized agent file (Gemini CLI)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "GEMINI.md"), Array.from({ length: 42 }, (_, i) => `line ${i}`).join("\n"));
+  const r = item(repo, "agents-length");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /GEMINI\.md/, `evidence: ${r?.evidence}`);
   rmSync(repo, { recursive: true, force: true });
 });
