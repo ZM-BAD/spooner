@@ -15,7 +15,7 @@ Design principles this spec pins (inherited, not new):
 - **The stack model is a map, not a branch**: rust joins `[node, python, go, java]` → `[node, python, go, java, rust]` (appended — existing priority order unchanged). One workflow template + one lifecycle map row + one generator section — the M6 "branch hell" mitigation holds.
 - **Cargo is the repo's own toolchain** (like go/java): rustfmt/clippy/cargo ship with the toolchain — local system hooks, SKIP'd in CI (the M10 pattern), no managed repos needed.
 - **Warn-only softness**: `cargo clippy` without `-D warnings` (errors fail, style warnings don't block) — matches the warn-only gate philosophy; `cargo fmt --check` and `cargo test` are the hard local gates.
-- **CI setup uses the community standard**: `dtolnay/rust-toolchain@stable` (verified 2026-08, the de-facto rustup-based setup action; the toolchain ref encodes the version).
+- **CI setup uses the community standard**: `dtolnay/rust-toolchain@stable` (the de-facto rustup-based setup action; the toolchain ref encodes the version).
 
 ## Goal (one sentence)
 
@@ -29,7 +29,7 @@ Rust repositories get the same deep transform as node/python/go/java: a cargo li
 - **Stage 3**: `stackCommandsOf` gains rust — `Cargo.toml` → `cargo build` (build) / `cargo test` (test) / `cargo fmt --check` (fmt) / `cargo clippy` (lint), each traceable to the build file.
 - **audit `checkAgentsCommands`**: `stackCommandSources` gains rust — `Cargo.toml → cargo build/test` (rust repos can now credit 2/2).
 - **M10 generator**: `rustHooks(root)` — `cargo fmt --check` + `cargo clippy --all-targets` (no `-D warnings`) + `cargo test`, local system hooks, `files: \.rs$`, `stages: [pre-commit]`, emitted when `Cargo.toml` present; joined into `generatePreCommitConfig` after go.
-- **TOOL_VERSION 0.3.0 → 0.4.0** (feature bump) + `EXPECTED` synced in all **five** workflow templates + docs/08 ledger row + dogfood `sync` (spec 0004/0005 contract).
+- **TOOL_VERSION 0.4.0** (feature bump) + `EXPECTED` synced in all **five** workflow templates + docs/08 ledger row (spec 0004/0005 contract).
 - **Spec revisions (living doc)**: spec 0006 — rust moves from the unsupported list to the deep tier (goal, scope, acceptance #3 fixture switches to ruby); spec 0010 — acceptance #6's "unsupported stack" fixture switches from Cargo.toml to ruby.
 
 ## Non-goals
@@ -50,15 +50,15 @@ Rust repositories get the same deep transform as node/python/go/java: a cargo li
 6. **Pre-commit gates**: rust fixture → generated config contains `cargo-fmt` + `cargo-clippy` + `cargo-test` local hooks, no `-D warnings` in clippy args, no orphaned hook blocks
 7. **Unsupported notice narrows**: ruby fixture (`Gemfile`) → cross-stack gates only, no workflow, "not supported yet" notice (the old Cargo.toml fixture now installs the rust workflow)
 8. **Version + EXPECTED**: TOOL_VERSION = baked `EXPECTED` in all five workflow templates; docs/08 ledger row records the bump
-9. **Regression**: typecheck + markdownlint + full suite green (52 M10-era tests + new rust fixtures); M6/M10 acceptance re-run; dogfood `sync` applies the 0.4.0 templates
+9. **Regression**: typecheck + markdownlint + full suite green (52 M10-era tests + new rust fixtures); M6/M10 acceptance re-run; `sync` applies the 0.4.0 templates
 10. **Docs**: SKILL.md stack matrix + stage tables; README stack matrix (bilingual); AGENTS.md status + docs table
 
 ## Slice plan
 
-| Slice | Content                                                                                                                                                 | Status |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 1     | Spec + stack model (priority/lifecycle/commands/audit credit) + `ci-workflow-rust.yml` + `rustHooks` + TOOL_VERSION/EXPECTED + spec 0006/0010 revisions | [x]    |
-| 2     | Acceptance fixtures (workflow/lifecycle/stage-3/audit/pre-commit/ruby-notice) + SKILL.md/README/AGENTS docs + ledger + dogfood + ship                   | [x]    |
+| Slice | Content                                                                                                                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Spec + stack model (priority/lifecycle/commands/audit credit) + `ci-workflow-rust.yml` + `rustHooks` + TOOL_VERSION/EXPECTED + spec 0006/0010 revisions |
+| 2     | Acceptance fixtures (workflow/lifecycle/stage-3/audit/pre-commit/ruby-notice) + SKILL.md/README/AGENTS docs + ledger + ship                             |
 
 ## Risks
 

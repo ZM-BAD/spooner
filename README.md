@@ -48,14 +48,16 @@ The score is on a 10-point scale, grouped into five tiers:
 
 ## Stack support
 
-| Stack                       | detect + audit               | transform (gates + CI + AGENTS.md)       |
-| --------------------------- | ---------------------------- | ---------------------------------------- |
-| node (incl. React/Vue/Next) | ✅                           | ✅ `npm` lifecycle                       |
-| python                      | ✅                           | ✅ `python3 -m unittest discover`        |
-| go                          | ✅                           | ✅ `go build/test ./...`                 |
-| java (Maven + Gradle)       | ✅                           | ✅ `mvn -q -B test` / `gradle build`     |
-| rust                        | ✅                           | ✅ `cargo build/test` (fmt/clippy gates) |
-| ruby / php / swift / dotnet | ✅ (audit under-scores only) | ⚠️ cross-stack gates + explicit notice   |
+| Stack                                         | detect + audit                                                                        | transform (gates + CI + AGENTS.md)       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------- |
+| node (incl. React/Vue/Next)                   | ✅                                                                                    | ✅ `npm` lifecycle                       |
+| python                                        | ✅                                                                                    | ✅ `python3 -m unittest discover`        |
+| go                                            | ✅                                                                                    | ✅ `go build/test ./...`                 |
+| java (Maven + Gradle)                         | ✅                                                                                    | ✅ `mvn -q -B test` / `gradle build`     |
+| rust                                          | ✅                                                                                    | ✅ `cargo build/test` (fmt/clippy gates) |
+| ruby / php / swift / dotnet / harmonyos       | ✅ (audit under-scores only)                                                          | ⚠️ cross-stack gates + explicit notice   |
+| apple / c-cpp / dart-flutter / unity (Tier 1) | ✅ (canonical lifecycle credit: xcodebuild / cmake+ctest / flutter test+dart analyze) | ⚠️ cross-stack gates + explicit notice   |
+| zig                                           | ✅ (zig build/test lifecycle credit)                                                  | ⚠️ cross-stack gates + explicit notice   |
 
 ## Compatibility
 

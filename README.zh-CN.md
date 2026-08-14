@@ -48,14 +48,16 @@
 
 ## 栈支持
 
-| 栈                          | detect + audit           | transform（门禁 + CI + AGENTS.md）       |
-| --------------------------- | ------------------------ | ---------------------------------------- |
-| node（含 React/Vue/Next）   | ✅                       | ✅ `npm` 生命周期                        |
-| python                      | ✅                       | ✅ `python3 -m unittest discover`        |
-| go                          | ✅                       | ✅ `go build/test ./...`                 |
-| java（Maven + Gradle）      | ✅                       | ✅ `mvn -q -B test` / `gradle build`     |
-| rust                        | ✅                       | ✅ `cargo build/test`（fmt/clippy 门禁） |
-| ruby / php / swift / dotnet | ✅（audit 只低估不虚高） | ⚠️ 跨栈门禁 + 明确暂不支持提示           |
+| 栈                                             | detect + audit                                                                     | transform（门禁 + CI + AGENTS.md）       |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------- |
+| node（含 React/Vue/Next）                      | ✅                                                                                 | ✅ `npm` 生命周期                        |
+| python                                         | ✅                                                                                 | ✅ `python3 -m unittest discover`        |
+| go                                             | ✅                                                                                 | ✅ `go build/test ./...`                 |
+| java（Maven + Gradle）                         | ✅                                                                                 | ✅ `mvn -q -B test` / `gradle build`     |
+| rust                                           | ✅                                                                                 | ✅ `cargo build/test`（fmt/clippy 门禁） |
+| ruby / php / swift / dotnet / harmonyos        | ✅（audit 只低估不虚高）                                                           | ⚠️ 跨栈门禁 + 明确暂不支持提示           |
+| apple / c-cpp / dart-flutter / unity（Tier 1） | ✅（canonical 生命周期信用：xcodebuild / cmake+ctest / flutter test+dart analyze） | ⚠️ 跨栈门禁 + 明确暂不支持提示           |
+| zig                                            | ✅（zig build/test 生命周期信用）                                                  | ⚠️ 跨栈门禁 + 明确暂不支持提示           |
 
 ## 兼容性
 

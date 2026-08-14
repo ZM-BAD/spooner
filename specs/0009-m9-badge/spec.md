@@ -8,7 +8,7 @@ date: 2026-08-05
 
 ## Background
 
-The distribution engine is the open gap before launch (docs/06): the before/after image is launch material, the SVG readiness badge is the recurring-impression asset ("a badge pasted once renders on every page load" — README badges are self-distributing brand impressions). The niche is currently empty in the readiness category (2026-08-05 survey): two near entries exist (brewmarsh/agent-readiness-scorecard `--badge`, @paladini/harness-score `renderBadge`) but both are CLI/library-form, offline single-SVG generators — neither is wired into an audit → transform → check loop, and neither probes the host README's existing badge style.
+The distribution engine is the open gap before launch (docs/06): the before/after image is launch material, the SVG readiness badge is the recurring-impression asset ("a badge pasted once renders on every page load" — README badges are self-distributing brand impressions). The niche is currently empty in the readiness category: two near entries exist (brewmarsh/agent-readiness-scorecard `--badge`, @paladini/harness-score `renderBadge`) but both are CLI/library-form, offline single-SVG generators — neither is wired into an audit → transform → check loop, and neither probes the host README's existing badge style.
 
 Design principles this spec pins:
 
@@ -66,7 +66,7 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
 4. **Tie fallback**: fixture with equal counts → `flat`
 5. **No known style**: fixture with only non-shields badges → `flat`
 6. **Override**: `--style for-the-badge` on any of the above → `for-the-badge`, probe evidence still reported
-7. **Tier/color mapping**: three fixtures scored 18, 12, 3 → labels AI-Native / AI-Curious / AI-Absent with `#4c1` / `#dfb317` / `#e05d44` message sides
+7. **Tier/color mapping**: three fixtures scored 9, 6, 1.5 → labels AI-Native / AI-Curious / AI-Absent with `#4c1` / `#dfb317` / `#e05d44` message sides
 8. **SVG validity**: output parses as XML; width adapts to text (no fixed width)
 9. **Artifacts**: `assets/badge.svg` + `assets/audit-report.md` written; the printed snippet references both (badge → report link)
 10. **Determinism**: two runs on the same fixture → byte-identical SVG + report
@@ -75,11 +75,11 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
 
 ## Slice plan
 
-| Slice | Content                                                                                             | Status |
-| ----- | --------------------------------------------------------------------------------------------------- | ------ |
-| 1     | badge.ts core renderer: 5 style templates + pinned tiers/colors + audit reuse + artifacts + snippet | [x]    |
-| 2     | README style probe + decision chain + `--style` override + evidence report                          | [x]    |
-| 3     | SKILL.md badge step + acceptance fixtures + ROADMAP/HANDOFF sync + ship                             | [x]    |
+| Slice | Content                                                                                             |
+| ----- | --------------------------------------------------------------------------------------------------- |
+| 1     | badge.ts core renderer: 5 style templates + pinned tiers/colors + audit reuse + artifacts + snippet |
+| 2     | README style probe + decision chain + `--style` override + evidence report                          |
+| 3     | SKILL.md badge step + acceptance fixtures + ROADMAP/HANDOFF sync + ship                             |
 
 ## Risks
 

@@ -89,11 +89,11 @@ stages:
 
 ## Slice plan
 
-| Slice | Content                                                                                                                                                                                              | Status |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| 1     | Manifest extension (transform.ts: write/read `templateVersion`, export TOOL_VERSION + template maps) + `sync.ts` scaffold: CLI, template registry, detection engine, report schema + markdown render | [x]    |
-| 2     | Apply engine (replace outdated / restore missing / never touch modified, manifest update, post-apply consistency, rollback note) + check.ts integration                                              | [x]    |
-| 3     | SKILL.md sync instructions + examples + AGENTS.md/README sync + docs/08 ledger note + acceptance + ship                                                                                              | [x]    |
+| Slice | Content                                                                                                                                                                                              |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Manifest extension (transform.ts: write/read `templateVersion`, export TOOL_VERSION + template maps) + `sync.ts` scaffold: CLI, template registry, detection engine, report schema + markdown render |
+| 2     | Apply engine (replace outdated / restore missing / never touch modified, manifest update, post-apply consistency, rollback note) + check.ts integration                                              |
+| 3     | SKILL.md sync instructions + examples + AGENTS.md/README sync + docs/08 ledger note + acceptance + ship                                                                                              |
 
 ## Risks
 

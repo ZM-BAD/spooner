@@ -5,8 +5,8 @@
  * importing must not trigger side effects (tests import run() from these
  * modules). Compares REAL paths on both sides: the module loader resolves
  * symlinks in import.meta.url, but process.argv[1] keeps the path as typed —
- * a strict string equality silently skipped main() for any invocation through
- * a symlinked directory or file (exit 0, no output; found 2026-08-07).
+ * a strict string equality silently skips main() for any invocation through
+ * a symlinked directory or file (exit 0, no output).
  *
  * Zero dependencies (Node builtins only).
  */

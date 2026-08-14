@@ -27,7 +27,7 @@ test("probe: no README -> default flat", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("probe: lowercase readme.md probes identically (case-insensitive lookup, 2026-08-07)", () => {
+test("probe: lowercase readme.md probes identically (case-insensitive lookup)", () => {
   const repo = fixture();
   writeFileSync(
     join(repo, "readme.md"),

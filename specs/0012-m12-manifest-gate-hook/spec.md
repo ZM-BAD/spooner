@@ -8,13 +8,13 @@ date: 2026-08-05
 
 ## Background
 
-The M10 incident class — "stale ledger → local green, CI red" — is only half-closed for users. spooner's own dogfood repo closes it locally with a `--manifest-gate` hook that calls spooner's own scripts (possible only in-repo: the entry runs `node skills/spooner/scripts/transform.ts … --manifest-gate`). **User repos get no local manifest check at all**: the generated pre-commit config (`PRE_COMMIT_CORE`, spec 0010) contains only managed repos (pre-commit-hooks / markdownlint / commitlint / gitleaks), and the manifest gate exists solely as the CI hard-gate job in the installed workflow (spec 0005, baked `EXPECTED`). Consequences: a user who commits a stale `.ai-native.yml`, or forgets to commit the ledger at all, stays locally green and turns CI red at push — the exact failure the M10 dogfood caught on push (2026-08-05) and the M11 rebase re-caught locally (0.3.0 < 0.4.0, pre-commit exit 1). Repos on non-GitHub CI (spec 0008 no-workflow mode) have **no manifest gate anywhere** — the hook proposed here is their first.
+The "stale ledger → local green, CI red" failure class is only half-closed for users. The in-repo `--manifest-gate` hook (calling spooner's own scripts — possible only in-repo: the entry runs `node skills/spooner/scripts/transform.ts … --manifest-gate`) closes it locally, but **user repos get no local manifest check at all**: the generated pre-commit config (`PRE_COMMIT_CORE`, spec 0010) contains only managed repos (pre-commit-hooks / markdownlint / commitlint / gitleaks), and the manifest gate exists solely as the CI hard-gate job in the installed workflow (spec 0005, baked `EXPECTED`). Consequences: a user who commits a stale `.ai-native.yml`, or forgets to commit the ledger at all, stays locally green and turns CI red at push (a stale-version commit stays locally green because local pre-commit reads the working-tree manifest while CI reads the committed one). Repos on non-GitHub CI (spec 0008 no-workflow mode) have **no manifest gate anywhere** — the hook proposed here is their first.
 
-The CI hard-gate job is already a **self-contained `python3` script** (zero deps: a minimal indent-based YAML parser, schema check, missing-file scan with stage hint, `lt()` version compare, exit 1 with an actionable message). The generator can emit that same script as a `repo: local` pre-commit hook — it has no dependency on spooner's scripts being present in the target repo (users never receive `skills/spooner/scripts`). **Python3, not node**: pre-commit itself is a python tool, so python3 is guaranteed wherever pre-commit runs — a node-based hook would block every commit for contributors of non-node stacks without node (the review finding that pinned this choice); CI runners (ubuntu-latest) ship python3 too, keeping byte parity. Windows `python3` naming is a documented boundary (SKIP or install python3).
+The CI hard-gate job is already a **self-contained `python3` script** (zero deps: a minimal indent-based YAML parser, schema check, missing-file scan with stage hint, `lt()` version compare, exit 1 with an actionable message). The generator can emit that same script as a `repo: local` pre-commit hook — it has no dependency on spooner's scripts being present in the target repo (users never receive `skills/spooner/scripts`). **Python3, not node**: pre-commit itself is a python tool, so python3 is guaranteed wherever pre-commit runs — a node-based hook would block every commit for contributors of non-node stacks without node; CI runners (ubuntu-latest) ship python3 too, keeping byte parity. Windows `python3` naming is a documented boundary (SKIP or install python3).
 
 ## Goal (one sentence)
 
-The generated pre-commit config gains a self-contained `manifest-consistency` hook in the cross-stack core that mirrors the CI hard-gate job (baked `EXPECTED`, same script semantics), so a stale or drifting ledger turns local pre-commit red — closing the M10 incident class for users and giving no-workflow repos their first manifest gate.
+The generated pre-commit config gains a self-contained `manifest-consistency` hook in the cross-stack core that mirrors the CI hard-gate job (baked `EXPECTED`, same script semantics), so a stale or drifting ledger turns local pre-commit red — closing the stale-ledger failure class for users and giving no-workflow repos their first manifest gate.
 
 ## Scope (what it does)
 
@@ -22,8 +22,8 @@ The generated pre-commit config gains a self-contained `manifest-consistency` ho
 - **Parity guard**: a test extracts the emitted hook script and the CI job's script and asserts they match — the gate script now lives in 6 places (5 workflow templates + generator), drift is a real risk.
 - **CI parity model**: all five workflow templates' pre-commit job `SKIP` lists gain `manifest-consistency` (that job has no repo tooling guarantee; CI's manifest check stays the dedicated hard-gate job — "local ⊇ CI" preserved, the hook runs locally only).
 - **Migration rule** (spec 0010 extension): the tool-owned "write" case widens — installed bytes equal the pre-M10 universal template **or carry the generator's marker header** (`# pre-commit config generated by spooner transform Stage 2 …`) → `write` (upgrade), never `conflict`. M10-era generated configs therefore upgrade in place; user-edited configs still `conflict`.
-- **Version contract** (spec 0004/0005): TOOL_VERSION 0.4.0 → 0.5.0 (template change) + baked `EXPECTED` synced in all five workflows + docs/08 ledger row + dogfood `sync` — spooner's own config regenerates to the self-contained hook, replacing the in-repo `--manifest-gate` script hook.
-- **`--manifest-gate` flag stays** as a CLI verification tool (one-shot live-version check; audit/check paths and tests keep exercising it) — the generated hook is baked, the flag is live: dogfood-style early catches remain possible on demand.
+- **Version contract** (spec 0004/0005): TOOL_VERSION 0.5.0 (template change) + baked `EXPECTED` synced in all five workflows + docs/08 ledger row — a generated config regenerates to the self-contained hook, replacing the in-repo `--manifest-gate` script hook.
+- **`--manifest-gate` flag stays** as a CLI verification tool (one-shot live-version check; audit/check paths and tests keep exercising it) — the generated hook is baked, the flag is live: one-shot live catches remain possible on demand.
 - **Non-GitHub CI (no-workflow) repos**: the hook is their only manifest gate — emitted with the cross-stack core, no workflow change needed.
 
 ## Non-goals (explicitly out)
@@ -46,18 +46,18 @@ The generated pre-commit config gains a self-contained `manifest-consistency` ho
 8. **Migration**: fixture with an M10-era generated config (marker header, stale bytes) → stage 2 plans `write`; user-edited config → `conflict` (unchanged); pre-M10 template bytes → `write` (unchanged)
 9. **SKIP ×5 + version**: all five workflow templates' pre-commit job SKIP lists include `manifest-consistency`; baked `EXPECTED` = 0.5.0 in all five; docs/08 ledger row records the bump
 10. **Determinism**: two generator runs on the same fixture → byte-identical config
-11. **Dogfood**: `sync` applies the 0.5.0 templates; spooner's own regenerated config contains the self-contained hook; the installed dogfood workflow stays byte-equal to the node template; full suite green (count verified against `node --test` output)
+11. **Self-apply**: `sync` applies the 0.5.0 templates; a regenerated config contains the self-contained hook; the installed workflow stays byte-equal to the node template; full suite green (count verified against `node --test` output)
 
 ## Slice plan (each slice independently verifiable)
 
-| Slice | Content                                                                                      | Status |
-| ----- | -------------------------------------------------------------------------------------------- | ------ |
-| 1     | Generator emits the self-contained hook (script + baked EXPECTED) + behavior tests (2-6, 10) | [x]    |
-| 2     | Parity test (7) + migration-rule widening (8) + tests                                        | [x]    |
-| 3     | SKIP ×5 + TOOL_VERSION 0.5.0 + EXPECTED×5 + docs/08 ledger + dogfood sync                    | [x]    |
+| Slice | Content                                                                                      |
+| ----- | -------------------------------------------------------------------------------------------- |
+| 1     | Generator emits the self-contained hook (script + baked EXPECTED) + behavior tests (2-6, 10) |
+| 2     | Parity test (7) + migration-rule widening (8) + tests                                        |
+| 3     | SKIP ×5 + TOOL_VERSION 0.5.0 + EXPECTED×5 + docs/08 ledger                                   |
 
 ## Risks
 
-- **Seven copies of the gate script** (5 templates + generator + the installed dogfood workflow) drift apart → the parity test (7) is the guard, including the dogfood copy; if it becomes noise, a shared generation helper is the follow-up (not pre-scheduled)
-- **Dogfood loses its live-version local check** (the regenerated config bakes EXPECTED; the M11-style rebase edge path now surfaces in CI, not locally) → the milestone flow (bump → dogfood `sync`) keeps the baked value fresh; the `--manifest-gate` CLI stays as a one-shot live check
+- **Seven copies of the gate script** (5 templates + generator + the installed workflow) drift apart → the parity test (7) is the guard, including the installed copy; if it becomes noise, a shared generation helper is the follow-up (not pre-scheduled)
+- **The installed config loses its live-version local check** (the regenerated config bakes EXPECTED; a rebase-style version edge now surfaces in CI, not locally) → the milestone flow (bump → `sync`) keeps the baked value fresh; the `--manifest-gate` CLI stays as a one-shot live check
 - **`python3 -c` quoting inside YAML generation** is fragile (nested quotes/backslashes) → the emitted-hook tests assert the config parses and the entry executes in fixtures

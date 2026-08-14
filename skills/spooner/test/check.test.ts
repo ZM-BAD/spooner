@@ -47,7 +47,7 @@ test("check: v1-model baseline is re-baselined with an explicit notice", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("check: v2-model baseline is re-baselined too (9.5 normalization, 2026-08-07)", () => {
+test("check: v2-model baseline is re-baselined too (9.5 normalization)", () => {
   const repo = fixture();
   mkdirSync(join(repo, ".ai-native"), { recursive: true });
   writeFileSync(

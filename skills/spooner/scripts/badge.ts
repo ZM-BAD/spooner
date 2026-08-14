@@ -31,9 +31,9 @@ const SCHEMA_VERSION = 1;
 export const STYLES = ["flat", "flat-square", "plastic", "for-the-badge", "social"] as const;
 export type Style = (typeof STYLES)[number];
 
-// 10-scale tiers (spec 0009 + 2026-08-07 re-map): full marks = 10 but 10 is
-// almost unreachable (every check must max out — the pylint case); 9.5 = the
-// excellent benchmark, 8 = good.
+// 10-scale tiers (spec 0009): full marks = 10 but 10 is almost unreachable
+// (every check must max out — the pylint case); 9.5 = the excellent
+// benchmark, 8 = good.
 const TIERS: readonly { label: string; min: number }[] = [
   { label: "AI-Native", min: 9 },
   { label: "AI-Friendly", min: 7 },
@@ -91,7 +91,7 @@ function badgeUrls(readme: string | null): string[] {
  */
 export function probeReadme(root: string): ProbeResult {
   // case-insensitive lookup — a lowercase readme.md must probe identically on
-  // macOS and Linux CI (2026-08-07)
+  // macOS and Linux CI
   const readmeName = readmeFileOf(root);
   const readme = readmeName ? readFileSync(join(root, readmeName), "utf8") : null;
 
