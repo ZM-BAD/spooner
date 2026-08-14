@@ -1,16 +1,16 @@
 # Spooner
 
-<p style="text-align:center">
+<p align="center">
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 > **让这个 git 仓库为 AI 做好准备**——AI coding agent 从第一次运行起就能在里面好好干活。检测它的 AI 编码就绪度、打出 10 分制的分数，然后就地改造：CI 门禁、AGENTS.md、spec 驱动工作流。每步可验证，永不破坏已有构建。
 
-<p style="text-align:center">
-  <img src="https://img.shields.io/badge/agents-10%2B-8A2BE2.svg?style=flat-square" alt="Compatible with 10+ coding agents"/>
-  <img src="https://img.shields.io/badge/Agent%20Skills-%E2%9C%93-green.svg?style=flat-square" alt="Agent Skills standard"/>
-  <img src="https://img.shields.io/badge/CI-passing-brightgreen.svg?style=flat-square" alt="CI passing"/>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License: MIT"/></a>
+<p align="center">
+  <img src="https://img.shields.io/static/v1?label=agents&message=10%2B&color=8A2BE2&style=flat-square" alt="Compatible with 10+ coding agents"/>
+  <img src="https://img.shields.io/static/v1?label=Agent%20Skills&message=%E2%9C%93&color=green&style=flat-square" alt="Agent Skills standard"/>
+  <a href="https://github.com/ZM-BAD/spooner/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZM-BAD/spooner/ci.yml?style=flat-square&label=CI&cacheSeconds=300" alt="CI status"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ZM-BAD/spooner?style=flat-square&label=License" alt="License"/></a>
   <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI 就绪度：AI-Native · 9.2/10"/></a>
 </p>
 
@@ -20,7 +20,7 @@
 
 ## 一次运行的效果
 
-<p style="text-align:center">
+<p align="center">
   <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4.3/10 AI-Aware → 9.2/10 AI-Native"/></a>
 </p>
 
