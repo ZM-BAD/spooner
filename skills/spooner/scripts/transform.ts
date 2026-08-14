@@ -26,6 +26,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { isDirectEntry } from "./entry.ts";
 import { detect } from "./detect.ts";
+import { DYNAMIC_LIFECYCLE_STACKS, GO_TEST_COMMAND, STACK_COMMANDS } from "./stacks.ts";
 
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
@@ -40,8 +41,8 @@ const STAGE_FILES: Record<number, string[]> = {
 };
 
 /** Stage-4 template map: SDD docs + the spec-existence CI gate. The gate is
- *  skipped on non-GitHub platforms — same routing as stage 2 (2026-08-07:
- *  stage 4 previously installed a dead .github/workflows/sdd.yml on GitLab). */
+ *  skipped on non-GitHub platforms — same routing as stage 2 (stage 4 must
+ *  not install a dead .github/workflows/sdd.yml on GitLab). */
 export function stage4Templates(root: string, ciOverride?: string): Record<string, string> {
   const tpl = { ...STAGE4_TEMPLATES };
   if (!workflowEligible(root, ciOverride)) delete tpl[".github/workflows/sdd.yml"];
@@ -270,10 +271,10 @@ export const STAGE2_COMMON: Record<string, string> = {
 
 /** Pre-existing markdownlint configs that cli2 would silently MERGE with the
  *  generated .markdownlint-cli2.yaml — the merge overrides the generated rule
- *  disables and the gate runs with unexpected defaults (dogfood review
- *  2026-08-09: a Go monorepo's own .markdownlint.yml diluted the generated
- *  config's MD060:false → ~21k errors incl. spooner's own SDD templates
- *  flagged). When one exists, the gate follows the repo's own config. */
+ *  disables and the gate runs with unexpected defaults (a repo's own
+ *  .markdownlint.yml can dilute the generated config's MD060:false → ~21k
+ *  errors incl. spooner's own SDD templates flagged). When one exists, the
+ *  gate follows the repo's own config. */
 const MARKDOWNLINT_FOREIGN_CONFIGS = [
   ".markdownlint.yml",
   ".markdownlint.yaml",
@@ -292,9 +293,9 @@ function foreignMarkdownlintConfigOf(root: string): string | null {
 
 /** Pre-existing commitlint configs — installing .commitlintrc.json beside one
  *  lets cosmiconfig's resolution order silently shadow the repo's own config
- *  (dogfood review 2026-08-10: a Node/Python monorepo's commitlint.config.mjs tightened
- *  header-max-length to 72; the installed .commitlintrc.json default 100 won
- *  the resolution). Skip the install, keep the repo's config. */
+ *  (a repo's commitlint.config.mjs tightened header-max-length to 72; the
+ *  installed .commitlintrc.json default 100 would win the resolution). Skip
+ *  the install, keep the repo's config. */
 const COMMITLINT_FOREIGN_CONFIGS = [
   ".commitlintrc",
   ".commitlintrc.js",
@@ -366,10 +367,9 @@ function gitRemoteHost(root: string): string | null {
 
 /**
  * Why the GitHub workflow template is skipped (null = it applies). Detection
- * order (spec 0008 + greenfield-remote fix 2026-08-07): an explicit --ci
- * override wins; local CI files next; a greenfield repo with no CI files
- * consults the origin remote host — a GitLab remote must not receive a dead
- * .github/workflows file.
+ * order (spec 0008): an explicit --ci override wins; local CI files next; a
+ * greenfield repo with no CI files consults the origin remote host — a
+ * GitLab remote must not receive a dead .github/workflows file.
  */
 export function workflowSkipReason(root: string, ciOverride?: string): string | null {
   if (ciOverride === "github") return null;
@@ -416,6 +416,16 @@ export const PRE_COMMIT_FILE = ".pre-commit-config.yaml";
 /** Marker for generated content in stage2Templates (M10). */
 const GENERATED = "@generated";
 
+/** Tool-owned workflow marker: the generated header names its stack. A
+ *  workflow carrying this stack's header is tool-owned across version bumps
+ *  (a stale baked EXPECTED after a TOOL_VERSION bump re-renders instead of
+ *  conflicting — the installed workflow would otherwise lag behind a bump);
+ *  other stacks' headers keep the wrong-stack conflict + delete-and-re-run
+ *  hint. */
+function generatedWorkflowMarker(stack: string): string {
+  return `# CI workflow installed by spooner transform Stage 2 (${stack} stack`;
+}
+
 export type HookTool = "pre-commit" | "husky" | "lefthook" | "yorkie" | "none";
 
 /**
@@ -423,7 +433,7 @@ export type HookTool = "pre-commit" | "husky" | "lefthook" | "yorkie" | "none";
  * own hooks — the generated pre-commit config would be a foreign gate file.
  * A bare dependency name WITHOUT hooks configuration is a DEAD dependency —
  * it must not block the gate install (vue2 upgrade leftovers: husky in
- * devDependencies, no .husky/, no husky field; 2026-08-07). Active forms:
+ * devDependencies, no .husky/, no husky field). Active forms:
  * husky v7+ = a `.husky/` directory; husky v4 / yorkie (vue-cli default) =
  * a package.json field with a `hooks` map, dependency present.
  */
@@ -438,7 +448,7 @@ export function hookToolEcosystem(root: string): HookTool {
   };
   // yorkie (vue-cli) reads either its own `yorkie` field or the legacy
   // `gitHooks` field (vue-cli 2/3 — husky-v4-compatible schema); a yorkie
-  // dependency with gitHooks configured is ACTIVE (2026-08-07).
+  // dependency with gitHooks configured is ACTIVE.
   if (all["yorkie"] !== undefined && (fieldOf("yorkie") || fieldOf("gitHooks"))) return "yorkie";
   if (existsSync(join(root, ".husky")) || (all["husky"] !== undefined && fieldOf("husky"))) return "husky";
   return "none";
@@ -508,6 +518,16 @@ function declaredWrapper(key: string): string {
   return `bash -c 'node -e "const{execSync}=require(\\"node:child_process\\");const s=require(\\"./package.json\\").scripts||{};if(typeof s.${key}===\\"string\\"){console.log(\\"> npm run ${key}\\");execSync(\\"npm run ${key}\\",{stdio:\\"inherit\\"})}else console.log(\\"no ${key} script declared — skipped\\")"'`;
 }
 
+/** Rendered hook-exclude regex sources — the ONLY place that reasons about
+ *  regex escaping (pitfall class 4: the template-literal `\.` can be
+ *  swallowed — three-backslash workarounds and four-backslash runs render a
+ *  double backslash into the generated exclude). `String.raw` makes the
+ *  source text byte-identical to the rendered YAML — no backslash counting.
+ *  The rendered exclude bytes are pinned by the preCommit byte assertions
+ *  (spec 0015 slice 4). */
+const EXCLUDE_CLANG_FORMAT = String.raw`\.clang-format$`;
+const EXCLUDE_JSONC = String.raw`^(\.devcontainer|\.vscode)/|(^|/)tsconfig.*\.json$`;
+
 /** Cross-stack core (always): hygiene + markdownlint + commitlint + gitleaks. */
 const PRE_COMMIT_CORE = `  - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -515,7 +535,15 @@ const PRE_COMMIT_CORE = `  - repo: https://github.com/pre-commit/pre-commit-hook
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # .clang-format is multi-document YAML — not a manifest; check-yaml
+        # would fail every commit on any C/C++ repo
+        exclude: '${EXCLUDE_CLANG_FORMAT}'
       - id: check-json
+        # .devcontainer/ + .vscode/ are JSONC — comments and trailing commas
+        # are the VSCode ecosystem's standard formats; tsconfig.json is JSONC
+        # to the TS toolchain too (comments/trailing commas accepted, e.g.
+        # Docusaurus scaffolds); strict JSON decode fails them on every commit
+        exclude: '${EXCLUDE_JSONC}'
       - id: check-merge-conflict
       - id: check-added-large-files
       - id: check-symlinks
@@ -540,11 +568,10 @@ const PRE_COMMIT_CORE = `  - repo: https://github.com/pre-commit/pre-commit-hook
 
 /** Self-contained manifest gate (spec 0012): mirrors the CI hard-gate job's
  *  python3 script (baked EXPECTED — spec 0005's baked-version rule) so user
- *  repos get the same local gate spooner dogfoods. Zero deps: no spooner
- *  scripts required in the target repo; python3 is guaranteed wherever
- *  pre-commit runs (pre-commit itself is a python tool — node is not).
- *  The parity test keeps this copy and the five workflow templates'
- *  copies from drifting. */
+ *  repos get the same local gate. Zero deps: no spooner scripts required in
+ *  the target repo; python3 is guaranteed wherever pre-commit runs
+ *  (pre-commit itself is a python tool — node is not). The parity test keeps
+ *  this copy and the five workflow templates' copies from drifting. */
 const MANIFEST_GATE_SCRIPT = `import sys, os, re
 # baked at install time; must track the spooner TOOL_VERSION that
 # shipped this workflow (docs/08 ledger rule: every bump updates it)
@@ -679,26 +706,32 @@ function pythonHooks(root: string): string | null {
         args: [--check]
         files: \\.py$`);
   if (pytestPresent(root)) {
+    // Missing local tool is not a failing build (the audit's exit-127 rule,
+    // pip-audit pattern): a machine without the pytest module fails
+    // "python3 -m pytest" with ModuleNotFoundError — an environment gap, not
+    // a broken build. Pre-check --version and skip with a notice naming the
+    // escape; a real test failure still fails the hook (the hard gate stays).
+    // bash -c wrapped: system hooks never run through a shell — the entry is
+    // shlex-split and the first token exec'd directly.
     lines.push(`  - repo: local
     hooks:
       - id: pytest
         name: pytest (python)
-        entry: python3 -m pytest -q
+        entry: 'bash -c ''python3 -m pytest --version >/dev/null 2>&1 || { echo "pytest not installed - SKIP=pytest or pip install pytest (a missing local tool is not a failing build)"; exit 0; }; exec python3 -m pytest -q'' bash'
         language: system
         pass_filenames: false
         files: \\.py$
         stages: [pre-commit]`);
   }
   if (pipAuditPresent(root)) {
-    // Missing local tool is not a failing build (the audit's exit-127 rule,
-    // dogfood review 2026-08-09): a machine without pip-audit must not block
-    // every commit with "Executable pip-audit not found" — skip with a notice
-    // and name the escape (SKIP=pip-audit / pip install pip-audit). The skip
-    // logic is bash -c wrapped: system hooks never run through a shell — the
-    // entry is shlex-split and the first token exec'd directly, so a bare
-    // `command -v` builtin fails executable resolution on Linux ("Executable
-    // `command` not found", dogfood CI 2026-08-10; macOS /usr/bin/command
-    // masked it locally).
+    // Missing local tool is not a failing build (the audit's exit-127 rule):
+    // a machine without pip-audit must not block every commit with
+    // "Executable pip-audit not found" — skip with a notice and name the
+    // escape (SKIP=pip-audit / pip install pip-audit). The skip logic is
+    // bash -c wrapped: system hooks never run through a shell — the entry is
+    // shlex-split and the first token exec'd directly, so a bare `command -v`
+    // builtin fails executable resolution on Linux ("Executable `command`
+    // not found"; macOS /usr/bin/command would mask it locally).
     lines.push(`  - repo: local
     hooks:
       - id: pip-audit
@@ -738,7 +771,7 @@ function nodeHooks(root: string): string | null {
   if (eslintPresent(root)) {
     // types: [] — mirrors-eslint defaults to types: [javascript], which
     // filters .ts files out (pre-commit's identify tags them typescript),
-    // leaving a dead eslint gate on pure-TS repos (dogfood 2026-08-07).
+    // leaving a dead eslint gate on pure-TS repos.
     // The files pattern already scopes js/ts; no type filtering needed.
     lines.push(`  - repo: https://github.com/pre-commit/mirrors-eslint
     rev: v10.0.3
@@ -798,10 +831,10 @@ ${local.join("\n")}`);
   return lines.join("\n");
 }
 
-/** Go gates (local system hooks — go toolchain is the repo's own; SKIP'd in the go workflow template).
- *  go-test is bash -c wrapped: `$(...)`/`|` only work inside a shell — as a
- *  bare system entry pre-commit execs them as literal go args ("malformed
- *  import path", dogfood 2026-08-10). */
+/** Go gates (local system hooks — go toolchain is the repo's own; SKIP'd in
+ *  the go workflow template). go-test is bash -c wrapped: `$(...)`/`|` only
+ *  work inside a shell — as a bare system entry pre-commit execs them as
+ *  literal go args ("malformed import path"). */
 function goHooks(root: string): string | null {
   if (!hasAny(root, ["go.mod"])) return null;
   return `  - repo: local
@@ -832,8 +865,8 @@ function goHooks(root: string): string | null {
 /** Java gates (local system hook — SKIP'd in the java workflow template). */
 function javaHooks(root: string): string | null {
   // settings.gradle(.kts) marks a gradle project whose build files live in
-  // module dirs (Android: app/build.gradle.kts) — the root-only check missed
-  // every kotlin/Android layout (2026-08-07).
+  // module dirs (Android: app/build.gradle.kts) — a root-only check would
+  // miss every kotlin/Android layout.
   if (!hasAny(root, ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]))
     return null;
   const gradle = hasAny(root, ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]);
@@ -892,8 +925,8 @@ function rustHooks(root: string): string | null {
  *  missing tool is not a failing build (pip-audit pattern): skip with an
  *  explicit notice; CI's SKILL.md job remains the hard check. The skip-or-run
  *  logic is bash -c wrapped: system hooks never run through a shell — a bare
- *  `command -v` builtin fails executable resolution on Linux (dogfood CI
- *  2026-08-10; macOS's /usr/bin/command masked it locally). */
+ *  `command -v` builtin fails executable resolution on Linux (macOS's
+ *  /usr/bin/command would mask it locally). */
 function skillHooks(root: string): string | null {
   const rootSkill = existsSync(join(root, "SKILL.md"));
   let nested = false;
@@ -1022,8 +1055,8 @@ function declaredNpmLifecycle(root: string): { build: string | null; test: strin
   // the CI template's declared-commands job: a key matches by exact name OR a
   // `family:` variant (build:prod, check:metadata). The three recognizers
   // must agree or the audit credits commands the verification never runs
-  // (dogfood review 2026-08-10: a Node repo's check:metadata was credited as
-  // build:true while transform reported "no command declared").
+  // (a check:metadata credited as build:true while transform reports
+  // "no command declared").
   const familyKey = (families: string[]): string | null =>
     Object.keys(scripts).find((k) => families.some((f) => k === f || k.startsWith(`${f}:`))) ?? null;
   const build = familyKey(["build", "compile", "typecheck", "check", "verify"]);
@@ -1032,14 +1065,14 @@ function declaredNpmLifecycle(root: string): { build: string | null; test: strin
 }
 
 /** go test minus E2E suites — test/e2e dirs hold integration specs that need
- *  live infrastructure and would make the gate permanently red (dogfood
- *  review 2026-08-09: a Go monorepo's `go test ./...` swept in 60 Ginkgo specs,
- *  0 passed). For repos without a test/e2e dir the pipeline is
- *  behavior-identical to `go test ./...`. One source of truth: stackLifecycle
- *  (local verification + audit --verify), the go workflow template's
- *  declared-commands job, and the generated go-test hook entry all carry this
- *  exact string (parity test pins the template). */
-export const GO_TEST_COMMAND = "go test $(go list ./... | grep -v /test/e2e)";
+ *  live infrastructure and would make the gate permanently red (a repo's
+ *  `go test ./...` would sweep 60 Ginkgo specs into the gate). For repos
+ *  without a test/e2e dir the pipeline is behavior-identical to
+ *  `go test ./...`. One source of truth: stackLifecycle (local verification
+ *  + audit --verify), the go workflow template's declared-commands job, and
+ *  the generated go-test hook entry all carry this exact string (parity test
+ *  pins the template). Defined in stacks.ts — the shared lifecycle table
+ *  (spec 0015 slice 2). */
 
 /**
  * Per-stack lifecycle commands (decision #13): node stays package.json-declared;
@@ -1065,7 +1098,7 @@ interface CommandResult {
   /** Failing command + stderr excerpt (truncated) — null when the command passed. */
   error: string | null;
   /** First tool of the command that could not be found (exit 127) — a missing
-   *  local tool is NOT a failing build (2026-08-07). */
+   *  local tool is NOT a failing build. */
   missingTool: string | null;
 }
 
@@ -1085,8 +1118,8 @@ function runCommand(root: string, command: string, opts: VerifyOptions = {}): Pr
     let timedOut = false;
     child.stderr.on("data", (d) => (stderr += String(d)));
     // Long builds look hung without feedback — a heartbeat line every 10s
-    // (dogfood review 2026-08-09: a Go monorepo's go test ./... ran >10 minutes
-    // with zero output while stage 2 applied).
+    // (a go test ./... can run >10 minutes with zero output while stage 2
+    // applies).
     const heartbeat = setInterval(() => {
       process.stderr.write(
         `  ... verification still running (${Math.round((Date.now() - started) / 1000)}s): ${command}\n`,
@@ -1112,8 +1145,8 @@ function runCommand(root: string, command: string, opts: VerifyOptions = {}): Pr
       if (code === 0 && !timedOut) return resolve({ ok: true, error: null, missingTool: null });
       // Failure excerpt = FAIL-ish lines + the tail, NOT the head — the head
       // of a long run is downloads/setup; the actual failure is at the end
-      // (dogfood review 2026-08-09: a Go monorepo's report showed "go: downloading
-      // …" while its 60 E2E failures were cut off entirely).
+      // (a report showing "go: downloading …" would cut off the real
+      // failures at the tail entirely).
       const lines = s.split("\n");
       const fails = lines.filter((l) => /FAIL|error:|Error:|panic:/i.test(l)).slice(-6);
       const tail = lines.slice(-12);
@@ -1176,9 +1209,9 @@ function hookPromptOf(root: string, ecosystem: HookTool, templates: Record<strin
 }
 
 /** Android SDK failures are an environment-config issue, not a broken build —
- *  the report must say so and name the escape hatch (2026-08-07): the local
- *  java-test hook can be skipped per commit with SKIP=java-test; the CI hard
- *  gate needs ANDROID_HOME / local.properties (or a setup-android step). */
+ *  the report must say so and name the escape hatch: the local java-test hook
+ *  can be skipped per commit with SKIP=java-test; the CI hard gate needs
+ *  ANDROID_HOME / local.properties (or a setup-android step). */
 function androidEnvHint(error: string | null): string {
   return error && /SDK location not found|ANDROID_HOME|local\.properties/i.test(error)
     ? " — Android: this looks like a missing SDK/environment config, not a broken build (set ANDROID_HOME / local.properties and re-run; local commits can proceed with SKIP=java-test)"
@@ -1186,9 +1219,9 @@ function androidEnvHint(error: string | null): string {
 }
 
 /** The generated pre-commit hook that gates a failing verification command —
- *  the named SKIP escape for the stage-2 report (dogfood review 2026-08-09:
- *  a Go monorepo's pre-existing go test failure blocked commits with no named
- *  escape, while the Android case had SKIP=java-test). */
+ *  the named SKIP escape for the stage-2 report (a pre-existing go test
+ *  failure must not block commits with no named escape, while the Android
+ *  case has SKIP=java-test). */
 function verificationHookIdOf(root: string, command: string): string | null {
   if (/\bgo (build|test)\b/.test(command)) return "go-test";
   if (/\bcargo\b/.test(command)) return "cargo-test";
@@ -1236,6 +1269,17 @@ export async function applyStage2(
     if (file === ".github/workflows/ai-native.yml" && tpl !== GENERATED) {
       const content = templateContent(tpl);
       if (current === content || current === renderWorkflow(content, "hard")) return { file, action: "write" };
+      // Tool-owned across version bumps — but ONLY for the stale baked
+      // EXPECTED: normalize the installed version and compare bytes. Any
+      // other divergence (a user body edit under an intact header) is the
+      // user's file — conflict (the marker alone would overwrite body edits
+      // silently; the "user-edited stays conflict" guarantee must hold
+      // beyond full-file replacement).
+      const stackName = tpl.replace(/^ci-workflow-/, "").replace(/\.yml$/, "");
+      if (current.includes(generatedWorkflowMarker(stackName))) {
+        const normalized = current.replace(/EXPECTED = "\d+\.\d+\.\d+"/, () => `EXPECTED = "${TOOL_VERSION}"`);
+        if (normalized === content || normalized === renderWorkflow(content, "hard")) return { file, action: "write" };
+      }
     }
     return { file, action: "conflict" };
   });
@@ -1253,6 +1297,25 @@ export async function applyStage2(
       : detected.length > 0
         ? `stack ${detected.join("/")}: transform not supported yet — audit works; supported stacks: node/python/go/java/rust (cross-stack gates installed, CI workflow skipped)`
         : "no recognized stack — cross-stack gates installed, CI workflow skipped (supported stacks: node/python/go/java/rust)";
+  // A transform-unsupported stack has no lifecycle-verified CI (spec 0014).
+  // The verify phrase must say "not run for this stack" — "none declared"
+  // would contradict the audit credit (an xcodebuild lifecycle scored
+  // agents-commands while stage 2 reported "none declared"). Only stacks the
+  // audit actually traces (its stackCommandSources branches:
+  // apple/c-cpp/zig/dart-flutter/php) get the "audit-traced" claim —
+  // unity/ruby/swift/dotnet/harmonyos have no traced lifecycle at all.
+  const TRACED_UNSUPPORTED = ["apple", "c/cpp", "zig", "dart/flutter", "php"];
+  const unsupportedStacks = stack === null && detected.length > 0 ? detected.join("/") : null;
+  // Per-stack phrasing for mixed combos: apple+ruby must not claim "no
+  // canonical lifecycle" while the audit traces xcodebuild.
+  const tracedSubset = detected.filter((s) => TRACED_UNSUPPORTED.includes(s));
+  const untracedSubset = detected.filter((s) => !TRACED_UNSUPPORTED.includes(s));
+  const unsupportedTracedPhrase =
+    tracedSubset.length === 0
+      ? "no canonical lifecycle"
+      : untracedSubset.length === 0
+        ? "its lifecycle is audit-traced, not verified"
+        : `${tracedSubset.join("/")} lifecycle audit-traced, not verified; ${untracedSubset.join("/")} has no canonical lifecycle`;
 
   // Non-GitHub workflow skip notice (spec 0008): local CI files or the origin
   // remote host (greenfield — no CI files) decide; an explicit --ci override
@@ -1262,8 +1325,8 @@ export async function applyStage2(
 
   // Hook-tool skip notice (M10, spec 0010): husky/lefthook/yorkie ecosystems
   // keep their own hooks — the generated pre-commit config would be a foreign
-  // gate file. The removal hint names the active form (a dead husky dependency
-  // never reaches here — dead deps install the gates, 2026-08-07).
+  // gate file. The removal hint names the active form (a dead husky
+  // dependency never reaches here — dead deps install the gates).
   const ecosystem = hookToolEcosystem(root);
   const hookNotice =
     ecosystem === "husky" || ecosystem === "lefthook" || ecosystem === "yorkie"
@@ -1322,7 +1385,13 @@ export async function applyStage2(
       files: plans,
       buildCheck: { command, before: null, after: null, error: null, missingTool: null },
       manifestUpdated: false,
-      message: `dry-run: ${toWrite.length} file(s) to write, ${conflicts.length} conflict(s), ${plans.length - toWrite.length - conflicts.length} already installed; verification command: ${command ?? "none declared"}${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}`,
+      message: `dry-run: ${toWrite.length} file(s) to write, ${conflicts.length} conflict(s), ${plans.length - toWrite.length - conflicts.length} already installed; ${
+        command
+          ? `verification command: ${command}`
+          : unsupportedStacks
+            ? `verification: not run (stack ${unsupportedStacks} is transform-unsupported — ${unsupportedTracedPhrase})`
+            : "verification command: none declared"
+      }${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}`,
     };
   }
 
@@ -1383,7 +1452,12 @@ export async function applyStage2(
       parts.push(
         `${conflicts.length} conflict(s) kept (existing config differs — not overwritten: ${conflicts.map((c) => c.file).join(", ")})`,
       );
-    if (before === null) parts.push("no build/test command declared — nothing to verify");
+    if (before === null)
+      parts.push(
+        unsupportedStacks
+          ? `no verification run (stack ${unsupportedStacks} is transform-unsupported — ${unsupportedTracedPhrase})`
+          : "no build/test command declared — nothing to verify",
+      );
     else if (before === false)
       parts.push(
         `build was failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); green after (${command})`,
@@ -1421,7 +1495,7 @@ function makefileTargetsOf(root: string): string[] {
         .split("\n")
         // Same rule as audit's makefileTargets — real targets only (leading
         // alpha + `:(?!=)`) so VAR := assignments and .PHONY never become
-        // commands (dogfood review 2026-08-09: a Go monorepo phantom targets).
+        // phantom commands.
         .filter((l) => /^[a-zA-Z0-9][a-zA-Z0-9_.-]*\s*:(?!=)/.test(l))
         .map((l) => l.split(":")[0].trim())
     );
@@ -1437,27 +1511,36 @@ function makefileTargetsOf(root: string): string[] {
 function stackCommandsOf(root: string): { command: string; purpose: string }[] {
   const stacks = detect(root).stacks;
   const out: { command: string; purpose: string }[] = [];
-  if (stacks.includes("go")) {
-    out.push(
-      { command: "go build ./...", purpose: "build" },
-      { command: GO_TEST_COMMAND, purpose: "test" },
-      { command: "go vet ./...", purpose: "vet" },
-    );
+  // Canonical static lifecycles come from the shared table (spec 0015
+  // slice 2 — single source with the audit's command-source check).
+  for (const stack of Object.keys(STACK_COMMANDS)) {
+    if (stacks.includes(stack)) out.push(...STACK_COMMANDS[stack]);
   }
-  if (stacks.includes("rust")) {
-    out.push(
-      { command: "cargo build", purpose: "build" },
-      { command: "cargo test", purpose: "test" },
-      { command: "cargo fmt --check", purpose: "format check" },
-      { command: "cargo clippy", purpose: "lint" },
-    );
-  }
-  if (stacks.includes("python")) out.push({ command: "python3 -m unittest discover", purpose: "test" });
+  // Dynamic lifecycles stay here: node declared scripts, java gradle/maven,
+  // php phpunit presence (the audit's stackCommandSources parity — the
+  // generated contract must not say "None declared" while the audit credits
+  // it; pitfall class 3, spec 0015 slice 1). Composer scripts stay
+  // declared-scripts-only (no invention).
   if (stacks.includes("java")) {
     if (hasAny(root, ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]))
       out.push({ command: "gradle build", purpose: "build + test" });
     else
       out.push({ command: existsSync(join(root, "mvnw")) ? "./mvnw -q -B test" : "mvn -q -B test", purpose: "test" });
+  }
+  // php: mirror the audit's dual signal (phpTestSourceOf) — phpunit.xml(.dist)
+  // OR a phpunit/phpunit declaration in composer.json require-dev; the
+  // generated contract must not say "None declared" while the audit credits
+  // the command (composer-declared phpunit credited by the audit must not be
+  // missing from the command table). Composer scripts stay
+  // declared-scripts-only (no invention).
+  if (
+    stacks.includes("php") &&
+    (existsSync(join(root, "phpunit.xml")) ||
+      existsSync(join(root, "phpunit.xml.dist")) ||
+      (existsSync(join(root, "composer.json")) &&
+        readFileSync(join(root, "composer.json"), "utf8").includes("phpunit/phpunit")))
+  ) {
+    out.push({ command: "phpunit", purpose: "test" });
   }
   return out;
 }
@@ -1490,8 +1573,8 @@ export function generateAgentsMd(root: string): string {
     `# ${name} — agent contract`,
     "",
     "> Generated by spooner transform Stage 3. Every command below is",
-    "> traceable to a real file (package.json scripts / Makefile) — nothing",
-    "> is invented.",
+    "> traceable to a real file (package.json scripts / Makefile / the",
+    "> stack's lifecycle manifest) — nothing is invented.",
     "",
     "## Overview",
     "",
@@ -1505,7 +1588,33 @@ export function generateAgentsMd(root: string): string {
     "",
   ];
   if (scriptKeys.length === 0 && makeTargets.length === 0 && stackCmds.length === 0) {
-    lines.push("- None declared. Add build/test commands (e.g. package.json scripts) to unlock the gates.", "");
+    // Distinguish dynamic-lifecycle stacks (node/java/php — a canonical
+    // lifecycle exists but nothing is declared) from no-lifecycle stacks
+    // (unity/ruby/swift/dotnet/harmonyos — documented ceiling; "node has no
+    // canonical lifecycle" would be factually wrong — node's lifecycle IS
+    // declared scripts, just absent here).
+    const dynamicOnly = stacks.length > 0 && stacks.every((s) => DYNAMIC_LIFECYCLE_STACKS.includes(s));
+    // Per-stack unlock hint — package.json scripts only make sense for node
+    // (a php-only repo must not get "add e.g. package.json scripts").
+    const unlockHint = stacks
+      .flatMap((s) =>
+        s === "node"
+          ? ["package.json scripts"]
+          : s === "php"
+            ? ["composer.json scripts"]
+            : s === "java"
+              ? ["Maven/Gradle build files"]
+              : [],
+      )
+      .join(" or ");
+    lines.push(
+      dynamicOnly
+        ? `- None declared — no ${stacks.join("/")} scripts/commands found (add e.g. ${unlockHint} to unlock the gates).`
+        : stacks.length > 0
+          ? `- None declared — ${stacks.join("/")} has no canonical CLI lifecycle command to document (documented ceiling; the audit under-scores honestly).`
+          : "- None declared — add real build/test commands and document them here to unlock the gates.",
+      "",
+    );
   } else {
     lines.push("| Command | Purpose |", "|---|---|");
     for (const k of scriptKeys) lines.push(`| \`npm run ${k}\` | ${k} |`);
@@ -1527,11 +1636,29 @@ export function applyStage3(root: string, dryRun: boolean): Stage3Result {
   const agentsPath = join(root, "AGENTS.md");
   const claudePath = join(root, "CLAUDE.md");
 
-  const agentsAction: Stage3FilePlan = !existsSync(agentsPath)
-    ? { file: "AGENTS.md", action: "write" }
-    : readFileSync(agentsPath, "utf8") === generated
-      ? { file: "AGENTS.md", action: "keep" }
-      : { file: "AGENTS.md", action: "conflict" };
+  const agentsAction: Stage3FilePlan = (() => {
+    // lstatSync first — readFileSync/writeFileSync follow symlinks: an
+    // AGENTS.md that is a symlink to a marker-carrying target would be
+    // written THROUGH the link, overwriting the real target file (stage 3
+    // without the stage-4 lstat guard — the same class as stage-4 symlink
+    // write-through pollution; the M12 marker check makes the write-through
+    // path reachable). Symlink AGENTS.md → conflict, never write.
+    let agentsStat: ReturnType<typeof lstatSync> | null = null;
+    try {
+      agentsStat = lstatSync(agentsPath);
+    } catch {
+      agentsStat = null; // absent
+    }
+    if (agentsStat === null) return { file: "AGENTS.md", action: "write" };
+    if (agentsStat.isSymbolicLink()) return { file: "AGENTS.md", action: "conflict" };
+    const current = readFileSync(agentsPath, "utf8");
+    if (current === generated) return { file: "AGENTS.md", action: "keep" };
+    // tool-owned marker (M12 rule): stage 4 appended the SDD convention, so
+    // bytes never match again — the tool must not lock itself out of
+    // regeneration
+    if (current.includes("Generated by spooner transform Stage 3")) return { file: "AGENTS.md", action: "write" };
+    return { file: "AGENTS.md", action: "conflict" };
+  })();
 
   const claudeAction: Stage3FilePlan = (() => {
     // lstatSync (not existsSync — it follows links and hides broken ones)
@@ -1552,7 +1679,7 @@ export function applyStage3(root: string, dryRun: boolean): Stage3Result {
       try {
         content = readFileSync(claudePath, "utf8");
       } catch {
-        // broken symlink / unreadable target (review 2026-08-06): never crash
+        // broken symlink / unreadable target: never crash
         // stage 3 — treat as conflict, the agent decides
         return { file: "CLAUDE.md", action: "conflict" };
       }
@@ -1583,13 +1710,35 @@ export function applyStage3(root: string, dryRun: boolean): Stage3Result {
     };
   }
 
-  if (agentsAction.action === "write") writeFileSync(agentsPath, generated, "utf8");
-  if (claudeAction.action === "link") {
+  if (agentsAction.action === "write") {
+    // stage 4 appended the SDD convention after a previous stage-3 generation;
+    // regenerating must not silently drop it (a re-run would remove the SDD
+    // section with no notice). Re-append when the old
+    // content carried the convention — same detection as stage 4's
+    // "already-present" check, so the re-run stays idempotent.
+    let out = generated;
+    try {
+      const prev = readFileSync(agentsPath, "utf8");
+      if (/\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(prev)) {
+        out = `${generated.replace(/\s+$/, "")}\n\n${SDD_CONVENTION}`;
+      }
+    } catch {
+      /* absent — plain generation */
+    }
+    writeFileSync(agentsPath, out, "utf8");
+  }
+  // Deterministic across platforms: when AGENTS.md is
+  // a conflict (user file / symlink), do NOT create the CLAUDE.md link — the
+  // stage is not applied. A case-insensitive FS (macOS APFS) must not behave
+  // differently from a case-sensitive one (Linux CI) just because a lowercase
+  // target file happens to alias CLAUDE.md.
+  if (agentsAction.action !== "conflict" && claudeAction.action === "link") {
     if (process.platform === "win32") writeFileSync(claudePath, "@AGENTS.md\n", "utf8");
     else symlinkSync("AGENTS.md", claudePath);
   }
 
-  const manifestUpdated = agentsAction.action === "write" || claudeAction.action === "link";
+  const manifestUpdated =
+    agentsAction.action === "write" || (agentsAction.action !== "conflict" && claudeAction.action === "link");
   if (manifestUpdated) {
     writeManifest(
       root,
@@ -1609,9 +1758,18 @@ export function applyStage3(root: string, dryRun: boolean): Stage3Result {
     // M13: name the user-written file and the generated alternative, so
     // "applied" never reads as "your AGENTS.md was upgraded".
     const agentsConflict = conflicts.find((f) => f.file === "AGENTS.md");
-    const note = agentsConflict
-      ? `; existing AGENTS.md is user-written (${readFileSync(agentsPath, "utf8").split("\n").length} lines); the generated contract is ${generated.split("\n").length} lines of real commands — keep yours or merge`
-      : "";
+    let note = "";
+    if (agentsConflict) {
+      try {
+        if (lstatSync(agentsPath).isSymbolicLink()) {
+          note = `; AGENTS.md is a symlink to ${readlinkSync(agentsPath)} — NOT overwritten (writing through it would modify the target); decide the contract's ownership`;
+        } else {
+          note = `; existing AGENTS.md is user-written (${readFileSync(agentsPath, "utf8").split("\n").length} lines); the generated contract is ${generated.split("\n").length} lines of real commands — keep yours or merge`;
+        }
+      } catch {
+        note = "; existing AGENTS.md differs — keep yours or merge";
+      }
+    }
     message = `stage 3 applied: ${manifestUpdated ? "files written; " : ""}conflict(s) kept (not overwritten: ${conflicts.map((c) => c.file).join(", ")})${note}`;
   } else {
     const agents = agentsAction.action === "write" ? `written (${generated.split("\n").length} lines)` : "kept";
@@ -1649,7 +1807,7 @@ interface Stage4Result {
   applied: boolean;
   dryRun: boolean;
   files: Stage2FilePlan[];
-  agentsSdd: { plan: "append" | "already-present" | "no-agents-file"; appended: boolean };
+  agentsSdd: { plan: "append" | "already-present" | "no-agents-file" | "symlink"; appended: boolean; target?: string };
   manifestUpdated: boolean;
   message: string | null;
 }
@@ -1667,13 +1825,28 @@ export function applyStage4(root: string, dryRun: boolean, ciOverride?: string):
   const conflicts = plans.filter((p) => p.action === "conflict");
 
   const agentsPath = join(root, "AGENTS.md");
-  let agentsSdd: Stage4Result["agentsSdd"];
-  if (!existsSync(agentsPath)) {
-    agentsSdd = { plan: "no-agents-file", appended: false };
-  } else if (/\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(readFileSync(agentsPath, "utf8"))) {
-    agentsSdd = { plan: "already-present", appended: false };
-  } else {
-    agentsSdd = { plan: "append", appended: false };
+  let agentsSdd: Stage4Result["agentsSdd"] | undefined;
+  // Symlink AGENTS.md first (an upstream AGENTS.md → CLAUDE.md, the reverse
+  // of spooner's convention — readFileSync/writeFileSync follow the link, so
+  // appending would write the SDD convention into the real target file).
+  // Never write through a link: the agent decides where the convention
+  // belongs.
+  try {
+    const st = lstatSync(agentsPath);
+    if (st.isSymbolicLink()) {
+      agentsSdd = { plan: "symlink", appended: false, target: readlinkSync(agentsPath) };
+    }
+  } catch {
+    /* absent or unreadable — fall through to the content checks */
+  }
+  if (!agentsSdd) {
+    if (!existsSync(agentsPath)) {
+      agentsSdd = { plan: "no-agents-file", appended: false };
+    } else if (/\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(readFileSync(agentsPath, "utf8"))) {
+      agentsSdd = { plan: "already-present", appended: false };
+    } else {
+      agentsSdd = { plan: "append", appended: false };
+    }
   }
 
   if (dryRun) {
@@ -1682,7 +1855,9 @@ export function applyStage4(root: string, dryRun: boolean, ciOverride?: string):
         ? "append"
         : agentsSdd.plan === "already-present"
           ? "already present"
-          : "skipped (no AGENTS.md — run stage 3)";
+          : agentsSdd.plan === "symlink"
+            ? `symlink to ${agentsSdd.target} — skipped (writing through it would modify the target)`
+            : "skipped (no AGENTS.md — run stage 3)";
     const sddSkip = templates[".github/workflows/sdd.yml"] === undefined ? workflowSkipReason(root, ciOverride) : null;
     return {
       stage: 4,
@@ -1721,7 +1896,14 @@ export function applyStage4(root: string, dryRun: boolean, ciOverride?: string):
   }
 
   let message: string;
-  if (toWrite.length === 0 && conflicts.length === 0 && !appended) {
+  if (agentsSdd.plan === "symlink" && toWrite.length === 0 && conflicts.length === 0 && !appended) {
+    // "skipped", not "applied" — nothing was written (the old wording said
+    // "applied" while the SDD convention was NOT appended)
+    message = `stage 4 skipped: AGENTS.md is a symlink to ${agentsSdd.target} — SDD convention NOT appended (writing through it would modify ${agentsSdd.target})${sddSkip ? `; ${sddSkip} (SDD spec gate)` : ""}`;
+  } else if (toWrite.length === 0 && conflicts.length === 0 && !appended && agentsSdd.plan !== "symlink") {
+    // symlink excluded — the skip notice must reach the agent even on a
+    // re-run ("already installed" would swallow the explanation of why the
+    // SDD convention was not appended)
     message = `stage 4 already installed (no changes)${sddSkip ? `; ${sddSkip} (SDD spec gate)` : ""}`;
   } else if (conflicts.length > 0) {
     message = `stage 4 applied: ${toWrite.length > 0 || appended ? "changes written; " : ""}conflict(s) kept (not overwritten: ${conflicts.map((c) => c.file).join(", ")})${sddSkip ? `; ${sddSkip} (SDD spec gate)` : ""}`;
@@ -1731,6 +1913,10 @@ export function applyStage4(root: string, dryRun: boolean, ciOverride?: string):
     if (appended) parts.push("AGENTS.md SDD convention appended");
     if (agentsSdd.plan === "already-present") parts.push("AGENTS.md already declares SDD");
     if (agentsSdd.plan === "no-agents-file") parts.push("AGENTS.md missing — run stage 3 first");
+    if (agentsSdd.plan === "symlink")
+      parts.push(
+        `AGENTS.md is a symlink to ${agentsSdd.target} — SDD convention NOT appended (writing through it would modify ${agentsSdd.target})`,
+      );
     if (sddSkip) parts.push(sddSkip + " (SDD spec gate)");
     message = `stage 4 applied: ${parts.join("; ")}${manifestUpdated ? "; manifest updated" : ""}`;
   }
@@ -1778,10 +1964,10 @@ export interface ManifestGateResult {
   version: string | null;
 }
 
-/** Local commit gate (dogfood — mirrors the CI drift-gate job's baked EXPECTED
+/** Local commit gate (mirrors the CI drift-gate job's baked EXPECTED
  *  compare): manifest present + files exist + version not stale vs the current
- *  tool. Catches the "stale ledger" failure class locally (the M10 push: local
- *  pre-commit read the working-tree manifest, CI read the committed one). */
+ *  tool. Catches the "stale ledger" failure class locally (local pre-commit
+ *  reads the working-tree manifest, CI reads the committed one). */
 export function checkManifestGate(root: string): ManifestGateResult {
   const mr = readManifest(root);
   if (!mr.present || !mr.manifest) return { ok: false, missing: [], stale: false, version: null };
@@ -1985,7 +2171,7 @@ if (isDirectEntry(import.meta.url)) {
       process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
       // applied but the post-apply build check failed → signal rollback
       if (report.applied && report.buildCheck?.after === false) process.exit(1);
-      // local commit gate (dogfood): manifest present + consistent + not stale —
+      // local commit gate: manifest present + consistent + not stale —
       // mirrors the CI drift-gate job so local pre-commit catches ledger drift
       if (process.argv.includes("--manifest-gate")) {
         const g = checkManifestGate(root);

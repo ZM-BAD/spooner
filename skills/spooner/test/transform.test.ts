@@ -5,7 +5,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  GO_TEST_COMMAND,
   TEMPLATE_DIR,
   TOOL_VERSION,
   applyStage2,
@@ -26,6 +25,7 @@ import {
   workflowEligible,
   workflowSkipReason,
 } from "../scripts/transform.ts";
+import { GO_TEST_COMMAND } from "../scripts/stacks.ts";
 import { runAudit } from "../scripts/audit.ts";
 
 function fixture(): string {
@@ -218,6 +218,41 @@ test("stage 2: re-run with the manifest's recorded strictness keeps the workflow
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("stage 2: a stale EXPECTED (TOOL_VERSION bump) re-renders the tool-owned workflow", async () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  const r = await applyStage2(repo, false);
+  assert.ok(r.applied);
+  // simulate a version bump: the installed workflow's baked EXPECTED goes stale
+  const wfPath = join(repo, ".github/workflows/ai-native.yml");
+  const stale = readFileSync(wfPath, "utf8").replace(/EXPECTED = "\d+\.\d+\.\d+"/, 'EXPECTED = "0.0.1"');
+  assert.notEqual(stale, readFileSync(wfPath, "utf8"));
+  writeFileSync(wfPath, stale, "utf8");
+  const r2 = await applyStage2(repo, false);
+  assert.ok(r2.applied, "stale tool-owned workflow must re-render, not conflict");
+  const conflicts = r2.files.filter((p) => p.action === "conflict");
+  assert.deepEqual(conflicts, []);
+  assert.match(readFileSync(wfPath, "utf8"), new RegExp(`EXPECTED = "${TOOL_VERSION}"`));
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: a body edit under an intact tool header stays a conflict (the marker alone would overwrite it silently)", async () => {
+  const repo = nodeRepo(fixture());
+  git(repo, ["init", "-q"]);
+  const r = await applyStage2(repo, false);
+  assert.ok(r.applied);
+  const wfPath = join(repo, ".github/workflows/ai-native.yml");
+  // keep the generated header line (the tool-owned marker), edit the body —
+  // a user customization must survive as a conflict, not be re-rendered
+  const edited = readFileSync(wfPath, "utf8").replace(/^name: .*$/m, "name: user-tweaked\n");
+  assert.notEqual(edited, readFileSync(wfPath, "utf8"));
+  writeFileSync(wfPath, edited, "utf8");
+  const r2 = await applyStage2(repo, false);
+  assert.ok(!r2.applied);
+  assert.deepEqual(r2.files.find((p) => p.file === ".github/workflows/ai-native.yml")?.action, "conflict");
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("stage 2: a user-edited workflow stays a conflict (not tool-owned)", async () => {
   const repo = nodeRepo(fixture());
   git(repo, ["init", "-q"]);
@@ -264,6 +299,19 @@ test("stage2Templates: java picks the java workflow template", () => {
 });
 
 // --- M10: stack-aware pre-commit generation + hook-tool routing ------------------
+
+test("preCommit: check-yaml excludes .clang-format (multi-document YAML false positive)", () => {
+  const repo = fixture();
+  const cfg = generatePreCommitConfig(repo);
+  // pinned-byte assertion (spec 0015 slice 4): exact rendered bytes — the
+  // exclude must stay a single-backslash regex that really matches .clang-format
+  const line = cfg.split("\n").find((l) => l.includes("exclude:") && l.includes("clang-format")) ?? "";
+  const m = /^\s+exclude: '([^']*)'$/.exec(line);
+  assert.ok(m, "check-yaml exclude line must exist");
+  assert.equal(m[1], "\\.clang-format$", "rendered exclude bytes");
+  assert.ok(new RegExp(m[1]).test(".clang-format"), "exclude really matches .clang-format");
+  rmSync(repo, { recursive: true, force: true });
+});
 
 test("preCommit: python fixture -> ruff/pytest/pip-audit, no eslint/tsc", () => {
   const repo = fixture();
@@ -331,7 +379,7 @@ test("preCommit: a repo with SKILL.md gets the skills-ref validation hook", () =
   writeFileSync(join(repo, "SKILL.md"), "# demo\n");
   const cfg = generatePreCommitConfig(repo);
   assert.match(cfg, /skills-ref-validate/);
-  // bash -c wrapped: system hooks never run through a shell (dogfood CI 2026-08-10)
+  // bash -c wrapped: system hooks never run through a shell
   assert.match(cfg, /bash -c ''command -v agentskills/);
   rmSync(repo, { recursive: true, force: true });
 });
@@ -399,7 +447,7 @@ function hasUnquotedShellSyntax(entry: string): boolean {
   return false;
 }
 
-test("preCommit: local system hooks run without a shell — shell syntax must be bash -c wrapped (dogfood CI 2026-08-10)", () => {
+test("preCommit: local system hooks run without a shell — shell syntax must be bash -c wrapped", () => {
   // Regression: a bare `command -v agentskills ...` entry hit "Executable
   // `command` not found" on Linux CI — pre-commit execs the first token
   // directly, and `command` is a shell builtin, not a file. macOS's
@@ -430,7 +478,7 @@ test("preCommit: local system hooks run without a shell — shell syntax must be
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("preCommit: eslint hook carries types: [] — mirrors-eslint's javascript default filters .ts out (dogfood 2026-08-07)", () => {
+test("preCommit: eslint hook carries types: [] — mirrors-eslint's javascript default filters .ts out", () => {
   const repo = fixture();
   writeFileSync(join(repo, "package.json"), '{"name":"x"}\n');
   writeFileSync(join(repo, "tsconfig.json"), "{}\n");
@@ -491,6 +539,15 @@ test("stage2: unsupported stack notice names the full supported list incl. rust"
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("stage2: apple fixture — verify phrase says not-run-for-stack, never none-declared", async () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "MyApp.xcodeproj"));
+  const r = await applyStage2(repo, true);
+  assert.match(r.message ?? "", /verification: not run \(stack apple is transform-unsupported/);
+  assert.doesNotMatch(r.message ?? "", /none declared|no build\/test command declared/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("preCommit: rust fixture -> cargo fmt/clippy/test, no -D warnings", () => {
   const repo = fixture();
   writeFileSync(join(repo, "Cargo.toml"), '[package]\nname = "x"\nversion = "0.1.0"\n');
@@ -513,6 +570,29 @@ test("stage3: rust fixture -> AGENTS.md lists cargo commands", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("stage3: unity fixture -> None-declared names the documented ceiling, not an add-commands hint", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "Packages"), { recursive: true });
+  writeFileSync(join(repo, "Packages", "manifest.json"), '{\n  "dependencies": {}\n}\n');
+  mkdirSync(join(repo, "ProjectSettings"), { recursive: true });
+  writeFileSync(join(repo, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0\n");
+  mkdirSync(join(repo, "Assets"), { recursive: true });
+  const md = generateAgentsMd(repo);
+  assert.match(md, /unity has no canonical CLI lifecycle command/);
+  assert.doesNotMatch(md, /add real build\/test commands/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage3: c/cpp fixture -> AGENTS.md lists cmake lifecycle commands, not None declared", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "CMakeLists.txt"), "cmake_minimum_required(VERSION 3.20)\n");
+  const md = generateAgentsMd(repo);
+  assert.match(md, /`cmake --build`/);
+  assert.match(md, /`ctest`/);
+  assert.doesNotMatch(md, /None declared/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("stage3: AGENTS.md conventions are stack-aware (rust)", () => {
   const repo = fixture();
   writeFileSync(join(repo, "Cargo.toml"), '[package]\nname = "x"\nversion = "0.1.0"\n');
@@ -531,7 +611,7 @@ test("stage3: python fixture conventions mention virtualenv (stack-aware copy)",
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("audit: rust fixture credits agents-commands 0.8/1 from Cargo.toml (cargo clippy = lint gate, dogfood 2026-08-09)", () => {
+test("audit: rust fixture credits agents-commands 0.8/1 from Cargo.toml (cargo clippy = lint gate)", () => {
   const repo = fixture();
   writeFileSync(join(repo, "Cargo.toml"), '[package]\nname = "x"\nversion = "0.1.0"\n');
   const r = runAudit(repo);
@@ -604,7 +684,7 @@ test("parity: generator gate script equals the CI hard-gate script in all five t
   }
 });
 
-test("parity: installed dogfood workflow stays byte-equal to the node template", () => {
+test("parity: installed workflow stays byte-equal to the node template", () => {
   const installed = readFileSync(
     join(import.meta.dirname, "..", "..", "..", ".github", "workflows", "ai-native.yml"),
     "utf8",
@@ -612,8 +692,8 @@ test("parity: installed dogfood workflow stays byte-equal to the node template",
   assert.equal(installed, readTemplate("ci-workflow-node.yml"));
 });
 
-test("parity: installed dogfood pre-commit config bakes the current EXPECTED", () => {
-  // Regression (2026-08-07): the 0.9.0 bump left the installed config's baked
+test("parity: installed pre-commit config bakes the current EXPECTED", () => {
+  // Regression : the 0.9.0 bump left the installed config's baked
   // EXPECTED at 0.8.0 for two bumps — the one-directional gate hid it locally
   // and parity pinned the installed workflow but not the installed config.
   // The entry is a YAML double-quoted string, so the inner quotes are escaped.
@@ -670,7 +750,7 @@ function stackRepo(root: string, stack: "node" | "python" | "go" | "java" | "rus
 }
 
 test("parity: every local hook id the generator emits is SKIP'd in the stack workflow template", () => {
-  // Regression (review 2026-08-06): the java template SKIP'd `mvn-test` while
+  // Regression: the java template SKIP'd `mvn-test` while
   // the generator emits `java-test` — CI's no-toolchain pre-commit job then
   // ran the java-test local hook for real (mvn missing → always red, masked
   // by continue-on-error). The SKIP list must cover every local hook.
@@ -685,10 +765,10 @@ test("parity: every local hook id the generator emits is SKIP'd in the stack wor
         `${stack}: local hook "${id}" must be SKIP'd in ci-workflow-${stack}.yml (CI pre-commit job has no repo toolchain)`,
       );
     }
-    // Managed hooks that load repo-side configs need SKIP too (review
-    // 2026-08-07): the eslint hook resolves typescript-eslint from the repo's
-    // node_modules, which the CI pre-commit job does not install — lint runs
-    // in the lint-test job instead.
+    // Managed hooks that load repo-side configs need SKIP too — the eslint
+    // hook resolves typescript-eslint from the repo's node_modules, which the
+    // CI pre-commit job does not install — lint runs in the lint-test job
+    // instead.
     if (stack === "node") {
       assert.ok(
         skip.includes("eslint"),
@@ -815,7 +895,7 @@ test("preCommit: check-only — no --fix/--write/upgrade hooks", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- manifest gate (dogfood: local pre-commit mirrors the CI drift gate) ---------
+// --- manifest gate (local pre-commit mirrors the CI drift gate) -----------------
 
 function gateManifest(repo: string, version: string, files: string[]): void {
   writeFileSync(
@@ -936,6 +1016,25 @@ test("stage 3: user-written AGENTS.md conflict names both line counts + merge op
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("stage 3: tool-owned AGENTS.md (marker) regenerates even after stage 4 appended the SDD convention", () => {
+  const repo = fixture();
+  // simulate the post-stage-4 state: generated contract + appended SDD section
+  const contract = [
+    "# x — agent contract",
+    "> Generated by spooner transform Stage 3. Every command below is",
+    "## Commands (all real and executable)",
+    "- None declared — add real build/test commands and document them here to unlock the gates.",
+    "## Spec-driven workflow (SDD)",
+    "- Every feature starts as a spec: `docs/sdd/spec.md`",
+  ].join("\n");
+  writeFileSync(join(repo, "AGENTS.md"), contract);
+  const r = applyStage3(repo, false);
+  // the marker makes it tool-owned (M12 rule): regenerate, never self-lock
+  assert.equal(r.files.find((f) => f.file === "AGENTS.md")?.action, "write");
+  assert.ok(!r.message?.includes("user-written"), `note present: ${r.message}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("stage 3: no existing AGENTS.md -> plain write, no conflict note", () => {
   const repo = fixture();
   const r = applyStage3(repo, false);
@@ -989,7 +1088,7 @@ test("preCommit: yorkie ecosystem (vue-cli default) -> config skipped + explicit
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- kotlin/Android (build.gradle.kts) recognition (2026-08-07) ---
+// --- kotlin/Android (build.gradle.kts) recognition  ---
 
 test("primaryStack: build.gradle.kts + settings.gradle.kts register as java (kotlin/Android)", () => {
   const repo = fixture();
@@ -1024,7 +1123,7 @@ test("preCommit: yorkie with legacy gitHooks field (vue-cli 2/3) skips the confi
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("stage 4: gitlab remote greenfield skips the sdd workflow with a notice (stage2 parity, 2026-08-07)", () => {
+test("stage 4: gitlab remote greenfield skips the sdd workflow with a notice (stage2 parity)", () => {
   const repo = fixture();
   execFileSync("git", ["init", "-q"], { cwd: repo, stdio: "ignore" });
   execFileSync("git", ["remote", "add", "origin", "git@gitlab.com:acme/app.git"], { cwd: repo, stdio: "ignore" });
@@ -1045,7 +1144,7 @@ test("stage 4: --ci github overrides a gitlab remote (sdd workflow included)", (
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("stage3: Makefile assignments and .PHONY never become commands (dogfood: go-monorepo)", () => {
+test("stage3: Makefile assignments and .PHONY never become commands", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n");
   writeFileSync(join(repo, "Makefile"), "PROJECT_NAME := x\n.PHONY: build\nbuild:\n\t@echo ok\n");
@@ -1055,9 +1154,9 @@ test("stage3: Makefile assignments and .PHONY never become commands (dogfood: go
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-09: verification UX ------------------
+// --- verification UX -----------------------------------------------------------
 
-test("stage2: --verify-timeout kills a hung verification and reports it (dogfood: go-monorepo)", async () => {
+test("stage2: --verify-timeout kills a hung verification and reports it", async () => {
   const repo = nodeRepo(fixture());
   writeFileSync(join(repo, "package.json"), '{"name":"x","scripts":{"build":"echo b","test":"sleep 30"}}\n');
   const r = await applyStage2(repo, false, undefined, { timeoutMs: 600 });
@@ -1065,7 +1164,7 @@ test("stage2: --verify-timeout kills a hung verification and reports it (dogfood
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("stage2: build-failure excerpt shows the failing tail, not the download head (dogfood: go-monorepo)", async () => {
+test("stage2: build-failure excerpt shows the failing tail, not the download head", async () => {
   const repo = nodeRepo(fixture());
   // head = setup noise; the actual failure is at the tail — the excerpt must
   // carry the FAIL line, not the first lines of the run
@@ -1082,7 +1181,7 @@ test("stage2: build-failure excerpt shows the failing tail, not the download hea
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("stage2: pre-existing build failure names the SKIP escape (dogfood: go-monorepo)", async () => {
+test("stage2: pre-existing build failure names the SKIP escape", async () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n\ngo 1.24\n");
   writeFileSync(join(repo, "main.go"), "package main\nfunc main() {}\n");
@@ -1092,9 +1191,9 @@ test("stage2: pre-existing build failure names the SKIP escape (dogfood: go-mono
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-09: markdownlint config merge --------
+// --- markdownlint config merge -------------------------------------------------
 
-test("stage2Templates: pre-existing .markdownlint.yml -> cli2 config skipped (dogfood: go-monorepo)", () => {
+test("stage2Templates: pre-existing .markdownlint.yml -> cli2 config skipped", () => {
   const repo = nodeRepo(fixture());
   writeFileSync(join(repo, ".markdownlint.yml"), "MD013:\n  line_length: 120\n");
   const tpl = stage2Templates(repo);
@@ -1102,7 +1201,7 @@ test("stage2Templates: pre-existing .markdownlint.yml -> cli2 config skipped (do
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("stage2: foreign markdownlint config -> skip notice naming the cleanup (dogfood: go-monorepo)", async () => {
+test("stage2: foreign markdownlint config -> skip notice naming the cleanup", async () => {
   const repo = nodeRepo(fixture());
   writeFileSync(join(repo, ".markdownlint.yml"), "MD013:\n  line_length: 120\n");
   const r = await applyStage2(repo, true);
@@ -1111,7 +1210,7 @@ test("stage2: foreign markdownlint config -> skip notice naming the cleanup (dog
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("sdd templates: no HTML-like placeholders or empty table cells (dogfood: go-monorepo)", () => {
+test("sdd templates: no HTML-like placeholders or empty table cells", () => {
   for (const name of ["sdd/spec.md", "sdd/plan.md", "sdd/tasks.md"]) {
     const t = readTemplate(name);
     assert.doesNotMatch(t, /<[a-z]+>/, `${name}: HTML-like placeholder`);
@@ -1119,9 +1218,9 @@ test("sdd templates: no HTML-like placeholders or empty table cells (dogfood: go
   }
 });
 
-// --- dogfood review 2026-08-09: e2e-aware go test ----------------
+// --- e2e-aware go test ---------------------------------------------------------
 
-test("stackLifecycle: go test excludes E2E suites (dogfood: go-monorepo)", () => {
+test("stackLifecycle: go test excludes E2E suites", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n");
   mkdirSync(join(repo, "test", "e2e"), { recursive: true });
@@ -1130,32 +1229,32 @@ test("stackLifecycle: go test excludes E2E suites (dogfood: go-monorepo)", () =>
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("parity: go workflow template + generated go-test hook carry the e2e-aware command (dogfood: go-monorepo)", () => {
+test("parity: go workflow template + generated go-test hook carry the e2e-aware command", () => {
   const tpl = readTemplate("ci-workflow-go.yml");
   assert.match(tpl, /go test \$\(go list \.\/\.\.\. \| grep -v \/test\/e2e\)/);
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n");
   const cfg = generatePreCommitConfig(repo);
-  // bash -c wrapped: `$(...)`/`|` only work inside a shell (dogfood 2026-08-10)
+  // bash -c wrapped: `$(...)`/`|` only work inside a shell
   assert.match(cfg, /bash -c ''go test \$\(go list \.\/\.\.\. \| grep -v \/test\/e2e\)/);
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("preCommit: pip-audit hook skips with a notice when the tool is missing (dogfood: python)", () => {
+test("preCommit: pip-audit hook skips with a notice when the tool is missing", () => {
   const repo = fixture();
   writeFileSync(join(repo, "pyproject.toml"), "[project]\n");
   writeFileSync(join(repo, "requirements.txt"), "requests\n");
   const cfg = generatePreCommitConfig(repo);
   assert.match(cfg, /id: pip-audit/);
-  // bash -c wrapped: system hooks never run through a shell (dogfood CI 2026-08-10)
+  // bash -c wrapped: system hooks never run through a shell
   assert.match(cfg, /bash -c ''command -v pip-audit >\/dev\/null 2>&1/);
   assert.match(cfg, /pip-audit not installed - SKIP=pip-audit or pip install pip-audit/);
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-10: commitlint alias configs ---------
+// --- commitlint alias configs --------------------------------------------------
 
-test("stage2Templates: pre-existing commitlint.config.mjs -> .commitlintrc.json skipped (dogfood: monorepo)", () => {
+test("stage2Templates: pre-existing commitlint.config.mjs -> .commitlintrc.json skipped", () => {
   const repo = nodeRepo(fixture());
   writeFileSync(
     join(repo, "commitlint.config.mjs"),
@@ -1177,7 +1276,7 @@ test("stage2Templates: package.json commitlint field also skips the install", ()
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("stage2: foreign commitlint config -> skip notice naming the cleanup (dogfood: monorepo)", async () => {
+test("stage2: foreign commitlint config -> skip notice naming the cleanup", async () => {
   const repo = nodeRepo(fixture());
   writeFileSync(join(repo, "commitlint.config.mjs"), "export default {};\n");
   const r = await applyStage2(repo, true);
@@ -1186,9 +1285,9 @@ test("stage2: foreign commitlint config -> skip notice naming the cleanup (dogfo
   rmSync(repo, { recursive: true, force: true });
 });
 
-// --- dogfood review 2026-08-10: script recognition unification ---
+// --- script recognition unification --------------------------------------------
 
-test("stackLifecycle: prefix-family scripts (check:metadata) are declared commands (dogfood: node)", () => {
+test("stackLifecycle: prefix-family scripts (check:metadata) are declared commands", () => {
   const repo = nodeRepo(fixture());
   writeFileSync(
     join(repo, "package.json"),
@@ -1270,7 +1369,7 @@ test("runBlocks: extracts inline and literal run: blocks", () => {
 test("parity: every run: block in the workflow templates passes bash -n (the apostrophe class)", () => {
   // A template's run: blocks are never executed locally (parity compares
   // bytes, check-yaml parses YAML only) — a broken quote inside a
-  // node -e '...' single-quoted command failed CI-only (2026-08-09).
+  // node -e '...' single-quoted command fails CI-only.
   // bash -n is the cheapest syntax gate: quote mismatches die here.
   for (const tpl of [
     "ci-workflow-node.yml",
@@ -1300,4 +1399,145 @@ test("runBlocks: a broken single-quote is caught by bash -n (regression: the apo
   const s = "the audit is fine";
 '`;
   assert.doesNotThrow(() => execFileSync("bash", ["-n"], { input: good }));
+});
+
+// --- spec 0014 acceptance 10b/6: mixed top-level repos + unsupported notice ---
+
+test("primaryStack: iOS app with node tooling still resolves node (spec 0014 acceptance 10b)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name": "app", "scripts": {"build": "tsc", "test": "vitest run"}}\n');
+  mkdirSync(join(repo, "MyApp.xcodeproj"));
+  assert.equal(primaryStack(repo), "node");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage2Templates: apple repo gets cross-stack gates + no workflow (spec 0014 acceptance 6)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "Podfile"), "platform :ios, '15.0'\n");
+  const tpl = stage2Templates(repo);
+  assert.ok(tpl[".commitlintrc.json"]);
+  assert.equal(tpl[".github/workflows/ai-native.yml"], undefined);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: symlink AGENTS.md with a marker-carrying target → conflict, target preserved (stage 3 would write through the link)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "go.mod"), "module x\n");
+  // reverse convention: AGENTS.md is a symlink to a user file that happens to
+  // carry the generated marker — the pre-fix code wrote through the link and
+  // overwrote the user content. The target is deliberately NOT named CLAUDE.md:
+  // on case-insensitive filesystems (macOS APFS) a lowercase claude.md aliases
+  // CLAUDE.md and masks the real behavior — the assertion must not depend on
+  // that collision (the test was green on macOS only).
+  writeFileSync(
+    join(repo, "contract.md"),
+    "# user contract\n> Generated by spooner transform Stage 3.\nuser content\n",
+  );
+  symlinkSync("contract.md", join(repo, "AGENTS.md"));
+  const before = readFileSync(join(repo, "contract.md"), "utf8");
+  const r = applyStage3(repo, false);
+  // Deterministic on every platform: AGENTS.md conflict → stage not applied,
+  // no CLAUDE.md link created, target byte-identical.
+  assert.equal(r.files.find((f) => f.file === "AGENTS.md")?.action, "conflict");
+  assert.ok(!r.applied, "symlink AGENTS.md must never be written through");
+  assert.equal(readFileSync(join(repo, "contract.md"), "utf8"), before, "target content must be preserved");
+  assert.ok(!existsSync(join(repo, "CLAUDE.md")), "no CLAUDE.md link while AGENTS.md is a conflict");
+  assert.match(r.message ?? "", /symlink to contract\.md/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: regenerating after stage 4 keeps the SDD convention", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "go.mod"), "module x\n");
+  applyStage3(repo, false);
+  applyStage4(repo, false);
+  const r = applyStage3(repo, false);
+  assert.ok(r.applied, "marker write must re-apply");
+  const md = readFileSync(join(repo, "AGENTS.md"), "utf8");
+  assert.match(md, /## Spec-driven workflow \(SDD\)/, "SDD convention must survive stage-3 regeneration");
+  const again = applyStage4(repo, false);
+  assert.ok(!again.applied, "stage 4 re-run stays idempotent");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: node-only repo without scripts says declared-commands, not no-canonical-lifecycle", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), '{"name":"x"}\n');
+  const md = generateAgentsMd(repo);
+  assert.match(md, /no node scripts\/commands found/);
+  assert.match(md, /add e\.g\. package\.json scripts/);
+  assert.doesNotMatch(md, /node has no canonical CLI lifecycle/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: php-only repo hint names composer.json scripts, not package.json", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "composer.json"), "{}\n");
+  const md = generateAgentsMd(repo);
+  assert.match(md, /no php scripts\/commands found/);
+  assert.match(md, /add e\.g\. composer\.json scripts/);
+  assert.doesNotMatch(md, /add e\.g\. package\.json scripts/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 3: php composer-declared phpunit reaches the command table (only phpunit.xml was recognized)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "composer.json"), '{"require-dev":{"phpunit/phpunit":"^11.0"}}\n');
+  const md = generateAgentsMd(repo);
+  assert.match(md, /`phpunit` \| test/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 4: symlink AGENTS.md (reverse convention, AGENTS.md -> target) never appends through the link", () => {
+  const repo = fixture();
+  // upstream AGENTS.md is a symlink to CLAUDE.md (AI Policy) — the
+  // reverse of spooner's convention; readFileSync/writeFileSync follow the
+  // link, so appending would pollute the real target file.
+  writeFileSync(join(repo, "claude.md"), "# AI Policy\nRead AI_POLICY.md.\n");
+  symlinkSync("claude.md", join(repo, "AGENTS.md"));
+  const r = applyStage4(repo, false);
+  assert.equal(r.agentsSdd.plan, "symlink");
+  assert.equal(r.agentsSdd.appended, false);
+  // the target file must be untouched — no SDD convention leaked into it
+  assert.doesNotMatch(
+    readFileSync(join(repo, "claude.md"), "utf8"),
+    /SDD|spec-driven/,
+    "convention leaked through the symlink",
+  );
+  assert.match(r.message ?? "", /symlink to claude\.md/, `message: ${r.message}`);
+  assert.match(r.message ?? "", /NOT appended/, `message: ${r.message}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: check-json excludes .devcontainer/ + .vscode/ + tsconfig.json (JSONC false positives)", () => {
+  const repo = fixture();
+  const cfg = generatePreCommitConfig(repo);
+  // pinned-byte assertion (spec 0015 slice 4): exact rendered bytes + real
+  // matchability — a wrong backslash count makes both fail loudly
+  const line = cfg.split("\n").find((l) => l.includes("exclude:") && l.includes("tsconfig")) ?? "";
+  const m = /^\s+exclude: '([^']*)'$/.exec(line);
+  assert.ok(m, "check-json exclude line must exist");
+  assert.equal(m[1], String.raw`^(\.devcontainer|\.vscode)/|(^|/)tsconfig.*\.json$`, "rendered exclude bytes");
+  const re = new RegExp(m[1]);
+  for (const f of [
+    "website/tsconfig.json",
+    "tsconfig.base.json",
+    ".vscode/settings.json",
+    ".devcontainer/devcontainer.json",
+  ]) {
+    assert.ok(re.test(f), `exclude must match ${f}`);
+  }
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("preCommit: pytest entry pre-checks the tool (missing module skips with a notice, hard gate stays for real failures)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pyproject.toml"), "[project]\n[tool.pytest.ini_options]\n");
+  const cfg = generatePreCommitConfig(repo);
+  const m = cfg.match(/entry: 'bash -c ''([^']*pytest[^']*)'' bash'/);
+  assert.ok(m, "pytest entry must be bash -c wrapped: " + cfg);
+  assert.match(m[1], /pytest --version/, "must pre-check the tool: " + m[1]);
+  assert.match(m[1], /SKIP=pytest/, "must name the escape: " + m[1]);
+  assert.match(m[1], /exec python3 -m pytest -q/, "real failures still run the gate: " + m[1]);
+  rmSync(repo, { recursive: true, force: true });
 });

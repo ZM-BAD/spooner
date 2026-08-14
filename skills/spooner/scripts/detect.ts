@@ -81,6 +81,13 @@ const STACK_SIGNALS: StackSignal[] = [
   { stack: "zig", file: "build.zig" },
 ];
 
+/** The complete known-stack enumeration (spec 0015 stack parity): every
+ *  consumption point (fresh-deps / command sources / lint+format lists) must
+ *  cover each stack or name a documented ceiling — the stack-parity test
+ *  enforces it, so a new detect stack failing to reach a consumption point
+ *  turns the suite red instead of under-scoring in the field. */
+export const KNOWN_STACKS: readonly string[] = [...new Set([...STACK_SIGNALS.map((s) => s.stack), "dotnet"])];
+
 export interface ManifestHit {
   stack: string;
   file: string;

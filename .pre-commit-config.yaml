@@ -14,7 +14,15 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # .clang-format is multi-document YAML — not a manifest; check-yaml
+        # would fail every commit on any C/C++ repo
+        exclude: '\.clang-format$'
       - id: check-json
+        # .devcontainer/ + .vscode/ are JSONC — comments and trailing commas
+        # are the VSCode ecosystem's standard formats; tsconfig.json is JSONC
+        # to the TS toolchain too (comments/trailing commas accepted, e.g.
+        # Docusaurus scaffolds); strict JSON decode fails them on every commit
+        exclude: '^(\.devcontainer|\.vscode)/|(^|/)tsconfig.*\.json$'
       - id: check-merge-conflict
       - id: check-added-large-files
       - id: check-symlinks
