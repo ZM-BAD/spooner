@@ -95,3 +95,12 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+  - repo: local
+    hooks:
+      - id: version-sync
+        name: package.json / package-lock.json version (check)
+        entry: "python3 -c 'import json, sys\ntry:\n    with open(\"package.json\") as fh:\n        pkg = json.load(fh)\n    with open(\"package-lock.json\") as fh:\n        lock = json.load(fh)\nexcept Exception as e:\n    print(\"version-sync: parse error - \" + str(e), file=sys.stderr)\n    sys.exit(1)\nv1 = pkg.get(\"version\")\nv2 = lock.get(\"version\")\nif v1 != v2:\n    print(\"version-sync: package.json v\" + str(v1) + \" != package-lock.json v\" + str(v2) + \" - run `npm version \" + str(v1) + \" --no-git-tag-version` or sync the lockfile\", file=sys.stderr)\n    sys.exit(1)\nprint(\"version-sync: package.json and package-lock.json agree (v\" + str(v1) + \")\")\n'"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
