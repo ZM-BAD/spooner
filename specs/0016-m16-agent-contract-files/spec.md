@@ -21,8 +21,8 @@ The agent-setup checks recognize the ecosystem's contract files, pick the repo's
 
 ## Scope
 
-1. **`AGENT_FILES` enumeration** (audit.ts, official-doc verified): `AGENTS.md`, `AGENT.md`, `CLAUDE.md`, `QWEN.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursorrules`, `.windsurfrules`, `CONVENTIONS.md`, `.clinerules`. Directory rule sets (`.cursor/rules/`, `.windsurf/rules/`, `.amazonq/rules/`…) are scoped rules, not the agent contract — out of scope (roadmap candidate).
-2. **`primaryAgentFile`**: the most content-rich present file — most traceable commands (the `traceableCommandsOf` count), then longest; ties break by enumeration order (deterministic). No fixed file priority: a Qwen-only repo's primary is QWEN.md; an AGENTS.md + thin QWEN.md repo keeps AGENTS.md (the open standard). All consumers that previously used the old single-file lookup (`agents-md`, `agents-length`, `agents-sdd`, the maturity gate) now read the primary.
+1. **`AGENT_FILES` enumeration** (audit.ts, official-doc verified): `AGENTS.md`, `AGENT.md`, `CLAUDE.md`, `QWEN.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.cursorrules`, `.windsurfrules`, `CONVENTIONS.md`, `.clinerules`. The scan covers the **repo root plus one directory level** (an agent contract hierarchy — e.g. `agents/AGENTS.md` next to the root contract, or a per-subproject contract — is the same artifact in layered form; vendored/built dirs (`node_modules`/`.venv`/`.git`/`dist`/`build`) are excluded; evidence names the path). Directory rule sets (`.cursor/rules/`, `.windsurf/rules/`, `.amazonq/rules/`…) are scoped rules, not the agent contract — out of scope (roadmap candidate).
+2. **`primaryAgentFile`**: the most content-rich present file — most traceable commands (the `traceableCommandsOf` count), then longest; ties break by enumeration order (deterministic). No fixed file priority and no root-file preference: a Qwen-only repo's primary is QWEN.md; an AGENTS.md + thin QWEN.md repo keeps AGENTS.md (the open standard); a layered repo's richest contract (root or one level down) is the primary. All consumers that previously used the old single-file lookup (`agents-md`, `agents-length`, `agents-sdd`, the maturity gate) now read the primary.
 3. **`agents-bridge` semantics** (three states):
    - no agent file → 0 ("agent file: missing")
    - exactly one agent file → 0.5 (a single contract is complete by itself — no bridge needed)
@@ -33,6 +33,7 @@ The agent-setup checks recognize the ecosystem's contract files, pick the repo's
 
 - **No transform change**: stage 3 still generates AGENTS.md + the CLAUDE.md bridge for the tool's own convention; the audit stops _demanding_ it.
 - **No directory rule sets** (`.cursor/rules/` etc.) — scoped rules are a different artifact; roadmap candidate.
+- **No deeper-than-one-level hierarchy scan** — layered contracts are recognized one level down; a deeper tree stays a root+one-level question (demand-driven).
 - **No content sniffing** of contract files beyond the existing traceable-command regexes.
 - **No version chain**: audit-only change, no template bytes, no TOOL_VERSION bump.
 
@@ -47,6 +48,7 @@ The agent-setup checks recognize the ecosystem's contract files, pick the repo's
 7. `agents-length` / `agents-sdd` / maturity gate read the primary file (GEMINI.md 42-line fixture scores agents-length 0.5)
 8. Regression: typecheck + markdownlint + full suite green; determinism double-run diff empty
 9. Docs current-state: specs 0001 + 0013 check definitions in place (no acceptance logs)
+10. **Hierarchy**: a root + `agents/AGENTS.md` fixture resolves the primary by content across both (richest wins, evidence names the path); a `node_modules/AGENTS.md` fixture never affects the score; determinism double-run still empty
 
 ## Slice plan (each slice independently verifiable)
 

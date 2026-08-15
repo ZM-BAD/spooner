@@ -129,8 +129,11 @@ test("agents: generated-contract fixture scores top bands", () => {
   }
   assert.equal(item(repo, "agents-md")?.score, 0.5);
   assert.equal(item(repo, "agents-length")?.score, 0.5);
+  // review round (2026-08-16): the bridge check must exist AND score — a
+  // conditional `if (bridge)` would let a removed check pass silently.
   const bridge = item(repo, "agents-bridge");
-  if (bridge) assert.ok([0.5, 0.3].includes(bridge.score), `bridge ${bridge.score}`);
+  assert.ok(bridge, "agents-bridge check must exist");
+  assert.ok([0.5, 0.3].includes(bridge.score), `bridge ${bridge.score}`);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -1424,5 +1427,123 @@ test("agents-length: GEMINI.md is a recognized agent file (Gemini CLI)", () => {
   const r = item(repo, "agents-length");
   assert.equal(r?.score, 0.5);
   assert.match(r?.evidence ?? "", /GEMINI\.md/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- dogfood-round signals (spec 0013/0016 revisions) ------------------------
+
+test("cfg-lint: .oxlintrc.json counts as a lint config (oxlint recognized)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, ".oxlintrc.json"), '{\n  "rules": {}\n}\n');
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { lint: "oxlint" } }));
+  const r = item(repo, "cfg-lint");
+  assert.ok((r?.score ?? 0) >= 0.4, `expected >= 0.4, got ${r?.score}`);
+  assert.match(r?.evidence ?? "", /oxlintrc/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-lint: missing-config fix names oxlint among the tool options", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), "{}\n");
+  const r = item(repo, "cfg-lint");
+  assert.match(r?.fix ?? "", /eslint\/biome\/ruff\/oxlint/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-hooks: lefthook.yml with installed wrappers -> 0.5", () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "lefthook.yml"),
+    "pre-commit:\n  commands:\n    lint:\n      run: npm run lint\ncommit-msg:\n  jobs:\n    - name: commitlint\n      run: npx commitlint --edit $1\n",
+  );
+  writeFileSync(join(repo, ".commitlintrc.json"), "{}");
+  mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+  writeFileSync(join(repo, ".git", "hooks", "pre-commit"), "#!/bin/sh\nlefthook run pre-commit\n");
+  writeFileSync(join(repo, ".git", "hooks", "commit-msg"), "#!/bin/sh\nlefthook run commit-msg\n");
+  const r = item(repo, "cfg-hooks");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /lefthook\.yml/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-hooks: lefthook not installed -> 0.2 with a lefthook install hint (never pre-commit install)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "lefthook.yml"), "pre-commit:\n  commands:\n    lint:\n      run: npm run lint\n");
+  writeFileSync(join(repo, ".commitlintrc.json"), "{}");
+  const r = item(repo, "cfg-hooks");
+  assert.equal(r?.score, 0.2);
+  assert.match(r?.fix ?? "", /lefthook install/);
+  assert.doesNotMatch(r?.fix ?? "", /pre-commit install/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-hooks: lefthook via core.hooksPath counts as installed", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "lefthook.yml"), "pre-commit:\n  commands:\n    lint:\n      run: npm run lint\n");
+  writeFileSync(join(repo, ".commitlintrc.json"), "{}");
+  git(repo, ["init", "-q"]);
+  mkdirSync(join(repo, ".lefthook-hooks"), { recursive: true });
+  writeFileSync(join(repo, ".lefthook-hooks", "pre-commit"), "#!/bin/sh\nlefthook run pre-commit\n");
+  git(repo, ["config", "core.hooksPath", ".lefthook-hooks"]);
+  const r = item(repo, "cfg-hooks");
+  assert.ok((r?.score ?? 0) >= 0.4, `expected >= 0.4, got ${r?.score}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cfg-hooks: a GLOBAL core.hooksPath is NOT this repo's hook state (--local only)", () => {
+  // review round (2026-08-16): the installed-state read must be --local —
+  // a developer-machine global core.hooksPath (common dotfiles setting) must
+  // not make this repo look gate-active. The global value is written to an
+  // isolated file inside the fixture (never touches the developer's git).
+  const repo = fixture();
+  writeFileSync(join(repo, "lefthook.yml"), "pre-commit:\n  commands:\n    lint:\n      run: npm run lint\n");
+  writeFileSync(join(repo, ".commitlintrc.json"), "{}");
+  git(repo, ["init", "-q"]);
+  const globalConfig = join(repo, ".global-gitconfig");
+  git(repo, ["config", "--file", globalConfig, "core.hooksPath", "/tmp/global-hooks-dir"]);
+  const r = item(repo, "cfg-hooks");
+  assert.equal(r?.score, 0.2, `global hooksPath must not count as installed: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-sdd: .agents/notes hierarchy counts as the repo's own spec system", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "AGENTS.md"), "# Contract\n\nWe follow a spec-driven workflow via agent notes.\n");
+  mkdirSync(join(repo, ".agents", "notes"), { recursive: true });
+  writeFileSync(join(repo, ".agents", "notes", "notes.md"), "---\nstatus: in-progress\n---\n# note\n");
+  const r = item(repo, "agents-sdd");
+  assert.ok((r?.score ?? 0) >= 0.4, `expected >= 0.4, got ${r?.score} (notes with state frontmatter)`);
+  assert.match(r?.evidence ?? "", /notes/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-md: layered hierarchy — a subdir contract joins the primary selection", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "AGENTS.md"), "# root\n");
+  mkdirSync(join(repo, "agents"));
+  writeFileSync(
+    join(repo, "agents", "AGENTS.md"),
+    "# agents\n\n## Commands\n\n| Command | Purpose |\n| --- | --- |\n| `npm run build` | build |\n| `npm run test` | test |\n",
+  );
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "x", scripts: { build: "tsc", test: "vitest run" } }),
+  );
+  const r = item(repo, "agents-md");
+  assert.equal(r?.score, 0.5);
+  assert.match(r?.evidence ?? "", /agents\/AGENTS\.md/, `evidence: ${r?.evidence}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("agents-md: vendored subdir contracts never count", () => {
+  const repo = fixture();
+  // review round (2026-08-16): every AGENT_DIR_EXCLUDES entry is pinned —
+  // a dropped exclude would silently inflate agents-md via vendored contracts.
+  for (const dir of ["node_modules", "vendor", ".yarn"]) {
+    mkdirSync(join(repo, dir), { recursive: true });
+    writeFileSync(join(repo, dir, "AGENTS.md"), "# vendor contract\n");
+  }
+  const r = item(repo, "agents-md");
+  assert.equal(r?.score, 0);
   rmSync(repo, { recursive: true, force: true });
 });

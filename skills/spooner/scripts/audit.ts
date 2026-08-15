@@ -17,12 +17,12 @@
  *   node skills/spooner/scripts/audit.ts [--root <path>] [--format json|markdown]
  */
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { isDirectEntry } from "./entry.ts";
 import { detect, PYTHON_FILES } from "./detect.ts";
 import { lifecycleOf } from "./stacks.ts";
-import { readManifest, stackLifecycle, TOOL_VERSION } from "./transform.ts";
+import { classifyFailure, readManifest, TOOL_VERSION, verifyCommandsOf } from "./transform.ts";
 
 /**
  * Full marks is 10 — but a 10 requires every one of the 17 checks to max out,
@@ -423,17 +423,44 @@ const AGENT_FILES = [
   ".clinerules",
 ] as const;
 
-/** All root-level agent contract files present (files or symlinks). */
+/** Agent contract files at the root AND one directory level down (spec 0016
+ *  revision): a layered hierarchy — agents/AGENTS.md next to the root
+ *  contract, or a per-subproject contract — is the same artifact in layered
+ *  form. Vendored/built dirs never count; paths in the enumeration
+ *  (.github/copilot-instructions.md) stay root-only. */
+const AGENT_DIR_EXCLUDES = [
+  "node_modules",
+  ".venv",
+  ".git",
+  "dist",
+  "build",
+  "coverage",
+  ".ai-native",
+  "vendor", // go/php vendored deps
+  ".yarn",
+];
 function agentFiles(root: string): string[] {
-  return AGENT_FILES.filter((name) => {
-    const p = join(root, name);
+  const found: string[] = [];
+  const present = (p: string): boolean => {
     try {
       const st = lstatSync(p);
       return st.isFile() || st.isSymbolicLink();
     } catch {
       return false;
     }
-  });
+  };
+  for (const name of AGENT_FILES) if (present(join(root, name))) found.push(name);
+  const subdirs = readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && !AGENT_DIR_EXCLUDES.includes(d.name))
+    .map((d) => d.name)
+    .sort();
+  for (const dir of subdirs) {
+    for (const name of AGENT_FILES) {
+      if (name.includes("/")) continue;
+      if (present(join(root, dir, name))) found.push(`${dir}/${name}`);
+    }
+  }
+  return found;
 }
 
 /** The repo's primary agent contract — the most content-rich file (most
@@ -668,16 +695,18 @@ function checkAgentsLength(root: string): CheckResult {
 }
 
 /**
- * Actually run the traced lifecycle commands (build + test, same command
- * strings as transform's stackLifecycle — one source of truth). Returns null
- * when all passed, or a note explaining why verification could not pass.
- * Static tracing only proves the commands exist, not that they run — this
- * is the audit-side counterpart of transform stage 2's build verification;
- * missing tools are not failing builds (exit 127).
+ * Actually run the traced lifecycle commands (same command family as
+ * transform's stage 2 — verifyCommandsOf is the one source of truth, spec
+ * 0002: --verify-command override + monorepo degradation apply here too).
+ * Returns null when all passed, or a note explaining why verification could
+ * not pass. Static tracing only proves the commands exist, not that they
+ * run — this is the audit-side counterpart of transform stage 2's build
+ * verification; missing tools are not failing builds (the shared
+ * classifyFailure reads the whole stderr — a `sh: pnpm: command not found`
+ * inside an npm script names pnpm, not the script's first word).
  */
-function verificationNote(root: string): string | null {
-  const { build, test } = stackLifecycle(root);
-  const cmds = [build, test].filter((c): c is string => c !== null);
+function verificationNote(root: string, verifyCommand?: string): string | null {
+  const cmds = verifyCommandsOf(root, verifyCommand);
   if (cmds.length === 0) return "no local lifecycle command to verify";
   for (const cmd of cmds) {
     try {
@@ -685,16 +714,19 @@ function verificationNote(root: string): string | null {
     } catch (err) {
       const e = (err ?? {}) as { status?: number; stderr?: Buffer | string };
       const stderr = String(e.stderr ?? "").trim();
+      const c = classifyFailure(e.status ?? null, stderr, false);
+      if (c.state === "unverifiable") {
+        const tool = c.rawTool ?? cmd.split(/\s+/)[0];
+        return `${tool} is not installed (exit 127) — install the tool and re-run`;
+      }
       const excerpt = stderr.length > 120 ? `${stderr.slice(0, 120)}…` : stderr;
-      if (e.status === 127 || /command not found|No such file or directory/i.test(stderr))
-        return `${cmd.split(/\s+/)[0]} is not installed (exit 127) — install the tool and re-run`;
       return `${cmd} FAILED (exit ${e.status ?? "?"}${excerpt ? `: ${excerpt}` : ""})`;
     }
   }
   return null;
 }
 
-function checkAgentsCommands(root: string, verify = false): CheckResult {
+function checkAgentsCommands(root: string, verify = false, verifyCommand?: string): CheckResult {
   const buildKey = scriptKey(root, /^(build|compile|typecheck|check|verify)\b/);
   const testKey = scriptKey(root, /^(test|spec)\b/);
   const sc = stackCommandSources(root);
@@ -747,7 +779,7 @@ function checkAgentsCommands(root: string, verify = false): CheckResult {
   // Tracing is static — the score proves the commands exist in real files, not
   // that they run. --verify executes them (note null = all passed); otherwise
   // the evidence says so instead of implying verified behavior.
-  const verifyNote = verify ? verificationNote(root) : undefined;
+  const verifyNote = verify ? verificationNote(root, verifyCommand) : undefined;
   const evidence =
     sources.length > 0
       ? `commands traceable to ${sources.join(" + ")} (build: ${hasBuild}, test: ${hasTest})${
@@ -843,16 +875,22 @@ function checkAgentsSdd(root: string): CheckResult {
   const file = primaryAgentFile(root);
   const content = file ? (readIfExists(join(root, file)) ?? "") : "";
   const mentions = /\bspec\b|spec-driven|\bSDD\b(?!-)/i.test(content);
+  // The repo's own plan/spec/notes hierarchy counts too (spec 0013 revision):
+  // a `.agents/notes` tree is the same discipline in a different form — the
+  // 0.3/0.4/0.5 bands grade it identically to specs/ or docs/sdd/.
   const specDir = existsSync(join(root, "specs"))
     ? join(root, "specs")
     : existsSync(join(root, "docs", "sdd"))
       ? join(root, "docs", "sdd")
-      : null;
+      : existsSync(join(root, ".agents", "notes"))
+        ? join(root, ".agents", "notes")
+        : null;
   const specFiles = specDir ? specFilesOf(specDir) : [];
   const hasState = specFiles.some((f) =>
     /^status:\s*(proposed|approved|in-progress|shipped)/m.test(readIfExists(f) ?? ""),
   );
   const hasCiGate = /\bspec\b|\bsdd\b/i.test(ciContent(root));
+  const dirLabel = specDir ? specDir.replace(join(root, "") + "/", "") : null; // specs / docs/sdd / .agents/notes
   let score = 0;
   let detail = "agent file does not declare a spec-driven workflow";
   if (mentions) {
@@ -861,15 +899,15 @@ function checkAgentsSdd(root: string): CheckResult {
   }
   if (mentions && specDir) {
     score = 0.3;
-    detail = "agent file declares the workflow + spec files exist";
+    detail = `agent file declares the workflow + spec files exist (${dirLabel})`;
   }
   if (mentions && specDir && hasState) {
     score = 0.4;
-    detail = "agent file declares the workflow + spec files carry state frontmatter";
+    detail = `agent file declares the workflow + spec files carry state frontmatter (${dirLabel})`;
   }
   if (mentions && specDir && hasState && hasCiGate) {
     score = 0.5;
-    detail = "agent file declares the workflow + state-frontmatter specs + a CI spec gate";
+    detail = `agent file declares the workflow + state-frontmatter specs + a CI spec gate (${dirLabel})`;
   }
   return {
     id: "agents-sdd",
@@ -891,6 +929,7 @@ function checkCfgLint(root: string): CheckResult {
       /^eslint\.config\./,
       /^biome\.json/,
       /^\.golangci/,
+      /^\.oxlintrc/, // oxlint (`.oxlintrc*.json`) — same signal class as the ruff round
       /^ruff\.toml/,
       /^\.markdownlint/,
       /^phpcs\.xml/,
@@ -910,7 +949,7 @@ function checkCfgLint(root: string): CheckResult {
     ? cmd
       ? "transform Stage 2 (CI lint job)"
       : "add a lint command (transform never invents commands)"
-    : "add a lint config + command (eslint/biome/ruff)";
+    : "add a lint config + command (eslint/biome/ruff/oxlint)";
   return {
     id: "cfg-lint",
     category: "configuration",
@@ -1086,16 +1125,35 @@ function checkCfgHooks(root: string): CheckResult {
     "yorkie (package.json)": /\byorkie\b/i,
     "husky (package.json)": /\bhusky\b/i,
   };
+  // lefthook installs its wrappers into `git config core.hooksPath` when set
+  // (lefthook's recommended layout) — .git/hooks/ alone would misjudge an
+  // installed lefthook repo as "not installed" (spec 0013 revision).
+  // --local only: a GLOBAL core.hooksPath (a common dotfiles setting) must
+  // not be read as this repo's hook state (review round, 2026-08-16). The
+  // dir is resolved once — hookRefersTool runs twice (pre-commit/commit-msg).
+  const hooksDir = (() => {
+    try {
+      const p = execFileSync("git", ["-C", root, "config", "--local", "--get", "core.hooksPath"], {
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .toString()
+        .trim();
+      return p ? resolve(root, p) : null;
+    } catch {
+      return null;
+    }
+  })();
   const hookRefersTool = (name: string): boolean => {
-    const p = join(root, ".git", "hooks", name);
+    const p = join(hooksDir ?? join(root, ".git", "hooks"), name);
     if (!existsSync(p) || !lstatSync(p).isFile()) return false;
     const tool = mechanism ? TOOL_OF[mechanism] : null;
     return tool ? tool.test(readIfExists(p) ?? "") : true;
   };
   // Gate-active check (M7): config content alone proves nothing — the hooks
-  // must actually be installed. pre-commit/lefthook write .git/hooks/;
-  // husky keeps its hooks in .husky/ (core.hooksPath). A missing `.git`
-  // (or a worktree `.git` file) means no installable hooks — under-score.
+  // must actually be installed. pre-commit/lefthook write .git/hooks/
+  // (lefthook honors core.hooksPath); husky keeps its hooks in .husky/
+  // (core.hooksPath). A missing `.git` (or a worktree `.git` file) means no
+  // installable hooks — under-score.
   const hooksActive = (() => {
     if (mechanism === ".husky") {
       return existsSync(join(root, ".husky", "pre-commit")) || existsSync(join(root, ".husky", "commit-msg"));
@@ -1107,6 +1165,15 @@ function checkCfgHooks(root: string): CheckResult {
   const commitMsgActive =
     mechanism === ".husky" ? existsSync(join(root, ".husky", "commit-msg")) : hookRefersTool("commit-msg");
 
+  // Install hint follows the ACTIVE mechanism (spec 0013 revision): giving a
+  // lefthook repo `pre-commit install` is the wrong instruction — lefthook
+  // installs with `lefthook install`.
+  const installHintOf = (m: string | null): string => {
+    if (m === "lefthook.yml") return "lefthook install";
+    if (m === ".husky") return "husky install (or npm install — the prepare script)";
+    if (m?.endsWith("(package.json)")) return "npm install (the postinstall installs the hooks)";
+    return "pre-commit install --hook-type pre-commit --hook-type commit-msg";
+  };
   let score = 0;
   let detail = `hook mechanism: ${mechanism ?? "missing"}`;
   let fix = "transform Stage 2 (commitlint + pre-commit)";
@@ -1117,11 +1184,20 @@ function checkCfgHooks(root: string): CheckResult {
   } else if (mechanism !== null && discipline && !hooksActive) {
     score = 0.2;
     detail = `${mechanism} config present but git hooks not installed`;
-    fix = "install the hooks: pre-commit install --hook-type pre-commit --hook-type commit-msg";
+    fix = `install the hooks: ${installHintOf(mechanism)}`;
   } else if (mechanism !== null && discipline && hooksActive && !commitMsgActive) {
     score = 0.4;
     detail = `${mechanism} enforces commit discipline (hooks installed, commit-msg stage missing)`;
-    fix = "install the commit-msg stage: pre-commit install --hook-type commit-msg";
+    // lefthook only installs stages its config declares — "lefthook install"
+    // alone leaves the commit-msg hook absent when lefthook.yml has no
+    // commit-msg job. The spooner integration template closes that path
+    // (review round, 2026-08-16). The template lives in the spooner skill
+    // itself (skills/spooner/templates/), never in the target repo — the fix
+    // names it accordingly, no bare relative path a user could chase locally.
+    fix =
+      mechanism === "lefthook.yml"
+        ? "install the commit-msg stage: merge the lefthook-commit-msg.yml integration template (shipped with the spooner skill, under its templates/ directory) into lefthook.yml, then run lefthook install"
+        : `install the commit-msg stage: ${installHintOf(mechanism)}`;
   } else if (mechanism !== null && discipline && hooksActive && commitMsgActive) {
     score = 0.5;
     detail = `${mechanism} enforces commit discipline (hooks installed incl. commit-msg)`;
@@ -1918,12 +1994,12 @@ function round1(n: number): number {
 }
 
 /** Full audit pipeline — exported for reuse by check.ts (M3) / badge.ts (M9). */
-export function runAudit(root: string, verify = false): AuditResult {
+export function runAudit(root: string, verify = false, verifyCommand?: string): AuditResult {
   const items: CheckResult[] = [
     checkAgentsMd(root),
     checkAgentsBridge(root),
     checkAgentsLength(root),
-    checkAgentsCommands(root, verify),
+    checkAgentsCommands(root, verify, verifyCommand),
     checkAgentsSdd(root),
     checkCfgLint(root),
     checkCfgFormat(root),
@@ -2032,13 +2108,23 @@ export function renderMarkdown(r: AuditResult): string {
 
 // --- CLI ------------------------------------------------------------------------
 
-function parseArgs(argv: string[]): { root: string; format: "json" | "markdown"; verify: boolean } {
+function parseArgs(argv: string[]): {
+  root: string;
+  format: "json" | "markdown";
+  verify: boolean;
+  verifyCommand: string | undefined;
+} {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
-  return { root: valueOf("--root") ?? process.cwd(), format, verify: argv.includes("--verify") };
+  return {
+    root: valueOf("--root") ?? process.cwd(),
+    format,
+    verify: argv.includes("--verify"),
+    verifyCommand: valueOf("--verify-command"),
+  };
 }
 
 function assertNodeVersion(): void {
@@ -2057,9 +2143,9 @@ function assertNodeVersion(): void {
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
 if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
-  const { root, format, verify } = parseArgs(process.argv.slice(2));
+  const { root, format, verify, verifyCommand } = parseArgs(process.argv.slice(2));
   try {
-    const result = runAudit(root, verify);
+    const result = runAudit(root, verify, verifyCommand);
     process.stdout.write(format === "markdown" ? renderMarkdown(result) : `${JSON.stringify(result, null, 2)}\n`);
   } catch (err) {
     console.error(`audit: failed to scan ${root}: ${(err as Error).message}`);

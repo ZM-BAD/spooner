@@ -1,0 +1,18 @@
+# Spooner commitlint integration for lefthook — integrate manually, do NOT auto-write
+#
+# spooner never writes over a repo's lefthook.yml (same conflict red line as
+# AGENTS.md). To bring the commitlint discipline to a kept-lefthook repo:
+#
+#   1. merge the `commit-msg` job below into your lefthook.yml
+#   2. install the hooks: `lefthook install`
+#   3. done — commitlint now enforces locally (config ≠ enforcement until
+#      `lefthook install` runs)
+#
+# The job uses the repo's own commitlint (npx --no-install — never downloads).
+# LEFTHOOK=0 runs all lefthook hooks with config only (lefthook has no SKIP env var).
+
+commit-msg:
+  parallel: false
+  jobs:
+    - name: commitlint
+      run: npx --no-install commitlint --edit "$1"

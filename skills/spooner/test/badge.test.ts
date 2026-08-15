@@ -127,7 +127,10 @@ test("run: writes both artifacts and the snippet references them", () => {
   assert.equal(report.files.report, "assets/audit-report.md");
   assert.ok(report.snippet.includes("assets/badge.svg"));
   assert.ok(report.snippet.includes("assets/audit-report.md"));
-  assert.equal(report.score.total, report.score.total); // score always present
+  // review round (2026-08-16): real contract, not a tautology — the badge
+  // message must be "x/10" (spec 0013 AC13), pinned via the rendered SVG.
+  assert.equal(typeof report.score.total, "number");
+  assert.match(svg, /aria-label="[^"]*\/10"/, `badge message must be x/10: ${svg.slice(0, 120)}`);
   assert.equal(report.tier, tierOf(report.score.total));
   rmSync(repo, { recursive: true, force: true });
 });

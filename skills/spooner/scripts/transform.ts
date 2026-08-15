@@ -5,7 +5,7 @@
  * (AGENTS.md from real commands + CLAUDE.md bridge) + stage 4 SDD adoption
  * (docs/sdd/ templates + AGENTS.md convention + CI gate).
  *
- * Agent-driven workflow (specs/0002-m2-transform/spec.md): stage 1 = audit
+ * Agent-driven workflow (specs/0002-m2-transform.md): stage 1 = audit
  * (M1, existing); stages 2-4 apply verified, confirmable changes.
  *
  * Zero dependencies (Node builtins only); runs natively via Node's
@@ -31,7 +31,7 @@ import { DYNAMIC_LIFECYCLE_STACKS, GO_TEST_COMMAND, STACK_COMMANDS } from "./sta
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.12.0";
+export const TOOL_VERSION = "0.13.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -1097,12 +1097,20 @@ export function stackLifecycle(root: string): { build: string | null; test: stri
   return declaredNpmLifecycle(root);
 }
 
+/** Verification tri-state (spec 0002/0013): a timeout or a missing tool is
+ *  `unverifiable` — the build's state is undetermined, never "already
+ *  failing". */
+export type VerifyState = "ok" | "failed" | "unverifiable";
+
 interface CommandResult {
   ok: boolean;
+  state: VerifyState;
   /** Failing command + stderr excerpt (truncated) — null when the command passed. */
   error: string | null;
-  /** First tool of the command that could not be found (exit 127) — a missing
-   *  local tool is NOT a failing build. */
+  /** Tool that could not be found — a missing local tool is NOT a failing
+   *  build. Detected anywhere in the stderr (a `sh: pnpm: command not found`
+   *  inside an npm script names pnpm), falling back to the command's first
+   *  word. */
   missingTool: string | null;
 }
 
@@ -1110,9 +1118,107 @@ interface VerifyOptions {
   /** Kill the verification after this many ms (0/unset = never — a long build
    *  is not a hang; the heartbeat is the only feedback by default). */
   timeoutMs?: number;
+  /** `--verify-command` override: verifies exactly this command instead of the
+   *  lifecycle family (a composite monorepo build may never converge). */
+  command?: string;
 }
 
-function runCommand(root: string, command: string, opts: VerifyOptions = {}): Promise<CommandResult> {
+/** Shared failure classifier (transform + audit — one source of truth, spec
+ *  0015 command-source rule): a missing binary is tool-missing, not a broken
+ *  build. **Exit 127 is the shell's command-not-found convention** — that
+ *  alone classifies as `unverifiable` (npm propagates the inner sh's 127,
+ *  whether the shell is bash (`sh: x: command not found`) or dash
+ *  (`/bin/sh: 1: x: not found`)); the stderr text only names the tool for a
+ *  better message. A "No such file or directory" WITHOUT exit 127 is NOT
+ *  tool-missing — `cd /nonexistent` (exit 2) and `cp: cannot stat 'x'`
+ *  (exit 1) are real build failures (review round, 2026-08-16; CI caught the
+ *  dash format: macOS's bash masked it locally). A timeout is
+ *  `unverifiable` — never a real failure. */
+export function classifyFailure(
+  code: number | null,
+  stderr: string,
+  timedOut: boolean,
+): { state: "failed" | "unverifiable"; rawTool: string | null; cause: string } {
+  if (timedOut) return { state: "unverifiable", rawTool: null, cause: "timed out" };
+  if (code !== 127) return { state: "failed", rawTool: null, cause: `exit ${code ?? "?"}` };
+  const s = stderr.trim();
+  // bash: `sh: pnpm: command not found` · dash: `/bin/sh: 1: pnpm: not found`
+  // (line-numbered) or `sh: pnpm: not found` (POSIX without line numbers).
+  const tool =
+    /sh: (\S+): command not found/.exec(s)?.[1] ??
+    /(?:^|\n)\s*[^\s:]+: \d+: ([^\s:]+): not found/.exec(s)?.[1] ??
+    /(?:^|\n)\s*[^\s:]+: ([^\s:]+): not found/.exec(s)?.[1] ??
+    null;
+  return { state: "unverifiable", rawTool: tool, cause: "exit 127" };
+}
+
+/** Top-level `&&` / `;` segments of a composite command — run one at a time
+ *  so the heartbeat names the current sub-step (a monorepo root build chains
+ *  tsc + tsdown + web; "step 2/3: tsc -b" tells where it is). Quote-aware:
+ *  a quoted `&&` or `;` (e.g. `grep "a && b" f`) is data, never a separator
+ *  (review round, 2026-08-16). */
+export function splitSteps(command: string): string[] {
+  const steps: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    if (quote !== null) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if ((ch === "&" && command[i + 1] === "&") || ch === ";") {
+      if (current.trim().length > 0) steps.push(current.trim());
+      current = "";
+      if (ch === "&") i++;
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim().length > 0) steps.push(current.trim());
+  return steps;
+}
+
+const MONOREPO_SIGNALS = ["pnpm-workspace.yaml", "lerna.json", "rush.json"] as const;
+
+/** Workspace signals at the repo root (pnpm-workspace.yaml / lerna.json /
+ *  rush.json) — the root build of such a repo chains the whole graph and can
+ *  run for tens of minutes without converging. */
+export function monorepoSignalOf(root: string): string | null {
+  return MONOREPO_SIGNALS.find((f) => existsSync(join(root, f))) ?? null;
+}
+
+function declaredScriptOf(root: string, families: string[]): string | null {
+  const pkg = packageJsonOf(root);
+  const scripts =
+    pkg && typeof pkg.scripts === "object" && pkg.scripts !== null ? (pkg.scripts as Record<string, string>) : {};
+  return Object.keys(scripts).find((k) => families.some((f) => k === f || k.startsWith(`${f}:`))) ?? null;
+}
+
+/** The verification command family (transform + audit share it): an explicit
+ *  `--verify-command` override wins; a workspace root whose lifecycle is npm
+ *  scripts degrades to the lightest trusted declared command (typecheck →
+ *  test → lint, first present) — the pnpm-workspace composite build never
+ *  converges, and "unverifiable" beats a 30-minute stall. */
+export function verifyCommandsOf(root: string, override?: string): string[] {
+  if (override !== undefined) return splitSteps(override);
+  const { build, test } = stackLifecycle(root);
+  const cmds = [build, test].filter((c): c is string => c !== null);
+  if (monorepoSignalOf(root) !== null && cmds.some((c) => c.startsWith("npm run"))) {
+    const light =
+      declaredScriptOf(root, ["typecheck"]) ?? declaredScriptOf(root, ["test"]) ?? declaredScriptOf(root, ["lint"]);
+    if (light !== null) return [`npm run ${light}`];
+  }
+  return cmds;
+}
+
+function runCommand(root: string, command: string, opts: VerifyOptions = {}, label?: string): Promise<CommandResult> {
   return new Promise((resolve) => {
     const started = Date.now();
     // detached: timeout kills the whole command tree, not just the shell —
@@ -1123,10 +1229,10 @@ function runCommand(root: string, command: string, opts: VerifyOptions = {}): Pr
     child.stderr.on("data", (d) => (stderr += String(d)));
     // Long builds look hung without feedback — a heartbeat line every 10s
     // (a go test ./... can run >10 minutes with zero output while stage 2
-    // applies).
+    // applies). The label names the composite command's current sub-step.
     const heartbeat = setInterval(() => {
       process.stderr.write(
-        `  ... verification still running (${Math.round((Date.now() - started) / 1000)}s): ${command}\n`,
+        `  ... verification still running (${Math.round((Date.now() - started) / 1000)}s): ${label ?? command}\n`,
       );
     }, 10_000);
     const timer =
@@ -1146,7 +1252,7 @@ function runCommand(root: string, command: string, opts: VerifyOptions = {}): Pr
       clearInterval(heartbeat);
       if (timer) clearTimeout(timer);
       const s = stderr.trim();
-      if (code === 0 && !timedOut) return resolve({ ok: true, error: null, missingTool: null });
+      if (code === 0 && !timedOut) return resolve({ ok: true, state: "ok", error: null, missingTool: null });
       // Failure excerpt = FAIL-ish lines + the tail, NOT the head — the head
       // of a long run is downloads/setup; the actual failure is at the end
       // (a report showing "go: downloading …" would cut off the real
@@ -1156,12 +1262,43 @@ function runCommand(root: string, command: string, opts: VerifyOptions = {}): Pr
       const tail = lines.slice(-12);
       const picked = [...new Set([...fails, ...tail])].slice(-12).join("\n");
       const excerpt = picked.length > 400 ? `…${picked.slice(-400)}` : picked;
-      const missing =
-        code === 127 || /command not found|No such file or directory/i.test(s) ? command.split(/\s+/)[0] : null;
-      const cause = timedOut ? `timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s` : `exit ${code ?? "?"}`;
-      resolve({ ok: false, error: `${cause}${excerpt ? `: ${excerpt}` : ""}`, missingTool: missing });
+      const c = classifyFailure(code ?? null, s, timedOut);
+      const missingTool = c.rawTool ?? (c.state === "unverifiable" && !timedOut ? command.split(/\s+/)[0] : null);
+      const cause = timedOut ? `timed out after ${Math.round((opts.timeoutMs ?? 0) / 1000)}s` : c.cause;
+      resolve({ ok: false, state: c.state, error: `${cause}${excerpt ? `: ${excerpt}` : ""}`, missingTool });
     });
   });
+}
+
+/** Environment diagnostics for a failed verification — distinguishes an
+ *  unbuildable environment (missing node_modules / broken dependency tree)
+ *  from a broken repo (spec 0002). Null when nothing diagnosable is found.
+ *  `npm ls` runs only when the repo itself has a package.json (never walk up
+ *  to a parent project) and is bounded by a 10s timeout (review round,
+ *  2026-08-16). */
+function envDiagnosticsOf(root: string): string | null {
+  const parts: string[] = [];
+  parts.push(existsSync(join(root, "node_modules")) ? "node_modules present" : "node_modules MISSING");
+  if (!existsSync(join(root, "package.json"))) return parts.join("; ");
+  try {
+    execFileSync("npm", ["ls", "--depth=0"], {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+  } catch (err) {
+    const e = (err ?? {}) as { status?: number; stderr?: Buffer | string; signal?: string };
+    const s = String(e.stderr ?? "")
+      .trim()
+      .split("\n")
+      .slice(0, 3)
+      .join(" | ");
+    parts.push(
+      e.signal === "SIGTERM" ? "npm ls: timed out" : s ? `npm ls: ${s}` : `npm ls: failed (exit ${e.status ?? "?"})`,
+    );
+  }
+  return parts.join("; ");
 }
 
 async function runDeclared(
@@ -1169,19 +1306,39 @@ async function runDeclared(
   opts: VerifyOptions = {},
 ): Promise<{
   ok: boolean;
+  state: VerifyState;
   keys: string[];
   /** The failing command (for the SKIP escape hint). */
   command: string | null;
   error: string | null;
   missingTool: string | null;
+  /** Environment diagnostics (spec 0002) — null when verification passed. */
+  envDiag: string | null;
 }> {
-  const { build, test } = stackLifecycle(root);
-  const keys = [build, test].filter((k): k is string => k !== null);
-  for (const k of keys) {
-    const r = await runCommand(root, k, opts);
-    if (!r.ok) return { ok: false, keys, command: k, error: `${k} — ${r.error}`, missingTool: r.missingTool };
+  const keys = verifyCommandsOf(root, opts.command);
+  // The heartbeat labels each command's position in the family
+  // ("step 1/2: npm run build"); a --verify-command composite is split into
+  // top-level && / ; segments first, so its heartbeat names the current
+  // sub-step ("step 2/3: tsc -b") — default lifecycle commands are single
+  // spawns (their inner chains live inside npm scripts, not splittable here).
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const label = keys.length > 1 ? `step ${i + 1}/${keys.length}: ${k}` : k;
+    const r = await runCommand(root, k, opts, label);
+    if (!r.ok) {
+      const envDiag = r.state === "unverifiable" ? envDiagnosticsOf(root) : null;
+      return {
+        ok: false,
+        state: r.state,
+        keys,
+        command: k,
+        error: `${k} — ${r.error}`,
+        missingTool: r.missingTool,
+        envDiag,
+      };
+    }
   }
-  return { ok: true, keys, command: null, error: null, missingTool: null };
+  return { ok: true, state: "ok", keys, command: null, error: null, missingTool: null, envDiag: null };
 }
 
 export function manifestWithStage(root: string, stage: string, entry: ManifestStage): Record<string, ManifestStage> {
@@ -1236,8 +1393,15 @@ function verificationHookIdOf(root: string, command: string): string | null {
   return null;
 }
 
-function skipEscapeHint(root: string, command: string | null): string {
+/** Escape hint follows the ACTIVE hook tool (spec 0010 revision): pre-commit
+ *  repos skip per-hook with SKIP=<id>; lefthook has no SKIP env var —
+ *  LEFTHOOK=0 runs its hooks with config only; husky/yorkie have no stable
+ *  skip env, so no hint (an invented one would mislead). */
+function skipEscapeHint(root: string, command: string | null, ecosystem: HookTool): string {
   if (!command) return "";
+  if (ecosystem === "lefthook")
+    return " — local commits can proceed with LEFTHOOK=0 (lefthook skips its hooks; the CI hard gate still verifies the real build)";
+  if (ecosystem !== "pre-commit" && ecosystem !== "none") return "";
   const id = verificationHookIdOf(root, command);
   return id
     ? ` — local commits can proceed with SKIP=${id} (pre-commit skip; the CI hard gate still verifies the real build)`
@@ -1289,8 +1453,9 @@ export async function applyStage2(
   });
   const toWrite = plans.filter((p) => p.action === "write");
   const conflicts = plans.filter((p) => p.action === "conflict");
-  const { build, test } = stackLifecycle(root);
-  const command = [build, test].filter(Boolean).join(" && ") || null;
+  // The verification family follows the override/monorepo rules (spec 0002) —
+  // the report's command must match what runDeclared actually runs.
+  const command = verifyCommandsOf(root, verifyOpts?.command).join(" && ") || null;
 
   // Unsupported-stack notice (decision #13): cross-stack gates only, no workflow.
   const stack = primaryStack(root);
@@ -1342,7 +1507,11 @@ export async function applyStage2(
             : ecosystem === "yorkie"
               ? "remove the yorkie dependency from package.json"
               : "delete lefthook.yml"
-        } and re-run to install the generated pre-commit gates)`
+        } and re-run to install the generated pre-commit gates)${
+          ecosystem === "lefthook"
+            ? "; commitlint local gate: merge templates/lefthook-commit-msg.yml into lefthook.yml and run lefthook install (see SKILL.md)"
+            : ""
+        }`
       : null;
 
   // Wrong-stack workflow hint: installed bytes match a different stack's template.
@@ -1436,6 +1605,8 @@ export async function applyStage2(
   }
 
   let message: string;
+  const afterState = afterRun?.state; // "ok" | "failed" | "unverifiable"
+  const beforeState = beforeRun?.state; // "ok" | "failed" | "unverifiable" | null
   if (toWrite.length === 0 && conflicts.length === 0) {
     message =
       (manifestMissing
@@ -1443,12 +1614,28 @@ export async function applyStage2(
         : "stage 2 already installed (no changes)") + (extra ? `; ${extra}` : "");
   } else if (after === false) {
     const written = toWrite.map((p) => p.file).join(", ");
-    message =
-      before === false && missingTool
-        ? `stage 2 applied: ${written} written; build verification could not run — ${missingTool} is not installed (exit 127: command not found) — install the tool and re-run; a missing local tool is not a failing build (hooks stay installed; CI hard gates will verify the real build)`
-        : before === false
-          ? `stage 2 applied: build was ALREADY failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); ${written} written; verification still failing after — installed hooks are hard gates (commits stay blocked until the build is fixed)${skipEscapeHint(root, beforeRun?.command ?? afterRun?.command ?? null)}${androidEnvHint(buildError)}`
-          : `stage 2 applied but build verification FAILED after — ${buildError ?? "unknown error"}; rollback: git restore ${written}`;
+    const diag = afterRun?.envDiag ?? beforeRun?.envDiag ?? null;
+    const diagPhrase = diag ? `; environment: ${diag}` : "";
+    // Tri-state (spec 0002/0013): a timeout is unverifiable — never
+    // "ALREADY failing before apply"; a real failure names rollback or
+    // pre-existing; tool-missing is not a failing build.
+    const extraPhrase = extra ? `; ${extra}` : "";
+    if (afterState === "unverifiable" && missingTool) {
+      message = `stage 2 applied: ${written} written; build verification could not run — ${missingTool} is not installed (exit 127: command not found) — install the tool and re-run; a missing local tool is not a failing build (hooks stay installed; CI hard gates will verify the real build)${extraPhrase}${diagPhrase}`;
+    } else if (afterState === "unverifiable") {
+      message = `stage 2 applied: ${written} written; verification could not complete (${buildError ?? "timed out"}) — the build's state is undetermined, not a failing build; re-run with a lighter --verify-command (e.g. an npm typecheck/test script) or raise --verify-timeout${extraPhrase}${diagPhrase}`;
+    } else if (beforeState === "failed") {
+      // "installed hooks are hard gates" is pre-commit's truth — a kept
+      // lefthook/husky repo installed no new hooks, so it reports its own
+      // state instead (spec 0010 revision).
+      const gatePhrase =
+        ecosystem === "pre-commit" || ecosystem === "none"
+          ? "installed hooks are hard gates (commits stay blocked until the build is fixed)"
+          : `your kept ${ecosystem} hooks stay as-is; the CI hard gate verifies the real build`;
+      message = `stage 2 applied: build was ALREADY failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); ${written} written; verification still failing after — ${gatePhrase}${skipEscapeHint(root, beforeRun?.command ?? afterRun?.command ?? null, ecosystem)}${androidEnvHint(buildError)}${extraPhrase}${diagPhrase}`;
+    } else {
+      message = `stage 2 applied but build verification FAILED after — ${buildError ?? "unknown error"}; rollback: git restore ${written}${extraPhrase}${diagPhrase}`;
+    }
   } else {
     const parts: string[] = [];
     if (toWrite.length > 0) parts.push(`${toWrite.length} file(s) written`);
@@ -1462,10 +1649,12 @@ export async function applyStage2(
           ? `no verification run (stack ${unsupportedStacks} is transform-unsupported — ${unsupportedTracedPhrase})`
           : "no build/test command declared — nothing to verify",
       );
-    else if (before === false)
+    else if (beforeState === "failed")
       parts.push(
         `build was failing before apply (pre-existing${buildError ? ` — ${buildError}` : ""}); green after (${command})`,
       );
+    else if (beforeState === "unverifiable")
+      parts.push(`could not verify before apply (${beforeRun?.error ?? "timed out"}); green after (${command})`);
     else parts.push(`build green before+after (${command})`);
     message = `stage 2 applied: ${parts.join("; ")}${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}${manifestUpdated ? "; manifest updated" : ""}`;
   }
@@ -2097,6 +2286,7 @@ function parseArgs(argv: string[]): {
   ci: "github" | "gitlab" | "none" | undefined;
   gates: GatesStrictness | undefined;
   verifyTimeoutMin: number | undefined;
+  verifyCommand: string | undefined;
 } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
@@ -2140,6 +2330,7 @@ function parseArgs(argv: string[]): {
             throw new Error(`invalid --verify-timeout "${verifyTimeoutRaw}" (expected minutes > 0)`);
           return n;
         })();
+  const verifyCommand = valueOf("--verify-command");
   return {
     root: valueOf("--root") ?? process.cwd(),
     stage,
@@ -2148,6 +2339,7 @@ function parseArgs(argv: string[]): {
     ci,
     gates,
     verifyTimeoutMin,
+    verifyCommand,
   };
 }
 
@@ -2169,8 +2361,13 @@ if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
   void (async () => {
     try {
-      const { root, stage, dryRun, format, ci, gates, verifyTimeoutMin } = parseArgs(process.argv.slice(2));
-      const verifyOpts: VerifyOptions = verifyTimeoutMin === undefined ? {} : { timeoutMs: verifyTimeoutMin * 60_000 };
+      const { root, stage, dryRun, format, ci, gates, verifyTimeoutMin, verifyCommand } = parseArgs(
+        process.argv.slice(2),
+      );
+      const verifyOpts: VerifyOptions = {
+        ...(verifyTimeoutMin === undefined ? {} : { timeoutMs: verifyTimeoutMin * 60_000 }),
+        ...(verifyCommand === undefined ? {} : { command: verifyCommand }),
+      };
       const report = await run(root, stage, dryRun, ci, verifyOpts, gates);
       process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
       // applied but the post-apply build check failed → signal rollback

@@ -13,6 +13,7 @@ import {
   stage4Templates,
   checkManifestGate,
   ciPlatforms,
+  classifyFailure,
   gatesOf,
   generateAgentsMd,
   generatePreCommitConfig,
@@ -20,6 +21,7 @@ import {
   manifestGateScript,
   primaryStack,
   renderWorkflow,
+  splitSteps,
   stackLifecycle,
   stage2Templates,
   workflowEligible,
@@ -1568,5 +1570,191 @@ test("preCommit: pytest entry pre-checks the tool (missing module skips with a n
   assert.match(m[1], /pytest --version/, "must pre-check the tool: " + m[1]);
   assert.match(m[1], /SKIP=pytest/, "must name the escape: " + m[1]);
   assert.match(m[1], /exec python3 -m pytest -q/, "real failures still run the gate: " + m[1]);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- dogfood-round verification semantics (spec 0002/0010 revisions) ---------
+
+test("stage 2: a timeout is unverifiable, never 'ALREADY failing before apply'", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "sleep 30" } }));
+  const r = await applyStage2(repo, false, undefined, { command: "sleep 30", timeoutMs: 500 });
+  assert.equal(r.buildCheck.before, false);
+  assert.match(r.message ?? "", /verification could not complete \(.+timed out after/);
+  assert.match(r.message ?? "", /--verify-command/);
+  assert.doesNotMatch(r.message ?? "", /ALREADY failing before apply/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: a missing binary INSIDE an npm script is tool-missing, with env diagnostics", async () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "x", scripts: { build: "spooner-nonexistent-tool-xyz --version" } }),
+  );
+  const r = await applyStage2(repo, false);
+  assert.equal(r.buildCheck.before, false);
+  assert.equal(r.buildCheck.missingTool, "spooner-nonexistent-tool-xyz");
+  assert.match(r.message ?? "", /spooner-nonexistent-tool-xyz is not installed/);
+  assert.doesNotMatch(r.message ?? "", /pre-existing/);
+  assert.match(r.message ?? "", /environment: /);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: monorepo signal degrades the root composite build to the lightest declared command", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "x", scripts: { build: "tsc -b && tsdown && pnpm --filter web build", test: "true" } }),
+  );
+  const r = await applyStage2(repo, false);
+  assert.equal(r.buildCheck.before, true);
+  assert.match(r.message ?? "", /green before\+after \(npm run test\)/, `message: ${r.message}`);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: --verify-command overrides the lifecycle family", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "false" } }));
+  const r = await applyStage2(repo, false, undefined, { command: "true" });
+  assert.equal(r.buildCheck.before, true);
+  assert.equal(r.buildCheck.after, true);
+  assert.match(r.message ?? "", /green before\+after \(true\)/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: kept-lefthook repos get LEFTHOOK=0 escapes and the commitlint integration hand-off", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "lefthook.yml"), "pre-commit:\n  commands:\n    lint:\n      run: npm run lint\n");
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "x", scripts: { build: "echo boom >&2 && exit 3" } }),
+  );
+  const r = await applyStage2(repo, false);
+  assert.equal(r.buildCheck.before, false);
+  assert.match(r.message ?? "", /LEFTHOOK=0/);
+  assert.doesNotMatch(r.message ?? "", /SKIP=/);
+  assert.doesNotMatch(r.message ?? "", /installed hooks are hard gates/);
+  assert.match(r.message ?? "", /your kept lefthook hooks stay as-is/);
+  assert.match(r.message ?? "", /templates\/lefthook-commit-msg\.yml/);
+  assert.match(r.message ?? "", /lefthook install/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- review-round regressions (2026-08-16) -----------------------------------
+
+test("classifyFailure: 'No such file or directory' WITHOUT exit 127 is a real failure, not tool-missing", () => {
+  // `cd /nonexistent` → "sh: line 1: cd: /nonexistent: No such file or directory", exit 2
+  const r = classifyFailure(2, "sh: line 1: cd: /nonexistent: No such file or directory\n", false);
+  assert.equal(r.state, "failed");
+  assert.equal(r.rawTool, null);
+  // `cp: cannot stat 'x': No such file or directory`, exit 1 — same class
+  const cp = classifyFailure(1, "cp: cannot stat 'missing.txt': No such file or directory\n", false);
+  assert.equal(cp.state, "failed");
+  rmSync(fixture(), { recursive: true, force: true });
+});
+
+test("classifyFailure: exit 127 is tool-missing across bash AND dash formats (CI parity)", () => {
+  // CI caught the dash gap (2026-08-16): macOS's bash reports
+  // "sh: x: command not found"; Linux /bin/sh (dash) reports
+  // "/bin/sh: 1: x: not found". Exit 127 alone is the shell's
+  // command-not-found convention — the stderr text only names the tool.
+  const bash = classifyFailure(127, "npm run build\nexit: 1\nsh: pnpm: command not found\n", false);
+  assert.equal(bash.state, "unverifiable");
+  assert.equal(bash.rawTool, "pnpm");
+  const dash = classifyFailure(127, "/bin/sh: 1: spooner-nonexistent-tool-xyz: not found\n", false);
+  assert.equal(dash.state, "unverifiable");
+  assert.equal(dash.rawTool, "spooner-nonexistent-tool-xyz");
+  const posix = classifyFailure(127, "sh: spooner-nonexistent-tool-xyz: not found\n", false);
+  assert.equal(posix.state, "unverifiable");
+  assert.equal(posix.rawTool, "spooner-nonexistent-tool-xyz");
+  const bare = classifyFailure(127, "completely unrelated stderr\n", false);
+  assert.equal(bare.state, "unverifiable");
+  assert.equal(bare.rawTool, null);
+  // without 127 the text is NOT tool-missing — cd/cp ENOENT failures stay real
+  const failed = classifyFailure(1, "sh: nonexistent-tool-xyz: command not found\n", false);
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.rawTool, null);
+});
+
+test("splitSteps: quoted && and ; are data, never separators", () => {
+  assert.deepEqual(splitSteps("a && b"), ["a", "b"]);
+  assert.deepEqual(splitSteps('grep "a && b" f && c'), ['grep "a && b" f', "c"]);
+  assert.deepEqual(splitSteps("echo 'x; y' ; z"), ["echo 'x; y'", "z"]);
+  assert.deepEqual(splitSteps("plain"), ["plain"]);
+});
+
+test("audit cfg-hooks: lefthook commit-msg fix names the integration template (not a dead lefthook install)", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "lefthook.yml"), "pre-commit:\n  commands:\n    lint:\n      run: npm run lint\n");
+  writeFileSync(join(repo, ".commitlintrc.json"), "{}");
+  mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+  writeFileSync(join(repo, ".git", "hooks", "pre-commit"), "#!/bin/sh\nlefthook run pre-commit\n");
+  const r = runAudit(repo).items.find((i) => i.id === "cfg-hooks");
+  assert.equal(r?.score, 0.4);
+  assert.match(r?.fix ?? "", /lefthook-commit-msg\.yml/, `fix: ${r?.fix}`);
+  assert.match(r?.fix ?? "", /then run lefthook install/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- review-round regression tests (UT value audit, 2026-08-16) ---------------
+
+test("stage 2: env diagnostics skip npm ls when the repo has no package.json", async () => {
+  // review round: the npm ls guard must not walk up to a parent project —
+  // a package.json-less repo's envDiag ends at node_modules (no npm ls line).
+  const repo = fixture();
+  const r = await applyStage2(repo, false, undefined, { command: "spooner-missing-bin-xyz" });
+  assert.equal(r.buildCheck.before, false);
+  assert.equal(r.buildCheck.missingTool, "spooner-missing-bin-xyz");
+  assert.match(r.message ?? "", /environment: node_modules MISSING/);
+  assert.doesNotMatch(r.message ?? "", /npm ls:/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 2: dry-run writes nothing (spec 0002 AC1 purity)", async () => {
+  // review round: applyStage2(repo, true) is called in a dozen tests but the
+  // filesystem purity itself was never pinned — a broken dryRun flag would
+  // silently write and the suite would stay green.
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  const r = await applyStage2(repo, true);
+  assert.equal(r.applied, false);
+  assert.ok(r.dryRun);
+  for (const f of [
+    ".commitlintrc.json",
+    ".pre-commit-config.yaml",
+    ".markdownlint-cli2.yaml",
+    ".github/workflows/ai-native.yml",
+    ".ai-native.yml",
+  ]) {
+    assert.ok(!existsSync(join(repo, f)), `dry-run must not write ${f}`);
+  }
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("integration: stage 2 install + pre-commit install -> cfg-hooks scores full (spec 0010 AC12)", async () => {
+  // review round: the install → audit loop was never exercised end-to-end —
+  // a stage-2 install whose hook bytes don't match the audit's TOOL_OF
+  // marker would stay green. Run the real applyStage2, then the real
+  // pre-commit install artifact, then the real runAudit.
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  const r = await applyStage2(repo, false);
+  assert.match(r.message ?? "", /stage 2 applied/);
+  assert.ok(existsSync(join(repo, ".pre-commit-config.yaml")), "stage 2 installs the config");
+  mkdirSync(join(repo, ".git", "hooks"), { recursive: true });
+  writeFileSync(
+    join(repo, ".git", "hooks", "pre-commit"),
+    "#!/usr/bin/env sh\npre-commit run --hook-stage pre-commit\n",
+  );
+  writeFileSync(
+    join(repo, ".git", "hooks", "commit-msg"),
+    "#!/usr/bin/env sh\npre-commit run --hook-stage commit-msg\n",
+  );
+  const audit = runAudit(repo);
+  const hooks = audit.items.find((i) => i.id === "cfg-hooks");
+  assert.equal(hooks?.score, 0.5, `cfg-hooks after install: ${hooks?.evidence}`);
+  assert.match(hooks?.evidence ?? "", /hooks installed incl\. commit-msg/);
   rmSync(repo, { recursive: true, force: true });
 });
