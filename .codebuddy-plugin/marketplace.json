@@ -1,0 +1,11 @@
+{
+  "name": "spooner-plugins",
+  "owner": { "name": "ZM-BAD" },
+  "plugins": [
+    {
+      "name": "spooner",
+      "source": "github:ZM-BAD/spooner",
+      "description": "AI coding readiness audit + in-place transform — CI gates, AGENTS.md, SDD workflow."
+    }
+  ]
+}

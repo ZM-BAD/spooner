@@ -1,0 +1,6 @@
+{
+  "name": "spooner",
+  "description": "Audit a git repository's AI coding readiness, score it out of 10, and transform it in place: CI gates, AGENTS.md, spec-driven workflow. Deterministic, zero-dependency scripts.",
+  "version": "0.13.0",
+  "author": { "name": "ZM-BAD" }
+}

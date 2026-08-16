@@ -32,3 +32,6 @@ HANDOFF.md
 
 # Claude Code local settings (user-level state, not shared)
 **/.claude/settings.local.json
+
+# Playwright MCP local captures (page snapshots)
+.playwright-mcp/

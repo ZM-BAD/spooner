@@ -4,25 +4,29 @@
   <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-> **Make this git repository ready for AI** — so AI coding agents can work in it from the first run. Audit its AI coding readiness, score it out of 10, then transform it in place: CI gates, AGENTS.md, a spec-driven workflow. Every step verifiable, never breaking the existing build.
-
 <p align="center">
-  <img src="https://img.shields.io/static/v1?label=agents&message=10%2B&color=8A2BE2&style=flat-square" alt="Compatible with 10+ coding agents"/>
+  <img src="https://img.shields.io/static/v1?label=agents&message=15%2B&color=8A2BE2&style=flat-square" alt="Compatible with 15+ coding agents"/>
   <img src="https://img.shields.io/static/v1?label=Agent%20Skills&message=%E2%9C%93&color=green&style=flat-square" alt="Agent Skills standard"/>
   <a href="https://github.com/ZM-BAD/spooner/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZM-BAD/spooner/ci.yml?style=flat-square&label=CI&cacheSeconds=300" alt="CI status"/></a>
+  <a href="https://codecov.io/gh/ZM-BAD/spooner"><img src="https://img.shields.io/codecov/c/github/ZM-BAD/spooner?style=flat-square&label=coverage" alt="Codecov"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ZM-BAD/spooner?style=flat-square&label=License" alt="License"/></a>
-  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI readiness: AI-Native · 9.2/10"/></a>
 </p>
 
-An AI-native repository generally comes with complete quality gates and AI guidance: **pre-commit hooks**, **lint / formatter checks that actually run**, **CI that agrees with the local gates**, an **AGENTS.md** that tells the agent how things run, and a **spec-driven contract** (SDD templates) — to name a few. New quality gates, as they emerge, join the readiness score.
-
-**Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) built for coding agents. Named after Detective Del Spooner in _I, Robot_ (2004), whose left arm is robotic and serves him well — Spooner evaluates which of the above your repository is missing (AI readiness /10), adds them incrementally, and keeps them from drifting.**
-
-## What one run does
+> **Make this git repository ready for AI** — so AI coding agents can work in it from the first run. Audit its AI coding readiness, score it out of 10, then transform it in place: CI gates, AGENTS.md, a spec-driven workflow. Every step verifiable, never breaking the existing build.
+>
+> **audit → transform → check → sync** — one pipeline, no build step, zero dependencies.
 
 <p align="center">
   <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI readiness: 4.3/10 AI-Aware → 9.2/10 AI-Native after one transform"/></a>
 </p>
+
+## What Spooner does
+
+Spooner is an [Agent Skills](https://agentskills.io/specification) (SKILL.md) package for coding agents. It scores your repository's AI readiness **/10**, installs the missing gates **in place** (never breaking the existing build), and keeps them from drifting.
+
+An AI-native repository generally comes with complete quality gates and AI guidance: **pre-commit hooks**, **lint / formatter checks that actually run**, **CI that agrees with the local gates**, an **AGENTS.md** that tells the agent how things run, and a **spec-driven contract** (SDD templates) — to name a few. New quality gates, as they emerge, join the readiness score.
+
+**Why the name? Spooner = Detective Del Spooner in _I, Robot_ (2004) — his left arm is robotic and serves him well. This project evaluates what your repository is missing and serves it the same way.**
 
 The "before" is a zero-state copy of this repository — the same code, minus everything spooner installs (no AGENTS.md, no pre-commit/commitlint gates, no drift gate, no SDD workflow). One run of the pipeline takes it from **4.3/10 (AI-Aware) to 9.2/10 (AI-Native)** — a score with evidence, not an opinion ([full report](assets/audit-report.md)).
 
@@ -36,12 +40,56 @@ The score is on a 10-point scale, grouped into five tiers:
 | AI-Aware    | 3–4.9 | Readable by an AI agent, nothing prepared for it                                                |
 | AI-Absent   | 0–2.9 | Hard for an AI to even understand — no README, no structure, no traceable commands              |
 
+## Quick start
+
+Requirements: Node.js >= 22.18 and git. The audit itself works fully offline.
+
+**Install** — one command, works for every mainstream coding agent (Claude Code, Codex, Cursor, Copilot, OpenCode, Kilo Code, Goose, Qwen Code, Kimi Code, Antigravity, TRAE, Qoder, ZCode, CodeBuddy and more):
+
+```sh
+npx skills add ZM-BAD/spooner
+```
+
+Useful flags: `-g` / `--global` (all projects), `-a` / `--agent <agent>` (target a specific agent), `-s` / `--skill <name>` (only the spooner skill). The [skills CLI](https://github.com/vercel-labs/skills) detects your agent from the environment and copies `skills/spooner/` into its skills directory. After install, list it with `/skills` in your agent session.
+
+**Run the audit** on any repository (a deterministic health check — scores are reproducible, evidence-backed, and never a bare opinion):
+
+```text
+$ node skills/spooner/scripts/audit.ts --root /path/to/repo --format markdown
+
+# AI-Readiness Report
+- Stack: node · Maturity: stable · Score: **9.2/10**
+
+## Score by category
+| Category      | Score | Max |
+| ------------- | ----- | --- |
+| Agent Setup   | 4.5   | 4.5 |
+| Configuration | 1.9   | 2   |
+| Integrity     | 1.5   | 1.5 |
+| Freshness     | 0.5   | 0.5 |
+| Structure     | 0.8   | 1.5 |
+```
+
+Every gap in the report names an action the toolset actually delivers — no invented advice. Follow the report, re-run, and watch the score move.
+
+## What you get after transform
+
+Running `transform --stage all` installs, in place and with a pre/post build-green verification:
+
+- **Git gates** — `.commitlintrc.json` (Conventional Commits), a stack-aware `.pre-commit-config.yaml` (lint/format/typecheck/test hooks for your stack, check-only), `.markdownlint-cli2.yaml`
+- **CI** — a stack-specific `.github/workflows/ai-native.yml`: quality jobs (warn-only by default, `--gates hard` to make them hard), a declared-commands gate, a commit-msg commitlint check, and a manifest drift gate that turns CI red if templates drift
+- **Agent files** — an `AGENTS.md` generated from your real commands (package.json scripts / Makefile / CI), with a `CLAUDE.md` symlink
+- **SDD workflow** (optional) — `docs/sdd/` spec/plan/tasks templates + a spec-existence CI gate
+- **A manifest** — `.ai-native.yml` records exactly what was installed; `check` detects drift, `sync` re-syncs when the tool advances
+
+Every stage is verifiable and rollback-able (`git restore` of the listed files); a pre-existing broken build is reported with the reason and never blocks the install.
+
 ## The workflow
 
 | Command     | What it does                                                                                                                  | When                                      |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
 | `audit`     | Detect and score AI coding readiness (repeatable — a health check)                                                            | Any repo, anytime                         |
-| `transform` | Incremental, verifiable, rollback-able transformations (stack-aware CI gates incl. the manifest drift gate / AGENTS.md / SDD) | Once — the surgery                        |
+| `transform` | Incremental, verifiable, rollback-able transformations (stack-aware CI gates incl. the manifest drift gate / AGENTS.md / SDD) | Once per repository                       |
 | `check`     | Continuously detect drift (repeatable, with records)                                                                          | Every CI run                              |
 | `sync`      | Re-sync installed templates to the current tool version (version-aware, one-click)                                            | When the tool advances                    |
 | `badge`     | Render a readiness badge matched to your README's badge style (5 shields styles, links to the audit report)                   | After transform, whenever the score moves |
@@ -59,86 +107,9 @@ The score is on a 10-point scale, grouped into five tiers:
 | apple / c-cpp / dart-flutter / unity (Tier 1) | ✅ (canonical lifecycle credit: xcodebuild / cmake+ctest / flutter test+dart analyze) | ⚠️ cross-stack gates + explicit notice   |
 | zig                                           | ✅ (zig build/test lifecycle credit)                                                  | ⚠️ cross-stack gates + explicit notice   |
 
-## Compatibility
+## FAQ
 
-All 10+ mainstream coding agents natively support the SKILL.md standard; AGENTS.md is nearly universal:
-
-| Agent        | AGENTS.md                       | Skills directory     |
-| ------------ | ------------------------------- | -------------------- |
-| Claude Code  | via CLAUDE.md (symlink)         | `.claude/skills/`    |
-| OpenAI Codex | native                          | `.agents/skills/`    |
-| OpenCode     | native                          | `.opencode/skills/`  |
-| Qwen Code    | native                          | `.qwen/skills/`      |
-| Kimi Code    | native                          | `.kimi-code/skills/` |
-| CodeBuddy    | fallback (CODEBUDDY.md primary) | `.codebuddy/skills/` |
-| Trae         | via toggle                      | `.trae/skills/`      |
-| Qoder        | native                          | `.qoder/skills/`     |
-| ZCode        | native                          | `.zcode/skills/`     |
-| Cursor       | native                          | `.cursor/skills/`    |
-| VS Code      | native                          | `.github/skills/`    |
-
-Universal strategy: **AGENTS.md** at repo root holds persistent facts (≤200 lines), **SKILL.md** holds on-demand procedures, per-agent rules files handle single-tool constraints.
-
-## Install
-
-The skill is a single directory (`skills/spooner/`) — no build step, just Node.js >= 22.18 (scripts are TypeScript run natively via type stripping).
-
-### One-line install (skills CLI)
-
-```sh
-npx skills add ZM-BAD/spooner
-```
-
-The [skills CLI](https://github.com/vercel-labs/skills) copies `skills/spooner/` into your agent's skills directory and detects your agent from the environment. Useful flags:
-
-| Flag                     | Meaning                                                                |
-| ------------------------ | ---------------------------------------------------------------------- |
-| `-g` / `--global`        | install to the user-level skills directory (available to all projects) |
-| `-a` / `--agent <agent>` | target a specific agent (`claude-code`, `codex`, `opencode`, …)        |
-| `-s` / `--skill <name>`  | install only the `spooner` skill                                       |
-
-### Manual install (any agent)
-
-Copy the `skills/spooner/` directory into your agent's skills directory (see the compatibility table above). User-level examples:
-
-```sh
-# Claude Code — all projects
-mkdir -p ~/.claude/skills
-cp -R skills/spooner ~/.claude/skills/
-
-# OpenAI Codex — all projects
-mkdir -p ~/.agents/skills
-cp -R skills/spooner ~/.agents/skills/
-
-# OpenCode — all projects
-mkdir -p ~/.config/opencode/skills
-cp -R skills/spooner ~/.config/opencode/skills/
-```
-
-To share the skill with a specific repo, copy it to the project-level path from the table above (e.g. `.claude/skills/spooner/`).
-
-### Verify
-
-List skills in an agent session (`/skills` in Claude Code and Codex), then run the audit on a repo:
-
-```sh
-node skills/spooner/scripts/audit.ts
-```
-
-## Project layout
-
-```text
-spooner/
-├── AGENTS.md / CLAUDE.md   # agent contract (single source of truth; CLAUDE.md is a symlink)
-├── README.md / README.zh-CN.md   # bilingual docs
-├── docs/                   # local-only internal design archive (not published)
-├── specs/                  # SDD work contracts (live docs: README + templates/ + <nnn>-<name>/)
-├── skills/spooner/         # the distributable unit: SKILL.md + scripts/ + templates/
-│   ├── SKILL.md            # Agent Skills standard entry (name matches directory)
-│   ├── scripts/            # zero-dependency scripts (TS run natively by Node)
-│   └── templates/          # output templates (AGENTS.md, etc.)
-└── .github/workflows/      # CI: pre-commit, typecheck, commitlint, SKILL.md validation
-```
+- **GitHub is unreachable in my environment — will commits be blocked?** The generated pre-commit config fetches its hook repos from GitHub at run time; with GitHub unreachable, pre-commit cannot prepare hooks and commits are blocked — the generated header documents this and names the mirror workaround. CI (GitHub Actions) is unaffected. An offline-friendly mode for air-gapped environments is in the works.
 
 ## Development
 
@@ -155,25 +126,15 @@ node skills/spooner/scripts/detect.ts   # slice 1: stack detection
 
 **Constraints:** TypeScript 6 only (major locked — the toolchain still requires the 6.0 API until TS 7.1), erasable syntax only (no `enum`/`namespace`), zero-dependency scripts, Conventional Commits (commitlint enforced).
 
-## Distribution
-
-Distributed from this GitHub repository — `npx skills add ZM-BAD/spooner` installs the skill directly. The Claude Code plugin marketplace and community registries are planned next.
-
-## Documentation
-
-| Doc                           | Content                                                         |
-| ----------------------------- | --------------------------------------------------------------- |
-| `AGENTS.md`                   | Agent contract (single source of truth; CLAUDE.md is a symlink) |
-| `specs/README.md`             | SDD workflow: states, conventions, two-layer structure          |
-| `specs/ROADMAP.md`            | Planning index: current / next / vision / ideas                 |
-| `specs/0001-m1-audit-core.md` | M1 audit contract: scoring matrix, report schema, acceptance    |
-| `skills/spooner/SKILL.md`     | The distributable skill entry                                   |
+**Docs:** `AGENTS.md` (agent contract) · `specs/README.md` (SDD workflow) · `specs/ROADMAP.md` (planning index) · `skills/spooner/SKILL.md` (the distributable skill entry). The code lives under `skills/spooner/scripts/` — read the directory, it is the source of truth.
 
 ## Contributors
 
 Thanks to the users whose trial feedback shaped this project — each release lists the people whose reports were fixed:
 
 <a href="https://github.com/shellRaining"><img src="https://avatars.githubusercontent.com/shellRaining?v=4" title="shellRaining" width="50" height="50" alt="shellRaining"></a>
+
+⭐ Found this useful? [Star the repo](https://github.com/ZM-BAD/spooner) and share it with a repo that needs it.
 
 ## License
 
