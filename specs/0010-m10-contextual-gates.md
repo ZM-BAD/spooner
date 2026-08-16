@@ -31,7 +31,10 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 
 - **Probe extension (SKILL.md + spec 0008 revision)**: the context questionnaire gains a 6th question — "Which git-hook tool does this repo prefer? pre-commit / husky / lefthook / keep the existing setup". Modes unchanged (full / no-workflow / audit-only); hook-tool routing happens inside Stage 2 of full mode.
 - **Detection (transform.ts)**: reuse the audit's tool signals — lint configs (eslint.config.*, .pylintrc, ruff/pyproject, golangci), formatters (prettier, ruff format), test frameworks (pytest/vitest/jest/unittest/go test/mvn), typecheck (tsconfig), package scripts; plus hook-ecosystem signals (`.husky/` directory (husky v7+) or `husky` devDependency + `husky` package.json field (v4) → husky; existing `.pre-commit-config.yaml` → pre-commit; `lefthook.yml` → lefthook; `yorkie` devDependency + `yorkie` package.json field, or the legacy `gitHooks` field (vue-cli 2/3 schema yorkie reads) → yorkie). A bare dependency name without hooks configuration is a **dead dependency** (husky in devDependencies, no `.husky/`, no field — vue2 upgrade leftovers) and does NOT skip the gate install.
-- **GitHub reachability**: the generated config's hook repos are fetched from GitHub when pre-commit runs — with GitHub unreachable (no mirror/proxy), pre-commit cannot prepare the hook environment and commits are **blocked**. The generated header documents this; it is the tool's architecture, not a config bug — CI (GitHub Actions) is unaffected.
+- **GitHub reachability (three-layer answer)**: the generated config's hook repos are fetched from GitHub when pre-commit runs — with GitHub unreachable (no mirror/proxy), pre-commit cannot prepare the hook environment and commits are **blocked**. The generated header documents this; it is the tool's architecture, not a config bug — CI (GitHub Actions) is unaffected. Three mechanisms make the gate usable in intranet/air-gapped environments:
+  1. **Probe + notice (stage 2, read-only)**: transform probes GitHub's git endpoint (`git ls-remote` on a known hook repo, short timeout — never the web page, which false-positives behind smart-HTTP walls); unreachable → the report prints the mirror guidance below instead of silently leaving a config that blocks every commit. A slow-but-reachable GitHub must NOT degrade (probe failure is a notice, never a hard fail).
+  2. **`--hook-mirror <base>`**: generates the config with the managed `repo:` URLs rewritten to the intranet mirror base (e.g. `gitlab.example.com/mirrors/`), and prints the optional `git config --global url."<base>/".insteadOf "https://github.com/"` command (git's insteadOf IS honored by pre-commit — it fetches via `git remote add` + `git fetch`; but it must be global/system level, a target-repo local level is invisible; and it only covers git fetch — npm/PyPI/GOPROXY registries for `additional_dependencies`/golang builds are separate, the mirror guidance names them).
+  3. **`--offline` variant**: generates a `repo: local`-only config — `repo: meta` checks (zero deps), self-contained bash implementations of trailing-whitespace / end-of-file-fixer (byte-aligned with pre-commit-hooks behavior, pinned by tests), `language: system` entries for pre-commit-hooks / gitleaks when the binaries are already installed; npm-managed hooks (markdownlint/commitlint/eslint/ruff) are **honestly omitted with install guidance** (declared-only philosophy — never fake coverage). The variant's header states it is the offline form and how to switch back.
 - **Generator `generatePreCommitConfig(root)`** (deterministic, zero-dependency):
   - **Cross-stack core (always)**: file hygiene (trailing-whitespace, end-of-file-fixer, check-yaml/json/merge-conflict/added-large-files/symlinks), markdownlint-cli2, gitleaks, commitlint (commit-msg stage) — all rev-pinned.
   - **Stack gates (only when tooling detected)**, check-only, `stages: [pre-commit]`:
@@ -45,7 +48,7 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
   - **Routing** (mirrors CI-platform routing): probe answer or detected ecosystem → pre-commit → install the generated config; husky/lefthook/keep → **skip the config with an explicit notice**, manifest records what was actually installed; existing differing config → `conflict` (never overwrite) — **unless the installed bytes equal the pre-M10 universal template (tool-owned) → `write` (upgrade, not conflict)**; unsupported stack → cross-stack core only (current behavior, now generated).
 - **Manifest / sync / drift-gate contract (spec 0004 revision)**: the pre-commit config joins the `generated` class (AGENTS.md/CLAUDE.md): manifest records file + `templateVersion`; sync reports `generated` and points at `transform --stage 2`; the CI drift gate still checks existence.
 - **Escape hints are ecosystem-aware**: the stage-2 report's escape hint follows the active hook tool — pre-commit keeps `SKIP=<id>`; a kept-lefthook repo gets `LEFTHOOK=0` (lefthook has no `SKIP` env var) and "installed hooks are hard gates" only appears when spooner's own hooks were actually installed (a kept-lefthook repo reports its own state, not pre-commit's).
-- **TOOL_VERSION bump** (new template bytes + behavior change): **0.13.0** + baked `EXPECTED` sync in the workflow templates + a `docs/08` ledger row (spec 0004/0005 contract).
+- **TOOL_VERSION bump** (new template bytes + behavior change): **0.14.0** + baked `EXPECTED` sync in the workflow templates + a `docs/08` ledger row (spec 0004/0005 contract).
 - **SKILL.md**: stage-2 procedure gains the hook-tool question, the "config is generated — re-run stage 2 to regenerate" note, and the verify step already covers real execution (`pre-commit run --all-files`).
 
 ## Non-goals
@@ -55,6 +58,9 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 - Tool-level config detection beyond the audit's existing signals (decision #4 red line)
 - Monorepo multi-stack beyond python+node (monorepo-style directory routing for other combinations — demand-driven)
 - pre-push stage (community convention splits heavy checks to pre-push; our "green pre-commit implies green CI" guarantee keeps the declared test in pre-commit)
+- **Runtime auto-degradation of an installed config** (pre-commit has no conditional config syntax — the offline choice is made at generation time, not at commit time)
+- **Hard-failing the probe** — a slow-but-reachable GitHub must not degrade a normal environment (probe failure = notice only)
+- **Writing the user's global gitconfig** — the insteadOf command is printed for the user to run, never executed or written by the tool
 
 ## Acceptance criteria (all must pass for shipped)
 
@@ -73,6 +79,9 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 13. **Spec revisions**: spec 0002 Stage-2 contract gains the generated-config + hook-tool routing rule; spec 0008 probe gains the hook-tool question; spec 0004 generated class gains the pre-commit config
 14. **Regression + contract**: typecheck + markdownlint + full suite green; TOOL_VERSION bumped with EXPECTED sync + docs/08 ledger row; stack workflow templates' SKIP lists extended per stack (python: pytest,pip-audit / go: gofmt,go-vet,go-test / java: java-test); **self-apply**: stage-2 dry-run on this repo reports its own config as `conflict` (the repo-specific manifest-consistency hook is user-owned — the red line working as designed), while the legacy-upgrade path and determinism are covered by dedicated fixtures
 15. **Lefthook hand-off**: kept-lefthook fixture → no pre-commit config installed, the skip notice names `templates/lefthook-commit-msg.yml` + `lefthook install`, the escape hint says `LEFTHOOK=0` (never `SKIP=`), and "installed hooks are hard gates" is absent (spooner's hooks were not installed)
+16. **Offline probe + notice**: `--root` fixture with an unreachable-GitHub simulation (probe override in tests) → stage-2 report carries the mirror guidance (insteadOf command + registry notes), the config is still generated (never hard-failed), and a reachable simulation produces no guidance
+17. **`--hook-mirror`**: fixture with `--hook-mirror https://gitlab.example.com/mirrors/` → every managed `repo:` URL in the generated config is rewritten to the mirror base; the report prints the `git config --global url."…".insteadOf "https://github.com/"` command; determinism double-run identical
+18. **`--offline` variant**: fixture → generated config contains only `repo: local` / `repo: meta` entries (zero GitHub URLs), the self-contained trailing-whitespace/end-of-file-fixer entries byte-match the pre-commit-hooks behavior (pinned assertions), npm-managed hooks are absent with a header note naming them and how to switch back; a `--offline` + `--hook-mirror` combination is rejected (mutually exclusive) with a clear error
 
 ## Slice plan
 
@@ -81,6 +90,7 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 | 1     | Spec + SKILL.md probe question (hook tool) + spec 0008 revision                                     |
 | 2     | transform.ts detection + `generatePreCommitConfig` + routing + spec 0002 revision                   |
 | 3     | Manifest/sync generated class + TOOL_VERSION bump + acceptance fixtures + spec 0004 revision + ship |
+| 4     | GitHub probe + `--hook-mirror` + `--offline` variant (offline round, acceptance 16-18)              |
 
 ## Risks
 
@@ -89,3 +99,7 @@ Stage 2 generates a stack-aware, tooling-detected pre-commit config (cross-stack
 - Pure-Node repos forced onto Python-dependent pre-commit — mitigation: probe routes to skip + notice (WXT-repo evidence); husky generation stays a documented demand-driven candidate
 - Auto-fix configs leaking in from community examples — mitigation: acceptance #10 asserts check-only on every fixture
 - Scope creep into husky generation / multi-stack combos / pre-push stages (non-goals section)
+- **Probe false negatives** (GitHub reachable but slow) — mitigation: probe failure is a notice, never a hard fail; the user decides
+- **insteadOf not covering registries** — npm/PyPI/GOPROXY are separate from git fetch; the guidance names all three, the mirror option rewrites `repo:` only and documents the rest
+- **Offline variant drifting from pre-commit-hooks behavior** — the self-contained hygiene hooks byte-match the originals (pinned-byte tests, same culture as the generator parity tests)
+- **Version churn** — TOOL_VERSION 0.14.0 with EXPECTED sync + docs/08 ledger row (spec 0004/0005 contract)

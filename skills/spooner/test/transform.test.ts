@@ -28,6 +28,12 @@ import {
   workflowSkipReason,
 } from "../scripts/transform.ts";
 import { GO_TEST_COMMAND } from "../scripts/stacks.ts";
+
+// The GitHub probe is simulated for the whole suite (reachable default) —
+// the older integration tests call applyStage2 without genOpts, and a real
+// probe would make the suite network-dependent (up to 10s per test process
+// in an offline CI). The probe tests below override the simulation.
+process.env.SPOONER_GITHUB_PROBE = "reachable";
 import { runAudit } from "../scripts/audit.ts";
 
 function fixture(): string {
@@ -1756,5 +1762,231 @@ test("integration: stage 2 install + pre-commit install -> cfg-hooks scores full
   const hooks = audit.items.find((i) => i.id === "cfg-hooks");
   assert.equal(hooks?.score, 0.5, `cfg-hooks after install: ${hooks?.evidence}`);
   assert.match(hooks?.evidence ?? "", /hooks installed incl\. commit-msg/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+// --- spec 0010 intranet round (offline / hook-mirror) ------------------------
+
+test("offline: generated config is repo:local-only, zero GitHub URLs, honest omissions", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  writeFileSync(join(repo, "tsconfig.json"), "{}\n");
+  const cfg = generatePreCommitConfig(repo, { offline: true });
+  assert.doesNotMatch(cfg, /https:\/\/github\.com/, "offline config must never fetch GitHub");
+  assert.match(cfg, /repo: meta/);
+  assert.match(cfg, /check-hooks-apply/);
+  assert.match(cfg, /trim trailing whitespace \(self-contained\)/);
+  assert.match(cfg, /fix end of files \(self-contained\)/);
+  // hygiene hooks carry pre-commit-hooks' types: [text] — auto-fix hooks must
+  // never be handed binaries (byte-parity with the managed originals)
+  assert.equal((cfg.match(/types: \[text\]/g) ?? []).length, 2, "both hygiene hooks filter to text files");
+  assert.match(cfg, /manifest-consistency/);
+  assert.match(cfg, /OMITTED in offline mode/);
+  assert.match(cfg, /markdownlint, commitlint/);
+  // stack local hooks survive offline; managed eslint is omitted
+  assert.match(cfg, /id: typecheck/);
+  assert.doesNotMatch(cfg, /mirrors-eslint/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("offline: self-contained hygiene hooks behave like pre-commit-hooks (pinned)", () => {
+  const repo = fixture();
+  // trailing-whitespace: strips trailing spaces/tabs
+  writeFileSync(join(repo, "a.txt"), "hello   \nworld\t\n");
+  execFileSync("perl", ["-pi", "-e", "s/[ \\t]+$//", join(repo, "a.txt")]);
+  assert.equal(readFileSync(join(repo, "a.txt"), "utf8"), "hello\nworld\n");
+  // end-of-file-fixer: exactly one trailing newline; empty files untouched
+  writeFileSync(join(repo, "b.txt"), "line\n\n\n");
+  execFileSync("perl", ["-0pi", "-e", "s/\\n*\\z/\\n/ if -s $ARGV", join(repo, "b.txt")]);
+  assert.equal(readFileSync(join(repo, "b.txt"), "utf8"), "line\n");
+  writeFileSync(join(repo, "c.txt"), "no-newline");
+  execFileSync("perl", ["-0pi", "-e", "s/\\n*\\z/\\n/ if -s $ARGV", join(repo, "c.txt")]);
+  assert.equal(readFileSync(join(repo, "c.txt"), "utf8"), "no-newline\n");
+  writeFileSync(join(repo, "empty.txt"), "");
+  execFileSync("perl", ["-0pi", "-e", "s/\\n*\\z/\\n/ if -s $ARGV", join(repo, "empty.txt")]);
+  assert.equal(readFileSync(join(repo, "empty.txt"), "utf8"), "");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("hook-mirror: managed repo URLs rewritten, insteadOf command printed, determinism", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  const base = "https://gitlab.example.com/mirrors/";
+  const cfg = generatePreCommitConfig(repo, { hookMirror: base });
+  assert.doesNotMatch(cfg, /  - repo: https:\/\/github\.com\//, "managed repos must point at the mirror");
+  assert.match(cfg, new RegExp(`  - repo: ${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}pre-commit/pre-commit-hooks`));
+  assert.match(cfg, /mirrored from https:\/\/gitlab\.example\.com\/mirrors\//);
+  const again = generatePreCommitConfig(repo, { hookMirror: base });
+  assert.equal(again, cfg, "determinism: two runs byte-identical");
+  const r = await awaitApplyStage2WithMirror(repo, base);
+  assert.match(
+    r.message ?? "",
+    /git config --global url\."https:\/\/gitlab\.example\.com\/mirrors\/"\.insteadOf "https:\/\/github\.com\/"/,
+  );
+  rmSync(repo, { recursive: true, force: true });
+});
+
+async function awaitApplyStage2WithMirror(repo: string, base: string) {
+  return applyStage2(repo, false, undefined, {}, undefined, { hookMirror: base });
+}
+
+test("offline + hook-mirror are mutually exclusive", () => {
+  const repo = fixture();
+  assert.throws(() => generatePreCommitConfig(repo, { offline: true, hookMirror: "https://x/" }), /mutually exclusive/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("probe: unreachable GitHub adds the mirror guidance notice (never a hard fail)", async () => {
+  const prev = process.env.SPOONER_GITHUB_PROBE;
+  process.env.SPOONER_GITHUB_PROBE = "unreachable";
+  try {
+    const repo = fixture();
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+    const r = await applyStage2(repo, false);
+    assert.match(r.message ?? "", /GitHub unreachable/);
+    assert.match(r.message ?? "", /--offline/);
+    assert.match(r.message ?? "", /--hook-mirror <base>/);
+    assert.match(r.message ?? "", /insteadOf "https:\/\/github\.com\/"/);
+    assert.match(r.message ?? "", /npm\/PyPI\/GOPROXY registries need mirrors too/);
+    // config is still generated — the notice is guidance, not a hard fail
+    assert.ok(existsSync(join(repo, ".pre-commit-config.yaml")));
+    rmSync(repo, { recursive: true, force: true });
+  } finally {
+    if (prev === undefined) delete process.env.SPOONER_GITHUB_PROBE;
+    else process.env.SPOONER_GITHUB_PROBE = prev;
+  }
+});
+
+test("probe: --offline skips the probe entirely", async () => {
+  const prev = process.env.SPOONER_GITHUB_PROBE;
+  process.env.SPOONER_GITHUB_PROBE = "unreachable";
+  try {
+    const repo = fixture();
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+    const r = await applyStage2(repo, false, undefined, {}, undefined, { offline: true });
+    assert.doesNotMatch(r.message ?? "", /GitHub unreachable/);
+    rmSync(repo, { recursive: true, force: true });
+  } finally {
+    if (prev === undefined) delete process.env.SPOONER_GITHUB_PROBE;
+    else process.env.SPOONER_GITHUB_PROBE = prev;
+  }
+});
+
+test("probe: reachable simulation produces no guidance (spec 0010 AC16)", async () => {
+  const prev = process.env.SPOONER_GITHUB_PROBE;
+  process.env.SPOONER_GITHUB_PROBE = "reachable";
+  try {
+    const repo = fixture();
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+    const r = await applyStage2(repo, false);
+    assert.doesNotMatch(r.message ?? "", /GitHub unreachable/, "reachable must not nag");
+    assert.doesNotMatch(r.message ?? "", /--hook-mirror/);
+    assert.ok(existsSync(join(repo, ".pre-commit-config.yaml")));
+    rmSync(repo, { recursive: true, force: true });
+  } finally {
+    if (prev === undefined) delete process.env.SPOONER_GITHUB_PROBE;
+    else process.env.SPOONER_GITHUB_PROBE = prev;
+  }
+});
+
+test("hook-mirror: base without trailing slash is normalized in config + insteadOf notice", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  const base = "https://gitlab.example.com/mirrors";
+  const cfg = generatePreCommitConfig(repo, { hookMirror: base });
+  // no "mirrorspre-commit" concatenation — the normalized slash keeps the URL whole
+  assert.match(cfg, /  - repo: https:\/\/gitlab\.example\.com\/mirrors\/pre-commit\/pre-commit-hooks/);
+  const r = await applyStage2(repo, false, undefined, {}, undefined, { hookMirror: base });
+  // the printed insteadOf matches the config's actual base (trailing slash)
+  assert.match(
+    r.message ?? "",
+    /git config --global url\."https:\/\/gitlab\.example\.com\/mirrors\/"\.insteadOf "https:\/\/github\.com\/"/,
+  );
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("hook-mirror: invalid bases are rejected", () => {
+  const repo = fixture();
+  for (const bad of ["not a url", "ftp://mirror.example.com/x/", "https://x/\n  - repo: https://evil.example.com"]) {
+    assert.throws(() => generatePreCommitConfig(repo, { hookMirror: bad }), /--hook-mirror/, `reject: ${bad}`);
+  }
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("mode switch: plain re-run names the replacement of an offline config", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  await applyStage2(repo, false, undefined, {}, undefined, { offline: true });
+  assert.ok(existsSync(join(repo, ".pre-commit-config.yaml")));
+  // same-mode re-run regenerates identical bytes -> keep, no mode notice
+  const again = await applyStage2(repo, false, undefined, {}, undefined, { offline: true });
+  assert.doesNotMatch(again.message ?? "", /regenerated in a different mode/);
+  // plain re-run replaces the offline config -> the mode change is named
+  const plain = await applyStage2(repo, false);
+  assert.match(plain.message ?? "", /regenerated in a different mode than installed \(offline → regular\)/);
+  assert.match(plain.message ?? "", /re-run with the matching flags/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("offline: perl missing -> hygiene hooks honestly omitted, back when present", () => {
+  const repo = fixture();
+  const prevPath = process.env.PATH;
+  process.env.PATH = "/nonexistent";
+  try {
+    const cfg = generatePreCommitConfig(repo, { offline: true });
+    assert.doesNotMatch(cfg, /trailing-whitespace|end-of-file-fixer|perl/, "no hygiene hooks without perl");
+    assert.match(cfg, /repo: meta/, "core checks survive");
+    assert.match(cfg, /manifest-consistency/, "the baked gate survives");
+  } finally {
+    process.env.PATH = prevPath;
+  }
+  const cfg = generatePreCommitConfig(repo, { offline: true });
+  assert.match(cfg, /trim trailing whitespace \(self-contained\)/, "perl on PATH -> hooks are back");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("offline: hygiene entry YAML stays lossless (\\z/\\$ are not YAML escapes — regression pin)", () => {
+  // review round: the entries were emitted with single backslashes (\\z \\$),
+  // which pre-commit's YAML loader rejects — the offline config was unusable
+  // and no test caught it (string assertions + direct perl runs never parsed
+  // the YAML). The generated bytes must decode back to the exact perl code.
+  const repo = fixture();
+  const cfg = generatePreCommitConfig(repo, { offline: true });
+  assert.ok(
+    cfg.includes(String.raw`entry: "perl -0pi -e 's/\\n*\\z/\\n/ if -s \\$ARGV'"`),
+    "end-of-file-fixer entry must keep the backslash-doubled (lossless) form",
+  );
+  assert.ok(cfg.includes(String.raw`entry: "perl -pi -e 's/[ \\t]+$//'"`), "trailing-whitespace entry lossless");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("offline: generated config passes real pre-commit validate-config + a real run (binary untouched)", async (t) => {
+  let hasPreCommit = true;
+  try {
+    execFileSync("sh", ["-c", "command -v pre-commit"], { stdio: "ignore" });
+  } catch {
+    hasPreCommit = false;
+  }
+  if (!hasPreCommit) {
+    t.skip("pre-commit not installed — run the suite where pre-commit exists");
+    return;
+  }
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  git(repo, ["init", "-q"]);
+  await applyStage2(repo, false, undefined, {}, undefined, { offline: true });
+  execFileSync("pre-commit", ["validate-config", join(repo, ".pre-commit-config.yaml")], {
+    cwd: repo,
+    stdio: "ignore",
+  });
+  // clean text + binary whose bytes would change under untyped perl fixes
+  // (0x20 before 0x0a; no trailing newline) — types: [text] must skip it
+  const binary = Buffer.from([0x89, 0x50, 0x20, 0x0a, 0x00, 0x01]);
+  writeFileSync(join(repo, "a.txt"), "hello\nworld\n");
+  writeFileSync(join(repo, "img.bin"), binary);
+  git(repo, ["add", "-A"]);
+  execFileSync("pre-commit", ["run", "--all-files"], { cwd: repo, stdio: "ignore" });
+  assert.equal(readFileSync(join(repo, "img.bin")).toString("hex"), binary.toString("hex"), "binary untouched");
+  assert.equal(readFileSync(join(repo, "a.txt"), "utf8"), "hello\nworld\n", "clean text stays clean");
   rmSync(repo, { recursive: true, force: true });
 });

@@ -31,7 +31,7 @@ import { DYNAMIC_LIFECYCLE_STACKS, GO_TEST_COMMAND, STACK_COMMANDS } from "./sta
 const MANIFEST_FILE = ".ai-native.yml";
 const SCHEMA_VERSION = 1;
 const TOOL_NAME = "spooner";
-export const TOOL_VERSION = "0.13.0";
+export const TOOL_VERSION = "0.14.0";
 
 /** Output files per stage (pinned in specs/0002 §per-stage outputs). */
 const STAGE_FILES: Record<number, string[]> = {
@@ -698,10 +698,11 @@ function yamlEscaped(s: string): string {
 
 /** Python gates (only when python tooling detected; ruff managed + rev-pinned,
  *  pytest/pip-audit local — SKIP'd in the python workflow template). */
-function pythonHooks(root: string): string | null {
+function pythonHooks(root: string, offline = false): string | null {
   if (!pythonPresent(root)) return null;
   const lines: string[] = [];
-  lines.push(`  - repo: https://github.com/astral-sh/ruff-pre-commit
+  if (!offline) {
+    lines.push(`  - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.1
     hooks:
       - id: ruff
@@ -709,6 +710,7 @@ function pythonHooks(root: string): string | null {
       - id: ruff-format
         args: [--check]
         files: \\.py$`);
+  }
   if (pytestPresent(root)) {
     // Missing local tool is not a failing build (the audit's exit-127 rule,
     // pip-audit pattern): a machine without the pytest module fails
@@ -768,11 +770,11 @@ function prettierPresent(root: string): boolean {
   return typeof scripts["lint"] === "string" && /prettier/.test(scripts["lint"]);
 }
 
-function nodeHooks(root: string): string | null {
+function nodeHooks(root: string, offline = false): string | null {
   const typecheckable = tsconfigPresent(root) || declaredScript(root, "typecheck");
   if (!eslintPresent(root) && !typecheckable && !declaredScript(root, "test") && !prettierPresent(root)) return null;
   const lines: string[] = [];
-  if (eslintPresent(root)) {
+  if (!offline && eslintPresent(root)) {
     // types: [] — mirrors-eslint defaults to types: [javascript], which
     // filters .ts files out (pre-commit's identify tags them typescript),
     // leaving a dead eslint gate on pure-TS repos.
@@ -953,22 +955,73 @@ function skillHooks(root: string): string | null {
         stages: [pre-commit]`;
 }
 
-export function generatePreCommitConfig(root: string): string {
-  const sections = [
-    `${GENERATED_PRE_COMMIT_MARKER} (M10: stack-aware)`,
-    "# Install hooks (commitlint runs on the commit-msg stage — both are required):",
-    "#   pre-commit install --hook-type pre-commit --hook-type commit-msg",
-    "# Full run: pre-commit run --all-files",
-    "# NOTE: the hook repos below are fetched from GitHub when pre-commit runs — with",
-    "# GitHub unreachable (no mirror/proxy configured), pre-commit cannot prepare the",
-    "# hook environment and commits are BLOCKED; make GitHub reachable first.",
-    "# Regenerate: delete this file and re-run `transform --stage 2` — the hook set",
-    "# follows the repo's detected tooling (what audit credits, transform installs).",
-    "repos:",
-    PRE_COMMIT_CORE,
-    // M12 (spec 0012): self-contained manifest gate — mirrors the CI hard gate
-    // so a stale/drifting ledger turns local pre-commit red (baked EXPECTED).
-    `  - repo: local
+/** Generation options (spec 0010 intranet round): `--hook-mirror` rewrites
+ *  the managed repo URLs to an intranet mirror base; `--offline` emits a
+ *  repo:local-only config that never fetches GitHub. Mutually exclusive. */
+export interface PreCommitGenOptions {
+  hookMirror?: string;
+  offline?: boolean;
+}
+
+/** Probe GitHub's GIT endpoint (never the web page — smart-HTTP walls make
+ *  the page reachable while git fetch is blocked, the false-positive trap).
+ *  Read-only, short timeout, non-interactive (GIT_TERMINAL_PROMPT=0 — a
+ *  credential prompt would hang the probe). A slow-but-reachable GitHub must
+ *  NOT degrade: the caller treats failure as a notice, never a hard fail
+ *  (spec 0010). Tests override via SPOONER_GITHUB_PROBE=unreachable|reachable —
+ *  the reachable simulation keeps the suite offline-deterministic (spec 0010
+ *  AC16: "a reachable simulation produces no guidance"). */
+let githubProbeCache: boolean | null = null;
+export function githubReachableOf(root: string, timeoutMs = 10_000): boolean {
+  const sim = process.env.SPOONER_GITHUB_PROBE;
+  if (sim === "unreachable") return false;
+  if (sim === "reachable") return true;
+  // One real probe per process — dozens of stage-2 runs share it (and tests
+  // would otherwise hammer the network). A slow-but-reachable GitHub must
+  // NOT degrade: a cache of false only ever produces a notice, never a fail.
+  if (githubProbeCache !== null) return githubProbeCache;
+  try {
+    execFileSync("git", ["ls-remote", "https://github.com/pre-commit/pre-commit-hooks", "HEAD"], {
+      cwd: root,
+      stdio: "ignore",
+      timeout: timeoutMs,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    githubProbeCache = true;
+  } catch {
+    githubProbeCache = false;
+  }
+  return githubProbeCache;
+}
+
+/** Self-contained hygiene hooks for the offline variant (spec 0010): perl
+ *  one-liners byte-aligned with pre-commit-hooks' trailing-whitespace and
+ *  end-of-file-fixer behavior — including their `types: [text]` filter, so
+ *  binaries are never passed (these hooks auto-fix; a missing filter would
+ *  let perl strip bytes from images/artifacts). The entries are YAML
+ *  double-quoted scalars: perl's metacharacters are backslash-doubled
+ *  (\\n \\z \\$ decode losslessly; a single \\z/\\$ is an invalid YAML
+ *  escape and pre-commit fails to load the config). The entry is
+ *  shlex-split — no shell — so `$ARGV` is never expanded by a shell. */
+const OFFLINE_HYGIENE_HOOKS = `  - repo: local
+    hooks:
+      - id: trailing-whitespace
+        name: trim trailing whitespace (self-contained)
+        entry: "perl -pi -e 's/[ \\\\t]+$//'"
+        language: system
+        types: [text]
+        stages: [pre-commit]
+      - id: end-of-file-fixer
+        name: fix end of files (self-contained)
+        entry: "perl -0pi -e 's/\\\\n*\\\\z/\\\\n/ if -s \\\\$ARGV'"
+        language: system
+        types: [text]
+        stages: [pre-commit]`;
+
+/** Self-contained manifest gate (M12, spec 0012) — shared by the online and
+ *  offline variants: mirrors the CI hard gate so a stale/drifting ledger
+ *  turns local pre-commit red (baked EXPECTED). */
+const MANIFEST_GATE_BLOCK = `  - repo: local
     hooks:
       - id: manifest-consistency
         name: .ai-native.yml consistency + template version (gate)
@@ -976,10 +1029,38 @@ export function generatePreCommitConfig(root: string): string {
         language: system
         pass_filenames: false
         always_run: true
-        stages: [pre-commit]`,
+        stages: [pre-commit]`;
+
+/** The offline variant (spec 0010): repo:meta + self-contained hygiene +
+ *  manifest gate + system gitleaks when installed + the stacks' LOCAL hooks
+ *  (typecheck/test/gofmt/… never need GitHub). npm-managed hooks
+ *  (markdownlint/commitlint/eslint/ruff) are honestly omitted — the header
+ *  names them and how to switch back (declared-only philosophy). The hygiene
+ *  hooks need perl on PATH at generation time — absent perl omits them with
+ *  a report notice (gitleaks pattern: the offline variant cannot fetch
+ *  pre-commit-hooks, so a missing stand-in tool is never faked). */
+function offlinePreCommitConfig(root: string): string {
+  const sections = [
+    `${GENERATED_PRE_COMMIT_MARKER} (M10: stack-aware) — OFFLINE variant (--offline)`,
+    "# Install hooks (commitlint is NOT part of this variant — it needs npm):",
+    "#   pre-commit install --hook-type pre-commit",
+    "# Full run: pre-commit run --all-files",
+    "# This config NEVER fetches GitHub: hygiene checks are self-contained, the",
+    "# manifest gate is baked, and stack hooks are local (repo toolchain only).",
+    "# OMITTED in offline mode (need npm/PyPI packages): markdownlint, commitlint,",
+    "# eslint, ruff, gitleaks-managed. Re-run `transform --stage 2` WITHOUT --offline",
+    "# when GitHub + registries are reachable to switch back to the full config.",
+    "repos:",
+    `  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes`,
+    perlPresent(root) ? OFFLINE_HYGIENE_HOOKS : null,
+    MANIFEST_GATE_BLOCK,
+    gitleaksSystemHook(root),
     skillHooks(root),
-    pythonHooks(root),
-    nodeHooks(root),
+    pythonHooks(root, true),
+    nodeHooks(root, true),
     goHooks(root),
     rustHooks(root),
     javaHooks(root),
@@ -987,10 +1068,107 @@ export function generatePreCommitConfig(root: string): string {
   return `${sections.join("\n")}\n`;
 }
 
+/** gitleaks as a system hook (offline variant only): included when the
+ *  binary is on PATH at generation time — `gitleaks git --pre-commit` is
+ *  gitleaks' documented pre-commit mode, zero network. */
+function gitleaksSystemHook(root: string): string | null {
+  try {
+    execFileSync("sh", ["-c", "command -v gitleaks"], { cwd: root, stdio: "ignore" });
+  } catch {
+    return null;
+  }
+  return `  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (system — detect hardcoded secrets)
+        entry: gitleaks git --pre-commit
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]`;
+}
+
+/** Perl check for the offline variant's self-contained hygiene hooks — the
+ *  variant never fetches GitHub, so perl (macOS/Linux default, bundled with
+ *  Git for Windows) is the zero-dependency stand-in for pre-commit-hooks. */
+function perlPresent(root: string): boolean {
+  try {
+    execFileSync("sh", ["-c", "command -v perl"], { cwd: root, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Normalize + validate a --hook-mirror base (spec 0010): http(s) only, a
+ *  trailing slash guaranteed (the managed repo names append after it), no
+ *  control characters (a newline could inject foreign YAML entries). */
+function normalizeHookMirror(base: string): string {
+  if (/[\r\n]/.test(base)) throw new Error(`--hook-mirror: invalid mirror base (control characters): ${base}`);
+  let u: URL;
+  try {
+    u = new URL(base);
+  } catch {
+    throw new Error(`--hook-mirror: invalid mirror base: ${base}`);
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:")
+    throw new Error(`--hook-mirror: only http(s) mirror bases are supported: ${base}`);
+  return base.endsWith("/") ? base : `${base}/`;
+}
+
+export function generatePreCommitConfig(root: string, opts: PreCommitGenOptions = {}): string {
+  const { hookMirror, offline } = opts;
+  if (offline && hookMirror !== undefined) {
+    throw new Error("--offline and --hook-mirror are mutually exclusive (choose one)");
+  }
+  const mirror = hookMirror === undefined ? undefined : normalizeHookMirror(hookMirror);
+  const content = offline
+    ? offlinePreCommitConfig(root)
+    : (() => {
+        const sections = [
+          `${GENERATED_PRE_COMMIT_MARKER} (M10: stack-aware)`,
+          "# Install hooks (commitlint runs on the commit-msg stage — both are required):",
+          "#   pre-commit install --hook-type pre-commit --hook-type commit-msg",
+          "# Full run: pre-commit run --all-files",
+          "# NOTE: the hook repos below are fetched from GitHub when pre-commit runs — with",
+          "# GitHub unreachable (no mirror/proxy configured), pre-commit cannot prepare the",
+          "# hook environment and commits are BLOCKED; make GitHub reachable first.",
+          "# Regenerate: delete this file and re-run `transform --stage 2` — the hook set",
+          "# follows the repo's detected tooling (what audit credits, transform installs).",
+          "repos:",
+          PRE_COMMIT_CORE,
+          MANIFEST_GATE_BLOCK,
+          skillHooks(root),
+          pythonHooks(root, false),
+          nodeHooks(root, false),
+          goHooks(root),
+          rustHooks(root),
+          javaHooks(root),
+        ].filter((s): s is string => s !== null);
+        return `${sections.join("\n")}\n`;
+      })();
+  if (mirror !== undefined) {
+    // Rewrite the managed repo URLs (rev-pinned tags travel with the mirror);
+    // the header's GitHub note gains the mirror line (spec 0010).
+    return content
+      .replaceAll("  - repo: https://github.com/", `  - repo: ${mirror}`)
+      .replace(
+        "# GitHub unreachable (no mirror/proxy configured), pre-commit cannot prepare the",
+        `# Hook repos mirrored from ${mirror} (--hook-mirror); GitHub itself is not touched.`,
+      );
+  }
+  return content;
+}
+
 /** Resolve stage-2 file content: generated (M10) or template bytes —
  *  workflows render for the chosen gate strictness (spec 0008 question 5). */
-function stage2Content(root: string, file: string, tpl: string, gates: GatesStrictness): string {
-  if (tpl === GENERATED) return generatePreCommitConfig(root);
+function stage2Content(
+  root: string,
+  file: string,
+  tpl: string,
+  gates: GatesStrictness,
+  genOpts: PreCommitGenOptions = {},
+): string {
+  if (tpl === GENERATED) return generatePreCommitConfig(root, genOpts);
   const content = templateContent(tpl);
   return file.endsWith(".github/workflows/ai-native.yml") || file.endsWith(".github/workflows/sdd.yml")
     ? renderWorkflow(content, gates)
@@ -1414,14 +1592,19 @@ export async function applyStage2(
   ciOverride?: string,
   verifyOpts: VerifyOptions = {},
   gatesArg?: GatesStrictness,
+  genOpts: PreCommitGenOptions = {},
 ): Promise<Stage2Result> {
+  // Normalize/validate the mirror base once — the generated config and the
+  // printed insteadOf command must agree (spec 0010 review round).
+  const opts: PreCommitGenOptions =
+    genOpts.hookMirror === undefined ? genOpts : { ...genOpts, hookMirror: normalizeHookMirror(genOpts.hookMirror) };
   const gates = gatesOf(root, gatesArg);
   const templates = stage2Templates(root, ciOverride);
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
     const current = readFileSync(target, "utf8");
-    if (current === stage2Content(root, file, tpl, gates)) return { file, action: "keep" };
+    if (current === stage2Content(root, file, tpl, gates, opts)) return { file, action: "keep" };
     // M10 legacy upgrade: bytes from the pre-M10 universal template, or any
     // generated config carrying the marker header (M12), are tool-owned.
     if (
@@ -1548,7 +1731,60 @@ export async function applyStage2(
     clForeign === null
       ? null
       : `commitlint config skipped: detected ${clForeign} — keeping your commitlint config (the commit-msg hook uses it; delete ${clForeign} and re-run to install the generated one)`;
-  const extra = [notice, platformNotice, wrongStackHint, hookNotice, mdNotice, clNotice].filter(Boolean).join("; ");
+  // GitHub reachability probe (spec 0010 intranet round): unreachable →
+  // guidance, never a hard fail. --offline/--hook-mirror runs skip the probe
+  // (the offline choice is already made — the config doesn't need GitHub).
+  const githubNotice =
+    opts.offline === true || opts.hookMirror !== undefined
+      ? null
+      : githubReachableOf(root)
+        ? null
+        : `GitHub unreachable — the generated pre-commit config cannot fetch its hook repos at commit time; re-run with --offline for a local-only config, or --hook-mirror <base> (then: git config --global url."<base>/".insteadOf "https://github.com/" — npm/PyPI/GOPROXY registries need mirrors too)`;
+  // --hook-mirror always names the insteadOf command — it is the user's
+  // choice whether to run it (the tool never writes their gitconfig, spec
+  // 0010 non-goal).
+  const mirrorNotice =
+    opts.hookMirror === undefined
+      ? null
+      : `hook repos will fetch from ${opts.hookMirror} (--hook-mirror) — optional: git config --global url."${opts.hookMirror}".insteadOf "https://github.com/" (npm/PyPI/GOPROXY registries need mirrors too)`;
+  // Mode-change notice (spec 0010 review round): a plain re-run regenerates
+  // a tool-owned config into the OTHER mode — the installed offline/mirror
+  // variant is replaced by a GitHub-fetching one (or vice versa). The switch
+  // is legitimate (the header documents how), but it must not be silent.
+  let modeNotice: string | null = null;
+  const preCommitPlan = plans.find((p) => p.file === PRE_COMMIT_FILE);
+  if (preCommitPlan?.action === "write" && existsSync(join(root, PRE_COMMIT_FILE))) {
+    const current = readFileSync(join(root, PRE_COMMIT_FILE), "utf8");
+    const curOffline = current.includes("OFFLINE variant (--offline)");
+    const curMirror = current.includes("(--hook-mirror)");
+    const newOffline = opts.offline === true;
+    const newMirror = opts.hookMirror !== undefined;
+    if (curOffline !== newOffline || curMirror !== newMirror)
+      modeNotice = `pre-commit config regenerated in a different mode than installed (${
+        curOffline ? "offline" : curMirror ? "mirror" : "regular"
+      } → ${newOffline ? "offline" : newMirror ? "mirror" : "regular"}) — re-run with the matching flags if this repo needs the intranet variant`;
+  }
+  // Offline hygiene omission (spec 0010 review round): the variant's
+  // self-contained hooks need perl at generation time — absent perl, they
+  // are honestly omitted (never faked) and the report names the escape.
+  const perlNotice =
+    opts.offline === true && !perlPresent(root)
+      ? "offline hygiene hooks omitted: perl not found on PATH (the offline variant's trailing-whitespace/end-of-file-fixer need perl) — install perl and re-run, or use --hook-mirror"
+      : null;
+  const extra = [
+    notice,
+    platformNotice,
+    wrongStackHint,
+    hookNotice,
+    mdNotice,
+    clNotice,
+    githubNotice,
+    mirrorNotice,
+    modeNotice,
+    perlNotice,
+  ]
+    .filter(Boolean)
+    .join("; ");
 
   if (dryRun) {
     return {
@@ -1576,7 +1812,7 @@ export async function applyStage2(
   const before = beforeRun ? beforeRun.ok : null;
   for (const p of toWrite) {
     mkdirSync(join(root, p.file, ".."), { recursive: true });
-    writeFileSync(join(root, p.file), stage2Content(root, p.file, templates[p.file], gates), "utf8");
+    writeFileSync(join(root, p.file), stage2Content(root, p.file, templates[p.file], gates, opts), "utf8");
   }
   const afterRun = command ? await runDeclared(root, verifyOpts) : null;
   const after = afterRun ? afterRun.ok : null;
@@ -2199,6 +2435,7 @@ async function run(
   ciOverride?: string,
   verifyOpts: VerifyOptions = {},
   gatesArg?: GatesStrictness,
+  genOpts: PreCommitGenOptions = {},
 ): Promise<TransformReport> {
   const stagesToReport = stage === "all" ? [2, 3, 4] : [stage];
   const mr = readManifest(root);
@@ -2208,7 +2445,7 @@ async function run(
   let files: Stage2FilePlan[] | Stage3FilePlan[] | null = null;
   let buildCheck: BuildCheck | null = null;
   if (stage === 2) {
-    const r2 = await applyStage2(root, dryRun, ciOverride, verifyOpts, gatesArg);
+    const r2 = await applyStage2(root, dryRun, ciOverride, verifyOpts, gatesArg, genOpts);
     applied = r2.applied;
     message = r2.message;
     manifestUpdated = r2.manifestUpdated;
@@ -2287,6 +2524,8 @@ function parseArgs(argv: string[]): {
   gates: GatesStrictness | undefined;
   verifyTimeoutMin: number | undefined;
   verifyCommand: string | undefined;
+  hookMirror: string | undefined;
+  offline: boolean;
 } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
@@ -2331,6 +2570,10 @@ function parseArgs(argv: string[]): {
           return n;
         })();
   const verifyCommand = valueOf("--verify-command");
+  const hookMirror = valueOf("--hook-mirror");
+  const offline = argv.includes("--offline");
+  if (offline && hookMirror !== undefined)
+    throw new Error("--offline and --hook-mirror are mutually exclusive (choose one)");
   return {
     root: valueOf("--root") ?? process.cwd(),
     stage,
@@ -2340,6 +2583,8 @@ function parseArgs(argv: string[]): {
     gates,
     verifyTimeoutMin,
     verifyCommand,
+    hookMirror,
+    offline,
   };
 }
 
@@ -2361,14 +2606,17 @@ if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
   void (async () => {
     try {
-      const { root, stage, dryRun, format, ci, gates, verifyTimeoutMin, verifyCommand } = parseArgs(
-        process.argv.slice(2),
-      );
+      const { root, stage, dryRun, format, ci, gates, verifyTimeoutMin, verifyCommand, hookMirror, offline } =
+        parseArgs(process.argv.slice(2));
       const verifyOpts: VerifyOptions = {
         ...(verifyTimeoutMin === undefined ? {} : { timeoutMs: verifyTimeoutMin * 60_000 }),
         ...(verifyCommand === undefined ? {} : { command: verifyCommand }),
       };
-      const report = await run(root, stage, dryRun, ci, verifyOpts, gates);
+      const genOpts: PreCommitGenOptions = {
+        ...(hookMirror === undefined ? {} : { hookMirror }),
+        ...(offline ? { offline: true } : {}),
+      };
+      const report = await run(root, stage, dryRun, ci, verifyOpts, gates, genOpts);
       process.stdout.write(format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
       // applied but the post-apply build check failed → signal rollback
       if (report.applied && report.buildCheck?.after === false) process.exit(1);

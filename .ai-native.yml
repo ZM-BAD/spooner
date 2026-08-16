@@ -1,10 +1,10 @@
 schemaVersion: 1
 tool: spooner
-version: "0.13.0"
+version: "0.14.0"
 stages:
   2:
-    date: "2026-08-15"
-    templateVersion: "0.13.0"
+    date: "2026-08-16"
+    templateVersion: "0.14.0"
     warnOnly: true
     gates: warn-only
     files:
