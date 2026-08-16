@@ -9,7 +9,7 @@ Spooner's own product position is "adopting SDD workflows" — this directory is
 ## Two layers
 
 - **Planning layer**: `ROADMAP.md` — a four-tier index (🟢 current / 🟡 next / 🔵 vision / 💡 ideas); registration only, no content
-- **Contract layer**: `specs/<nnn>-<name>/spec.md` — only specs that can state "scope + acceptance criteria" live here
+- **Contract layer**: `specs/<nnn>-<name>.md` — only specs that can state "scope + acceptance criteria" live here; every file is flat (a template is `specs/spec-template.md`; if the SDD template pack ever grows to several templates, they move into a `specs/templates/` directory then)
 
 An idea becomes a spec once it is concrete enough (scope + acceptance criteria writable); spec state changes are mirrored into ROADMAP. Numbers are **stable IDs** (incremental, never renumbered); stage is read from the frontmatter `status`, never encoded in the number.
 
@@ -30,8 +30,8 @@ An idea becomes a spec once it is concrete enough (scope + acceptance criteria w
 specs/
 ├── README.md              # this file: workflow
 ├── ROADMAP.md             # planning index: current/next/vision/ideas
-├── templates/spec.md      # spec template
-└── <nnn>-<name>/spec.md   # contract layer: one spec per feature (nnn = stable increment)
+├── spec-template.md       # spec template
+└── <nnn>-<name>.md        # contract layer: one flat spec file per feature (nnn = stable increment)
 ```
 
 - Register or update ROADMAP whenever a spec is created, changed, or shipped (numbers stay stable; stage comes from `status`)

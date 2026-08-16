@@ -50,7 +50,7 @@ spooner/
 
 ## Development workflow (SDD)
 
-1. Every feature starts as a spec: `specs/<nnn>-<name>/spec.md` (template `specs/templates/spec.md`), state `proposed → approved → in-progress → shipped`; **register/update it in `specs/ROADMAP.md`** (current / next / vision / ideas)
+1. Every feature starts as a spec: `specs/<nnn>-<name>.md` (template `specs/spec-template.md`), state `proposed → approved → in-progress → shipped`; **register/update it in `specs/ROADMAP.md`** (current / next / vision / ideas)
 2. Implement only after approval (approved); ship in independently verifiable slices
 3. Changing frozen design: review the internal decision log (`docs/05`, local-only) first, then update `HANDOFF.md` (local)
 
@@ -155,24 +155,24 @@ spooner/
 
 ## Docs
 
-| File                                          | Content                                                                                                                                                       |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md` / `README.zh-CN.md`               | Bilingual project overview: compatibility matrix, install, development                                                                                        |
-| `specs/README.md`                             | SDD workflow: states, conventions, two-layer structure                                                                                                        |
-| `specs/ROADMAP.md`                            | Planning index: current / next / vision / ideas                                                                                                               |
-| `specs/0001-m1-audit-core/spec.md`            | M1 audit contract: scoring matrix, report schema, acceptance                                                                                                  |
-| `specs/0002-m2-transform/spec.md`             | M2 transform contract: stages 2-4, per-stage outputs, manifest model, acceptance                                                                              |
-| `specs/0003-m3-check/spec.md`                 | M3 check contract: baseline delta, drift report, suggestions, acceptance                                                                                      |
-| `specs/0004-m4-sync/spec.md`                  | M4 sync contract: templateVersion extension, sync report schema, acceptance                                                                                   |
-| `specs/0005-m5-drift-gate/spec.md`            | M5 drift gate contract: CI hard gate job, baked-version rule, acceptance                                                                                      |
-| `specs/0006-m6-multi-stack/spec.md`           | M6 multi-stack contract: stack model, per-stack workflows/lifecycle, unsupported notice, acceptance                                                           |
-| `specs/0008-m8-situational-transform/spec.md` | M8 situational-transform contract: context probe, CI-platform routing, mode table, gate strictness (`--gates`)                                                |
-| `specs/0009-m9-badge/spec.md`                 | M9 badge contract: 5 shields styles, README style probe + decision chain, tier/color mapping, artifacts                                                       |
-| `specs/0010-m10-contextual-gates/spec.md`     | M10 contextual gates: generated stack-aware pre-commit config, hook-tool routing, generated sync class                                                        |
-| `specs/0011-m11-rust-deep/spec.md`            | M11 rust deep: cargo lifecycle + rust workflow + pre-commit gates + audit credit                                                                              |
-| `specs/0012-m12-manifest-gate-hook/spec.md`   | M12 manifest gate: self-contained hook in the generated config, tool-owned marker rule, parity                                                                |
-| `specs/0013-m13-report-truth-scoring/spec.md` | M13 report truth + quality scoring: 10-point scale, deterministic signals, two-sourced fixes                                                                  |
-| `specs/0014-m14-stack-detection/spec.md`      | M14 proactive stack detection: 15 stacks (Tier-1 apple/c-cpp/dart-flutter/unity + zig), official-doc-verified signals, detect+audit-only tier                 |
-| `specs/0015-m15-stack-parity/spec.md`         | M15 stack parity: consumption-point completeness enforced by a stack-parity test, command-source single-sourcing, escape helper + pinned bytes, process fixes |
-| `specs/0016-m16-agent-contract-files/spec.md` | M16 multi-agent contract files: ecosystem contract-file recognition, content-ranked primary, any-direction bridge semantics                                   |
-| `skills/spooner/SKILL.md`                     | The distributable skill entry                                                                                                                                 |
+| File                                     | Content                                                                                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` / `README.zh-CN.md`          | Bilingual project overview: compatibility matrix, install, development                                                                                        |
+| `specs/README.md`                        | SDD workflow: states, conventions, two-layer structure                                                                                                        |
+| `specs/ROADMAP.md`                       | Planning index: current / next / vision / ideas                                                                                                               |
+| `specs/0001-m1-audit-core.md`            | M1 audit contract: scoring matrix, report schema, acceptance                                                                                                  |
+| `specs/0002-m2-transform.md`             | M2 transform contract: stages 2-4, per-stage outputs, manifest model, acceptance                                                                              |
+| `specs/0003-m3-check.md`                 | M3 check contract: baseline delta, drift report, suggestions, acceptance                                                                                      |
+| `specs/0004-m4-sync.md`                  | M4 sync contract: templateVersion extension, sync report schema, acceptance                                                                                   |
+| `specs/0005-m5-drift-gate.md`            | M5 drift gate contract: CI hard gate job, baked-version rule, acceptance                                                                                      |
+| `specs/0006-m6-multi-stack.md`           | M6 multi-stack contract: stack model, per-stack workflows/lifecycle, unsupported notice, acceptance                                                           |
+| `specs/0008-m8-situational-transform.md` | M8 situational-transform contract: context probe, CI-platform routing, mode table, gate strictness (`--gates`)                                                |
+| `specs/0009-m9-badge.md`                 | M9 badge contract: 5 shields styles, README style probe + decision chain, tier/color mapping, artifacts                                                       |
+| `specs/0010-m10-contextual-gates.md`     | M10 contextual gates: generated stack-aware pre-commit config, hook-tool routing, generated sync class                                                        |
+| `specs/0011-m11-rust-deep.md`            | M11 rust deep: cargo lifecycle + rust workflow + pre-commit gates + audit credit                                                                              |
+| `specs/0012-m12-manifest-gate-hook.md`   | M12 manifest gate: self-contained hook in the generated config, tool-owned marker rule, parity                                                                |
+| `specs/0013-m13-report-truth-scoring.md` | M13 report truth + quality scoring: 10-point scale, deterministic signals, two-sourced fixes                                                                  |
+| `specs/0014-m14-stack-detection.md`      | M14 proactive stack detection: 15 stacks (Tier-1 apple/c-cpp/dart-flutter/unity + zig), official-doc-verified signals, detect+audit-only tier                 |
+| `specs/0015-m15-stack-parity.md`         | M15 stack parity: consumption-point completeness enforced by a stack-parity test, command-source single-sourcing, escape helper + pinned bytes, process fixes |
+| `specs/0016-m16-agent-contract-files.md` | M16 multi-agent contract files: ecosystem contract-file recognition, content-ranked primary, any-direction bridge semantics                                   |
+| `skills/spooner/SKILL.md`                | The distributable skill entry                                                                                                                                 |

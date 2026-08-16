@@ -142,7 +142,7 @@ spooner/
 
 ## 开发
 
-**SDD（Spec-Driven Development）：** 每个功能先写成 spec（`specs/<nnn>-<name>/spec.md`，状态 `proposed → approved → in-progress → shipped`），按可独立验证的切片实现。模板：`specs/templates/spec.md`。
+**SDD（Spec-Driven Development）：** 每个功能先写成 spec（`specs/<nnn>-<name>.md`，状态 `proposed → approved → in-progress → shipped`），按可独立验证的切片实现。模板：`specs/spec-template.md`。
 
 ```sh
 npm run typecheck   # tsc --noEmit（TypeScript 6，零构建）
@@ -161,13 +161,13 @@ node skills/spooner/scripts/detect.ts   # 切片 1：栈识别
 
 ## 文档导航
 
-| 文档                               | 内容                                           |
-| ---------------------------------- | ---------------------------------------------- |
-| `AGENTS.md`                        | Agent 契约（单一事实来源；CLAUDE.md 是软链）   |
-| `specs/README.md`                  | SDD 工作流：状态、约定、两层结构               |
-| `specs/ROADMAP.md`                 | 规划索引：当前 / 下一阶段 / 远景 / 想法        |
-| `specs/0001-m1-audit-core/spec.md` | M1 audit 契约：评分矩阵、报告 schema、验收标准 |
-| `skills/spooner/SKILL.md`          | 可分发 skill 入口                              |
+| 文档                          | 内容                                           |
+| ----------------------------- | ---------------------------------------------- |
+| `AGENTS.md`                   | Agent 契约（单一事实来源；CLAUDE.md 是软链）   |
+| `specs/README.md`             | SDD 工作流：状态、约定、两层结构               |
+| `specs/ROADMAP.md`            | 规划索引：当前 / 下一阶段 / 远景 / 想法        |
+| `specs/0001-m1-audit-core.md` | M1 audit 契约：评分矩阵、报告 schema、验收标准 |
+| `skills/spooner/SKILL.md`     | 可分发 skill 入口                              |
 
 ## 贡献者
 

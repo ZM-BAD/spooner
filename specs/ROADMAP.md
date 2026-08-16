@@ -1,12 +1,12 @@
 # specs/ROADMAP.md — planning index (four tiers)
 
 > This file is the **planning layer**: registration and indexing only, never a substitute for a spec.
-> The spec directory (`specs/<nnn>-<name>/`) only holds specs that can state **scope + acceptance criteria**; the authoritative stage is the frontmatter `status` (proposed → approved → in-progress → shipped).
+> The spec files (`specs/<nnn>-<name>.md`) only hold specs that can state **scope + acceptance criteria**; the authoritative stage is the frontmatter `status` (proposed → approved → in-progress → shipped).
 > Update this file whenever a spec is created or changed (rules in specs/README.md).
 
 ## ✅ Shipped
 
-> 编号 0007 空缺：M7（commitlint 真实门禁）并入 spec 0001/0002 就地修订，未建 spec 目录——历史编号缺口，说明见 docs/08。
+> 编号 0007 空缺：M7（commitlint 真实门禁）并入 spec 0001/0002 就地修订，未建 spec 文件——历史编号缺口，说明见 docs/08。
 
 | ID   | Name                     | Status  | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ---- | ------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

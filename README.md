@@ -142,7 +142,7 @@ spooner/
 
 ## Development
 
-**Spec-driven (SDD):** every feature starts as a spec in `specs/<nnn>-<name>/spec.md` (`proposed → approved → in-progress → shipped`), implemented in independently verifiable slices. Template: `specs/templates/spec.md`.
+**Spec-driven (SDD):** every feature starts as a spec in `specs/<nnn>-<name>.md` (`proposed → approved → in-progress → shipped`), implemented in independently verifiable slices. Template: `specs/spec-template.md`.
 
 ```sh
 npm run typecheck   # tsc --noEmit (TypeScript 6, zero build)
@@ -161,13 +161,13 @@ Distributed from this GitHub repository — `npx skills add ZM-BAD/spooner` inst
 
 ## Documentation
 
-| Doc                                | Content                                                         |
-| ---------------------------------- | --------------------------------------------------------------- |
-| `AGENTS.md`                        | Agent contract (single source of truth; CLAUDE.md is a symlink) |
-| `specs/README.md`                  | SDD workflow: states, conventions, two-layer structure          |
-| `specs/ROADMAP.md`                 | Planning index: current / next / vision / ideas                 |
-| `specs/0001-m1-audit-core/spec.md` | M1 audit contract: scoring matrix, report schema, acceptance    |
-| `skills/spooner/SKILL.md`          | The distributable skill entry                                   |
+| Doc                           | Content                                                         |
+| ----------------------------- | --------------------------------------------------------------- |
+| `AGENTS.md`                   | Agent contract (single source of truth; CLAUDE.md is a symlink) |
+| `specs/README.md`             | SDD workflow: states, conventions, two-layer structure          |
+| `specs/ROADMAP.md`            | Planning index: current / next / vision / ideas                 |
+| `specs/0001-m1-audit-core.md` | M1 audit contract: scoring matrix, report schema, acceptance    |
+| `skills/spooner/SKILL.md`     | The distributable skill entry                                   |
 
 ## Contributors
 
