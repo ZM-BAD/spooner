@@ -1,6 +1,8 @@
 {
   "name": "spooner",
-  "description": "Audit a git repository's AI coding readiness, score it out of 10, and transform it in place: CI gates, AGENTS.md, spec-driven workflow. Deterministic, zero-dependency scripts.",
+  "description": "Audit a git repository's AI coding readiness, score it out of 10 with an evidence-backed gap list, then transform it in place: stack-aware pre-commit gates (lint/format/typecheck/test), commitlint + markdownlint + gitleaks, a stack-specific CI workflow (warn-only or hard), AGENTS.md generated from real commands, SDD spec/plan/tasks templates with an existence gate, and a .ai-native.yml drift ledger. Intranet/offline pre-commit variants included. Deterministic, zero-dependency TypeScript scripts.",
   "version": "0.14.0",
-  "author": { "name": "ZM-BAD" }
+  "author": {
+    "name": "ZM-BAD"
+  }
 }

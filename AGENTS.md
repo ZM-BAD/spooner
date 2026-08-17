@@ -76,6 +76,7 @@ spooner/
 - Never write `npm run x 2>/dev/null || echo skip`-style declared-only hooks — a failing script must fail the hook, not masquerade as "not declared"
 - Never skip `stages: [pre-commit]` on local hooks — pre-commit runs undeclared hooks in EVERY stage, and the commit-msg stage runs in CI without node_modules
 - Don't leave test assertions hard-coding version numbers or fixture paths
+- **Never operate on `origin/main` on your own** — no push / force-push / merge / delete of `origin/main` without explicit user authorization; coding agents work on branches and ask before touching main
 
 **Verify**
 

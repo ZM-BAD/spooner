@@ -1,11 +1,14 @@
 {
   "name": "spooner-plugins",
-  "owner": { "name": "ZM-BAD" },
+  "owner": {
+    "name": "ZM-BAD"
+  },
   "plugins": [
     {
       "name": "spooner",
       "source": "./skills/spooner",
-      "description": "AI coding readiness audit + in-place transform — CI gates, AGENTS.md, SDD workflow."
+      "description": "AI coding readiness audit + in-place transform: stack-aware pre-commit gates, stack-specific CI workflow, AGENTS.md, SDD workflow, drift ledger, and intranet/offline pre-commit variants."
     }
-  ]
+  ],
+  "description": "Spooner \u2014 AI coding readiness audit and in-place transform (gates, AGENTS.md, SDD workflow) for coding agents."
 }
