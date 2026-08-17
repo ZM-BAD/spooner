@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Spooner — make your git repository ready for AI coding agents">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8A2BE2"/>
+      <stop offset="100%" stop-color="#3fb950"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded-square brand tile -->
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="url(#bg)"/>
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="none" stroke="#30363d" stroke-width="8"/>
+
+  <!-- score ring: full track -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#21262d" stroke-width="34"/>
+  <!-- 9.2/10 arc: 92% of the circumference, gap at lower right (the one point left to earn) -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="url(#ring)" stroke-width="34" stroke-linecap="round"
+          stroke-dasharray="867 75" transform="rotate(-90 256 256)"/>
+
+  <!-- AI is the coding engine now; the repo is the subject being scored -->
+  <text x="218" y="250" text-anchor="middle" font-style="italic"
+        font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="96" font-weight="800" fill="url(#ring)">AI</text>
+  <text x="292" y="318" text-anchor="middle" font-family="SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="60" font-weight="700" fill="url(#ring)">&lt;/&gt;</text>
+</svg>
