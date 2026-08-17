@@ -10,6 +10,7 @@
   <a href="https://github.com/ZM-BAD/spooner/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZM-BAD/spooner/ci.yml?style=flat-square&label=CI&cacheSeconds=300" alt="CI 状态"/></a>
   <a href="https://codecov.io/gh/ZM-BAD/spooner"><img src="https://img.shields.io/codecov/c/github/ZM-BAD/spooner?style=flat-square&label=coverage" alt="Codecov"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ZM-BAD/spooner?style=flat-square&label=License" alt="License"/></a>
+  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI-Readiness: 9.2/10"/></a>
 </p>
 
 > **让这个 git 仓库为 AI 做好准备**——AI coding agent 从第一次运行起就能顺畅工作。检测它的 AI 编码就绪度、打出 10 分制的分数，然后就地改造：CI 门禁、AGENTS.md、spec 驱动工作流。每步可验证，永不破坏已有构建。
@@ -17,7 +18,7 @@
 > **audit → transform → check → sync**——一条流水线，零构建，零依赖。
 
 <p align="center">
-  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4.3/10 AI-Aware → 9.2/10 AI-Native"/></a>
+  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI 就绪度：一次改造 4.3/10 → 9.2/10"/></a>
 </p>
 
 ## Spooner 做什么

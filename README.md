@@ -10,6 +10,7 @@
   <a href="https://github.com/ZM-BAD/spooner/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/ZM-BAD/spooner/ci.yml?style=flat-square&label=CI&cacheSeconds=300" alt="CI status"/></a>
   <a href="https://codecov.io/gh/ZM-BAD/spooner"><img src="https://img.shields.io/codecov/c/github/ZM-BAD/spooner?style=flat-square&label=coverage" alt="Codecov"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ZM-BAD/spooner?style=flat-square&label=License" alt="License"/></a>
+  <a href="assets/audit-report.md"><img src="assets/badge.svg" alt="AI-Readiness: 9.2/10"/></a>
 </p>
 
 > **Make this git repository ready for AI** — so AI coding agents can work in it from the first run. Audit its AI coding readiness, score it out of 10, then transform it in place: CI gates, AGENTS.md, a spec-driven workflow. Every step verifiable, never breaking the existing build.
@@ -17,7 +18,7 @@
 > **audit → transform → check → sync** — one pipeline, no build step, zero dependencies.
 
 <p align="center">
-  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI readiness: 4.3/10 AI-Aware → 9.2/10 AI-Native after one transform"/></a>
+  <a href="assets/audit-report.md"><img src="assets/before-after.svg" alt="AI-Readiness: 4.3/10 → 9.2/10 after one transform"/></a>
 </p>
 
 ## What Spooner does

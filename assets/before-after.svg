@@ -1,17 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="640" height="150" role="img" aria-label="AI readiness before and after the spooner transform: 4.3/10 AI-Aware becomes 9.2/10 AI-Native">
-  <title>AI readiness: 4.3/10 → 9.2/10</title>
-  <!-- before card: grey label + red message -->
-  <rect x="10" y="30" width="110" height="48" rx="6" fill="#555"/>
-  <text x="65" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">BEFORE</text>
-  <rect x="120" y="30" width="200" height="48" rx="6" fill="#e05d44"/>
-  <text x="220" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">AI-Aware · 4.3/10</text>
-  <!-- arrow -->
-  <text x="340" y="64" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="34" fill="#888" text-anchor="middle">→</text>
-  <!-- after card: grey label + green message -->
-  <rect x="370" y="30" width="110" height="48" rx="6" fill="#555"/>
-  <text x="425" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">AFTER</text>
-  <rect x="480" y="30" width="150" height="48" rx="6" fill="#4c1"/>
-  <text x="555" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">AI-Native · 9.2/10</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="150" viewBox="0 0 640 150" role="img" aria-label="AI-Readiness: 4.3/10 becomes 9.2/10 after one spooner transform">
+  <title>AI-Readiness: 4.3/10 → 9.2/10</title>
+  <!-- viewBox keeps the 640:150 aspect ratio under CSS scaling (mobile
+       max-width:100% squashes a viewBox-less SVG — text overlaps) -->
+  <!-- geometry pinned by test: label + score blocks are adjacent (like the
+       generated badge); the arrow glyph (34px box at font-size 34) clears
+       both cards by >= 20px -->
+  <!-- before card: fixed metric label + red score (matches the generated badge design) -->
+  <rect x="48" y="30" width="145" height="48" rx="6" fill="#555"/>
+  <text x="120.5" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">AI-Readiness</text>
+  <rect x="193" y="30" width="90" height="48" rx="6" fill="#e05d44"/>
+  <text x="238" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">4.3/10</text>
+  <!-- arrow: 20px clear of both cards -->
+  <text x="320" y="64" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="34" fill="#888" text-anchor="middle">→</text>
+  <!-- after card: fixed metric label + green score -->
+  <rect x="357" y="30" width="145" height="48" rx="6" fill="#555"/>
+  <text x="429.5" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">AI-Readiness</text>
+  <rect x="502" y="30" width="90" height="48" rx="6" fill="#4c1"/>
+  <text x="547" y="60" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="16" fill="#fff" text-anchor="middle">9.2/10</text>
   <!-- caption -->
   <text x="320" y="120" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="13" fill="#888" text-anchor="middle">one run of the spooner pipeline — audit → gates → AGENTS.md → SDD</text>
 </svg>

@@ -131,7 +131,13 @@ test("run: writes both artifacts and the snippet references them", () => {
   // message must be "x/10" (spec 0013 AC13), pinned via the rendered SVG.
   assert.equal(typeof report.score.total, "number");
   assert.match(svg, /aria-label="[^"]*\/10"/, `badge message must be x/10: ${svg.slice(0, 120)}`);
-  assert.equal(report.tier, tierOf(report.score.total));
+  // badge revision (spec 0009): the label is the fixed metric, never the
+  // tier — a morphing label made the badge's identity unstable and disagreed
+  // with the color bands; the tier stays in the report + README table.
+  assert.match(svg, /aria-label="AI-Readiness: [^"]*\/10"/, `fixed label: ${svg.slice(0, 120)}`);
+  assert.ok(report.snippet.includes("AI-Readiness"), `snippet uses the fixed label: ${report.snippet}`);
+  assert.doesNotMatch(svg, /AI-Native|AI-Friendly|AI-Curious|AI-Aware|AI-Absent/, "badge never shows a tier name");
+  assert.equal(report.tier, tierOf(report.score.total), "the tier stays a report concept");
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -205,4 +211,36 @@ test("renderBadge: all five styles render without error", () => {
     assert.match(svg, /^<svg /);
     assert.ok(svg.trimEnd().endsWith("</svg>"));
   }
+});
+
+// --- showcase asset geometry (spec 0009 revision) -----------------------------
+
+test("before-after.svg: label+score adjacent, arrow clears both cards by >= 15px", () => {
+  // review rounds: hand-estimated gaps first put the arrow glyph (34px box
+  // at font-size 34) 7px into the before card, then a 10px seam appeared
+  // between the label and score blocks (the generated badge has none) —
+  // both measured in-browser at a 375px viewport. Pinned here so a layout
+  // drift fails loudly.
+  const svg = readFileSync(new URL("../../../assets/before-after.svg", import.meta.url), "utf8");
+  assert.match(svg, /viewBox="0 0 640 150"/, "viewBox keeps the aspect ratio under CSS scaling");
+  const msg = svg.match(/<rect x="(\d+(?:\.\d+)?)" y="30" width="(\d+)" height="48" rx="6" fill="#e05d44"/);
+  const afterMsg = svg.match(/<rect x="(\d+(?:\.\d+)?)" y="30" width="(\d+)" height="48" rx="6" fill="#4c1"/);
+  const arrow = svg.match(/<text x="(\d+(?:\.\d+)?)" y="64"[^>]*>→</);
+  const greyRects = svg.match(/<rect x="(\d+(?:\.\d+)?)" y="30" width="\d+" height="48" rx="6" fill="#555"/g);
+  assert.ok(msg && afterMsg && arrow && greyRects?.length === 2, "cards, arrow and both label rects present");
+  const beforeLabel = greyRects[0].match(/x="(\d+(?:\.\d+)?)" y="30" width="(\d+)"/)!;
+  const afterLabel = greyRects[1].match(/x="(\d+(?:\.\d+)?)" y="30" width="(\d+)"/)!;
+  const beforeLabelEnd = Number(beforeLabel[1]) + Number(beforeLabel[2]);
+  const afterLabelEnd = Number(afterLabel[1]) + Number(afterLabel[2]);
+  // label and score blocks are adjacent, like the generated badge
+  assert.equal(Number(msg[1]), beforeLabelEnd, "before label and score must be adjacent (no seam)");
+  assert.equal(Number(afterMsg[1]), afterLabelEnd, "after label and score must be adjacent (no seam)");
+  const msgEnd = Number(msg[1]) + Number(msg[2]);
+  const arrowX = Number(arrow[1]);
+  const afterLabelX = Number(afterLabel[1]);
+  assert.ok(arrowX - msgEnd >= 15, `arrow must clear the before card: msg ends ${msgEnd}, arrow at ${arrowX}`);
+  assert.ok(
+    afterLabelX - arrowX >= 15,
+    `arrow must clear the after card: arrow at ${arrowX}, label starts ${afterLabelX}`,
+  );
 });

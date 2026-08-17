@@ -46,6 +46,15 @@ const COLOR_GREEN = "#4c1";
 const COLOR_YELLOW = "#dfb317";
 const COLOR_RED = "#e05d44";
 
+/** Fixed badge label (spec 0009 revision): the badge measures one metric, so
+ *  its label never changes with the score — a morphing tier label made the
+ *  badge's identity unstable and disagreed with the color bands (7.2 scored
+ *  AI-Friendly/yellow while 8.5 scored AI-Friendly/green — tier boundaries
+ *  9/7/5/3 vs color bands 8/5). Tiers stay a report + README concept (the
+ *  five-tier table explains the score's meaning); the badge shows the fixed
+ *  metric + score + color, the shields-ecosystem convention. */
+const BADGE_LABEL = "AI-Readiness";
+
 /** Tier label for a score (spec 0009 + M13 re-map, pinned). */
 export function tierOf(score: number): string {
   const tier = TIERS.find((t) => score >= t.min);
@@ -323,7 +332,7 @@ function escapeXml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-/** Render a shields-style badge SVG (label = tier, message = score). */
+/** Render a shields-style badge SVG (label = metric, message = score). */
 export function renderBadge(label: string, message: string, style: Style, messageColor: string): string {
   const spec = STYLE_SPECS[style];
   const displayLabel = spec.uppercase ? label.toUpperCase() : label;
@@ -396,7 +405,7 @@ export function run(root: string, override: Style | null): BadgeReport {
   const tier = tierOf(audit.score.total);
   // one decimal always (9.0/10) — a bare integer would suggest whole-point scoring
   const message = `${audit.score.total.toFixed(1)}/${audit.score.max}`;
-  const svg = renderBadge(tier, message, used, colorOf(audit.score.total));
+  const svg = renderBadge(BADGE_LABEL, message, used, colorOf(audit.score.total));
 
   mkdirSync(join(root, ARTIFACT_DIR), { recursive: true });
   const badgePath = join(ARTIFACT_DIR, BADGE_FILE);
@@ -404,7 +413,7 @@ export function run(root: string, override: Style | null): BadgeReport {
   writeFileSync(join(root, badgePath), svg, "utf8");
   writeFileSync(join(root, reportPath), renderAuditMarkdown(audit), "utf8");
 
-  const snippet = `[![${tier} ${message}](${badgePath})](${reportPath})`;
+  const snippet = `[![${BADGE_LABEL} ${message}](${badgePath})](${reportPath})`;
   return {
     schemaVersion: SCHEMA_VERSION,
     root,

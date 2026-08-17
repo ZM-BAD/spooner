@@ -19,7 +19,7 @@ Design principles this spec pins:
 
 ## Goal (one sentence)
 
-Given a repository, render a deterministic shields-style readiness badge (5 styles, tier label + score, evidence link) whose style matches the root README's dominant existing badge style by default — and can be overridden with `--style`.
+Given a repository, render a deterministic shields-style readiness badge (5 styles, fixed metric label + score, evidence link) whose style matches the root README's dominant existing badge style by default — and can be overridden with `--style`.
 
 ## Scope
 
@@ -34,7 +34,7 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
   - Known style signal = a shields.io URL with `?style=<name>`; everything else (badgen, custom SVG, GitHub-native workflow badges) = unknown.
   - Decision chain: any known styles present → majority wins; tie or no known styles → `flat`. Report the decision with evidence (e.g. "matched flat-square: 5 shields.io badges").
   - `--style` always overrides the probe.
-- **Pinned tier/color mapping** (label = tier, message = `x/10`; 10-scale with 9.5 as the excellent benchmark — a 10 is almost unreachable; message-side colors follow the shields convention):
+- **Pinned label/color mapping** (label = the fixed metric `AI-Readiness`, message = `x/10`; 10-scale with 9.5 as the excellent benchmark — a 10 is almost unreachable; message-side colors follow the shields convention):
 
   | Score | Tier label  | Color              |
   | ----- | ----------- | ------------------ |
@@ -44,7 +44,7 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
   | 3-4.9 | AI-Aware    | `#e05d44` (red)    |
   | 0-2.9 | AI-Absent   | `#e05d44` (red)    |
 
-  Color bands: >= 8 green, 5-7.9 yellow, < 5 red. Fixed hex colors only (renders correctly in both GitHub themes).
+  Color bands: >= 8 green, 5-7.9 yellow, < 5 red. Fixed hex colors only (renders correctly in both GitHub themes). The tiers are the score's **semantics** — they live in the report line (`Tier: …`) and the README five-tier table, where one sentence explains what a band means; the **badge itself shows the fixed label + score + color only** (badge revision: a morphing tier label made the badge's identity unstable and disagreed with the color bands — tier boundaries 9/7/5/3 vs color bands 8/5, so 7.2 rendered AI-Friendly/yellow while 8.5 rendered AI-Friendly/green. A fixed metric label is the shields convention and removes the contradiction; the color is purely the score's).
 
 - **SKILL.md**: a badge step (after transform) — run badge.ts, review the snippet + probe report, insert into the README badge row with user confirmation.
 - No TOOL_VERSION bump (no workflow-template bytes change — new script + SKILL.md instructions only, same precedent as spec 0008).
@@ -66,7 +66,7 @@ Given a repository, render a deterministic shields-style readiness badge (5 styl
 4. **Tie fallback**: fixture with equal counts → `flat`
 5. **No known style**: fixture with only non-shields badges → `flat`
 6. **Override**: `--style for-the-badge` on any of the above → `for-the-badge`, probe evidence still reported
-7. **Tier/color mapping**: three fixtures scored 9, 6, 1.5 → labels AI-Native / AI-Curious / AI-Absent with `#4c1` / `#dfb317` / `#e05d44` message sides
+7. **Label/color mapping**: three fixtures scored 9, 6, 1.5 → every badge renders the fixed `AI-Readiness` label with `#4c1` / `#dfb317` / `#e05d44` message sides; the report line still names the tier (AI-Native / AI-Curious / AI-Absent) and no tier name ever appears inside the badge SVG or snippet
 8. **SVG validity**: output parses as XML; width adapts to text (no fixed width)
 9. **Artifacts**: `assets/badge.svg` + `assets/audit-report.md` written; the printed snippet references both (badge → report link)
 10. **Determinism**: two runs on the same fixture → byte-identical SVG + report
