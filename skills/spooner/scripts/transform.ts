@@ -40,10 +40,33 @@ const STAGE_FILES: Record<number, string[]> = {
   4: ["docs/sdd/spec.md", "docs/sdd/plan.md", "docs/sdd/tasks.md", ".github/workflows/sdd.yml"],
 };
 
+/** Existing spec directory in the target repo (audit's checkAgentsSdd
+ *  recognition order, mirrored exactly for transform): `specs/` /
+ *  `docs/sdd/` / `.agents/notes`. A repo with an existing spec directory is
+ *  respected — stage 4 must not install a competing `docs/sdd/` tree.
+ *  `docs/sdd/` itself counts too (it is the install path; file-level
+ *  conflict handling below decides what happens to each template file). */
+function existingSpecDirOf(root: string): string | null {
+  for (const dir of ["specs", "docs/sdd", ".agents/notes"]) {
+    const p = join(root, dir);
+    try {
+      if (lstatSync(p).isDirectory()) return dir;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 /** Stage-4 template map: SDD docs + the spec-existence CI gate. The gate is
  *  skipped on non-GitHub platforms — same routing as stage 2 (stage 4 must
- *  not install a dead .github/workflows/sdd.yml on GitLab). */
+ *  not install a dead .github/workflows/sdd.yml on GitLab). If the repo
+ *  already carries its own spec docs (`specs/` or `.agents/notes`), no
+ *  `docs/sdd/` templates are installed either — the existing spec directory
+ *  is respected, not competed with. */
 export function stage4Templates(root: string, ciOverride?: string): Record<string, string> {
+  const existing = existingSpecDirOf(root);
+  if (existing !== null && existing !== "docs/sdd") return {};
   const tpl = { ...STAGE4_TEMPLATES };
   if (!workflowEligible(root, ciOverride)) delete tpl[".github/workflows/sdd.yml"];
   return tpl;
@@ -578,7 +601,7 @@ const PRE_COMMIT_CORE = `  - repo: https://github.com/pre-commit/pre-commit-hook
  *  this copy and the five workflow templates' copies from drifting. */
 const MANIFEST_GATE_SCRIPT = `import sys, os, re
 # baked at install time; must track the spooner TOOL_VERSION that
-# shipped this workflow (docs/08 ledger rule: every bump updates it)
+# shipped this workflow (version-ledger rule: every bump updates it)
 EXPECTED = "@EXPECTED@"
 
 def parse_yaml(text):
@@ -813,9 +836,16 @@ function nodeHooks(root: string, offline = false): string | null {
   // orphan the test hook under the eslint repo).
   const local: string[] = [];
   if (typecheckable) {
+    const typecheckEntry = tsconfigPresent(root)
+      ? offline
+        ? // Offline variant never fetches npm: use the repo's own tsc and
+          // skip with a notice when node_modules is missing (pip-audit pattern).
+          "bash -c 'if [ ! -x node_modules/.bin/tsc ]; then echo \"tsc not installed - SKIP=typecheck or npm install\"; exit 0; fi; exec node_modules/.bin/tsc --noEmit'"
+        : "bash -c 'npx tsc --noEmit'"
+      : declaredWrapper("typecheck");
     local.push(`      - id: typecheck
         name: TypeScript typecheck (${tsconfigPresent(root) ? "tsc" : "declared"})
-        entry: ${tsconfigPresent(root) ? "bash -c 'npx tsc --noEmit'" : declaredWrapper("typecheck")}
+        entry: ${typecheckEntry}
         language: system
         pass_filenames: false
         always_run: true
@@ -1070,7 +1100,9 @@ function offlinePreCommitConfig(root: string): string {
 
 /** gitleaks as a system hook (offline variant only): included when the
  *  binary is on PATH at generation time — `gitleaks git --pre-commit` is
- *  gitleaks' documented pre-commit mode, zero network. */
+ *  gitleaks' documented pre-commit mode, zero network. A runtime pre-check
+ *  keeps the hook honest on machines where gitleaks is not installed:
+ *  missing local tool is not a failing build (pip-audit/pytest pattern). */
 function gitleaksSystemHook(root: string): string | null {
   try {
     execFileSync("sh", ["-c", "command -v gitleaks"], { cwd: root, stdio: "ignore" });
@@ -1081,7 +1113,7 @@ function gitleaksSystemHook(root: string): string | null {
     hooks:
       - id: gitleaks
         name: gitleaks (system — detect hardcoded secrets)
-        entry: gitleaks git --pre-commit
+        entry: 'bash -c ''command -v gitleaks >/dev/null 2>&1 || { echo "gitleaks not installed - SKIP=gitleaks or install gitleaks"; exit 0; }; exec gitleaks git --pre-commit'' bash'
         language: system
         pass_filenames: false
         stages: [pre-commit]`;
@@ -1101,9 +1133,13 @@ function perlPresent(root: string): boolean {
 
 /** Normalize + validate a --hook-mirror base (spec 0010): http(s) only, a
  *  trailing slash guaranteed (the managed repo names append after it), no
- *  control characters (a newline could inject foreign YAML entries). */
+ *  control characters (a newline could inject foreign YAML entries), no
+ *  query/hash (a base like https://x/mirrors?foo would concatenate the
+ *  repo name after the query — malformed repo URLs). */
 function normalizeHookMirror(base: string): string {
   if (/[\r\n]/.test(base)) throw new Error(`--hook-mirror: invalid mirror base (control characters): ${base}`);
+  if (base.includes("?") || base.includes("#"))
+    throw new Error(`--hook-mirror: query/hash are not supported in the mirror base: ${base}`);
   let u: URL;
   try {
     u = new URL(base);
@@ -1147,14 +1183,16 @@ export function generatePreCommitConfig(root: string, opts: PreCommitGenOptions 
         return `${sections.join("\n")}\n`;
       })();
   if (mirror !== undefined) {
-    // Rewrite the managed repo URLs (rev-pinned tags travel with the mirror);
-    // the header's GitHub note gains the mirror line (spec 0010).
-    return content
-      .replaceAll("  - repo: https://github.com/", `  - repo: ${mirror}`)
-      .replace(
-        "# GitHub unreachable (no mirror/proxy configured), pre-commit cannot prepare the",
-        `# Hook repos mirrored from ${mirror} (--hook-mirror); GitHub itself is not touched.`,
-      );
+    // Rewrite the managed repo URLs (rev-pinned tags travel with the mirror)
+    // and replace the WHOLE GitHub-reachability header block — a one-line
+    // replace used to leave the trailing "commits are BLOCKED; make GitHub
+    // reachable first" line next to the mirror note (contradictory header).
+    return content.replaceAll("  - repo: https://github.com/", `  - repo: ${mirror}`).replace(
+      `# NOTE: the hook repos below are fetched from GitHub when pre-commit runs — with
+# GitHub unreachable (no mirror/proxy configured), pre-commit cannot prepare the
+# hook environment and commits are BLOCKED; make GitHub reachable first.`,
+      `# Hook repos mirrored from ${mirror} (--hook-mirror); GitHub itself is not touched.`,
+    );
   }
   return content;
 }
@@ -1536,14 +1574,25 @@ const GENERATED_PRE_COMMIT_MARKER = "# pre-commit config generated by spooner tr
 
 /** M13: prompt the manual hook install — only when a generated pre-commit
  *  config applies and no hook is installed yet (config ≠ enforcement; the
- *  agent still runs `pre-commit install` per SKILL.md). */
-function hookPromptOf(root: string, ecosystem: HookTool, templates: Record<string, string>): string {
+ *  agent still runs `pre-commit install` per SKILL.md). Variant-aware:
+ *  the offline config has no commit-msg hooks, so it installs the
+ *  pre-commit stage only (the config's own header says the same). */
+function hookPromptOf(
+  root: string,
+  ecosystem: HookTool,
+  templates: Record<string, string>,
+  opts: PreCommitGenOptions = {},
+): string {
   if (ecosystem === "husky" || ecosystem === "lefthook" || ecosystem === "yorkie") return "";
   if (templates[PRE_COMMIT_FILE] === undefined) return "";
+  const preCommitInstalled = existsSync(join(root, ".git", "hooks", "pre-commit"));
   const installed =
-    existsSync(join(root, ".git", "hooks", "pre-commit")) || existsSync(join(root, ".git", "hooks", "commit-msg"));
-  return installed
-    ? ""
+    opts.offline === true
+      ? preCommitInstalled
+      : preCommitInstalled || existsSync(join(root, ".git", "hooks", "commit-msg"));
+  if (installed) return "";
+  return opts.offline === true
+    ? "; hooks not installed — run: pre-commit install --hook-type pre-commit"
     : "; hooks not installed — run: pre-commit install --hook-type pre-commit --hook-type commit-msg";
 }
 
@@ -1594,12 +1643,23 @@ export async function applyStage2(
   gatesArg?: GatesStrictness,
   genOpts: PreCommitGenOptions = {},
 ): Promise<Stage2Result> {
+  // Mutual exclusion must hold at the API boundary too — the CLI and
+  // generatePreCommitConfig enforce it, but a direct applyStage2 call on a
+  // husky/lefthook/yorkie repo (no pre-commit file generated) would otherwise
+  // accept both flags silently.
+  if (genOpts.offline === true && genOpts.hookMirror !== undefined) {
+    throw new Error("--offline and --hook-mirror are mutually exclusive (choose one)");
+  }
   // Normalize/validate the mirror base once — the generated config and the
   // printed insteadOf command must agree (spec 0010 review round).
   const opts: PreCommitGenOptions =
     genOpts.hookMirror === undefined ? genOpts : { ...genOpts, hookMirror: normalizeHookMirror(genOpts.hookMirror) };
   const gates = gatesOf(root, gatesArg);
   const templates = stage2Templates(root, ciOverride);
+  // The probe/notice only matter when a generated pre-commit config is
+  // actually being installed — a husky/lefthook/yorkie repo keeps its own
+  // hooks, so GitHub reachability for pre-commit is irrelevant there.
+  const preCommitManaged = templates[PRE_COMMIT_FILE] !== undefined;
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
     if (!existsSync(target)) return { file, action: "write" };
@@ -1734,8 +1794,10 @@ export async function applyStage2(
   // GitHub reachability probe (spec 0010 intranet round): unreachable →
   // guidance, never a hard fail. --offline/--hook-mirror runs skip the probe
   // (the offline choice is already made — the config doesn't need GitHub).
+  // The probe only runs when a generated pre-commit config is being installed
+  // (a husky/lefthook/yorkie repo keeps its own hooks — nothing to probe for).
   const githubNotice =
-    opts.offline === true || opts.hookMirror !== undefined
+    !preCommitManaged || opts.offline === true || opts.hookMirror !== undefined
       ? null
       : githubReachableOf(root)
         ? null
@@ -1744,7 +1806,7 @@ export async function applyStage2(
   // choice whether to run it (the tool never writes their gitconfig, spec
   // 0010 non-goal).
   const mirrorNotice =
-    opts.hookMirror === undefined
+    !preCommitManaged || opts.hookMirror === undefined
       ? null
       : `hook repos will fetch from ${opts.hookMirror} (--hook-mirror) — optional: git config --global url."${opts.hookMirror}".insteadOf "https://github.com/" (npm/PyPI/GOPROXY registries need mirrors too)`;
   // Mode-change notice (spec 0010 review round): a plain re-run regenerates
@@ -1768,8 +1830,27 @@ export async function applyStage2(
   // self-contained hooks need perl at generation time — absent perl, they
   // are honestly omitted (never faked) and the report names the escape.
   const perlNotice =
-    opts.offline === true && !perlPresent(root)
+    preCommitManaged && opts.offline === true && !perlPresent(root)
       ? "offline hygiene hooks omitted: perl not found on PATH (the offline variant's trailing-whitespace/end-of-file-fixer need perl) — install perl and re-run, or use --hook-mirror"
+      : null;
+  // Offline variant still installs the commitlint/markdownlint config files
+  // as dormant config — the offline pre-commit config omits their hooks, but
+  // the files are kept so switching back to the regular config needs no
+  // re-install. Only meaningful when a pre-commit config is actually being
+  // installed (husky/lefthook/yorkie repos have no offline pre-commit config).
+  const offlineConfigNotice =
+    preCommitManaged &&
+    opts.offline === true &&
+    (templates[".commitlintrc.json"] !== undefined || templates[".markdownlint-cli2.yaml"] !== undefined)
+      ? "offline mode: .commitlintrc.json/.markdownlint-cli2.yaml installed as dormant config (the offline pre-commit config omits their hooks; re-run without --offline to activate them)"
+      : null;
+  // Offline mode does not re-render the CI workflow — the workflow still
+  // names markdownlint/commitlint in its job titles while the offline config
+  // omits those hooks. The report says so instead of leaving the mismatch
+  // unexplained.
+  const offlineWorkflowNotice =
+    preCommitManaged && opts.offline === true && templates[".github/workflows/ai-native.yml"] !== undefined
+      ? "offline mode: .github/workflows/ai-native.yml is installed as the online template (its pre-commit job runs the offline config; markdownlint/commitlint job names may overstate coverage)"
       : null;
   const extra = [
     notice,
@@ -1782,6 +1863,8 @@ export async function applyStage2(
     mirrorNotice,
     modeNotice,
     perlNotice,
+    offlineConfigNotice,
+    offlineWorkflowNotice,
   ]
     .filter(Boolean)
     .join("; ");
@@ -1800,7 +1883,7 @@ export async function applyStage2(
           : unsupportedStacks
             ? `verification: not run (stack ${unsupportedStacks} is transform-unsupported — ${unsupportedTracedPhrase})`
             : "verification command: none declared"
-      }${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}`,
+      }${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates, opts)}`,
     };
   }
 
@@ -1892,7 +1975,7 @@ export async function applyStage2(
     else if (beforeState === "unverifiable")
       parts.push(`could not verify before apply (${beforeRun?.error ?? "timed out"}); green after (${command})`);
     else parts.push(`build green before+after (${command})`);
-    message = `stage 2 applied: ${parts.join("; ")}${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates)}${manifestUpdated ? "; manifest updated" : ""}`;
+    message = `stage 2 applied: ${parts.join("; ")}${extra ? `; ${extra}` : ""}${hookPromptOf(root, ecosystem, templates, opts)}${manifestUpdated ? "; manifest updated" : ""}`;
   }
 
   return {
@@ -2236,12 +2319,18 @@ interface Stage4Result {
   applied: boolean;
   dryRun: boolean;
   files: Stage2FilePlan[];
-  agentsSdd: { plan: "append" | "already-present" | "no-agents-file" | "symlink"; appended: boolean; target?: string };
+  agentsSdd: {
+    plan: "append" | "already-present" | "no-agents-file" | "symlink" | "existing-spec-dir";
+    appended: boolean;
+    target?: string;
+    specDir?: string;
+  };
   manifestUpdated: boolean;
   message: string | null;
 }
 
 export function applyStage4(root: string, dryRun: boolean, ciOverride?: string): Stage4Result {
+  const existingSpecDir = existingSpecDirOf(root);
   const templates = stage4Templates(root, ciOverride);
   const plans: Stage2FilePlan[] = Object.entries(templates).map(([file, tpl]) => {
     const target = join(root, file);
@@ -2255,18 +2344,25 @@ export function applyStage4(root: string, dryRun: boolean, ciOverride?: string):
 
   const agentsPath = join(root, "AGENTS.md");
   let agentsSdd: Stage4Result["agentsSdd"] | undefined;
+  // Existing spec docs outside the install path win: no docs/sdd templates,
+  // no SDD convention appended — the repo's own spec discipline is respected.
+  if (existingSpecDir !== null && existingSpecDir !== "docs/sdd") {
+    agentsSdd = { plan: "existing-spec-dir", appended: false, specDir: existingSpecDir };
+  }
   // Symlink AGENTS.md first (an upstream AGENTS.md → CLAUDE.md, the reverse
   // of spooner's convention — readFileSync/writeFileSync follow the link, so
   // appending would write the SDD convention into the real target file).
   // Never write through a link: the agent decides where the convention
   // belongs.
-  try {
-    const st = lstatSync(agentsPath);
-    if (st.isSymbolicLink()) {
-      agentsSdd = { plan: "symlink", appended: false, target: readlinkSync(agentsPath) };
+  if (!agentsSdd) {
+    try {
+      const st = lstatSync(agentsPath);
+      if (st.isSymbolicLink()) {
+        agentsSdd = { plan: "symlink", appended: false, target: readlinkSync(agentsPath) };
+      }
+    } catch {
+      /* absent or unreadable — fall through to the content checks */
     }
-  } catch {
-    /* absent or unreadable — fall through to the content checks */
   }
   if (!agentsSdd) {
     if (!existsSync(agentsPath)) {
@@ -2286,7 +2382,9 @@ export function applyStage4(root: string, dryRun: boolean, ciOverride?: string):
           ? "already present"
           : agentsSdd.plan === "symlink"
             ? `symlink to ${agentsSdd.target} — skipped (writing through it would modify the target)`
-            : "skipped (no AGENTS.md — run stage 3)";
+            : agentsSdd.plan === "existing-spec-dir"
+              ? `existing spec dir ${agentsSdd.specDir} — skipped (respecting existing content)`
+              : "skipped (no AGENTS.md — run stage 3)";
     const sddSkip = templates[".github/workflows/sdd.yml"] === undefined ? workflowSkipReason(root, ciOverride) : null;
     return {
       stage: 4,
@@ -2325,7 +2423,12 @@ export function applyStage4(root: string, dryRun: boolean, ciOverride?: string):
   }
 
   let message: string;
-  if (agentsSdd.plan === "symlink" && toWrite.length === 0 && conflicts.length === 0 && !appended) {
+  if (agentsSdd.plan === "existing-spec-dir") {
+    // Existing spec docs are respected — stage 4 is a no-op for the
+    // docs/sdd templates and the SDD convention (the repo's own spec
+    // discipline wins).
+    message = `stage 4 skipped: existing spec dir ${agentsSdd.specDir} — respecting it (no docs/sdd templates installed, no SDD convention appended)`;
+  } else if (agentsSdd.plan === "symlink" && toWrite.length === 0 && conflicts.length === 0 && !appended) {
     // "skipped", not "applied" — nothing was written (the old wording said
     // "applied" while the SDD convention was NOT appended)
     message = `stage 4 skipped: AGENTS.md is a symlink to ${agentsSdd.target} — SDD convention NOT appended (writing through it would modify ${agentsSdd.target})${sddSkip ? `; ${sddSkip} (SDD spec gate)` : ""}`;
@@ -2437,6 +2540,14 @@ async function run(
   gatesArg?: GatesStrictness,
   genOpts: PreCommitGenOptions = {},
 ): Promise<TransformReport> {
+  // --offline/--hook-mirror configure stage-2 pre-commit generation only;
+  // silently ignoring them on stage 3/4 would hide a user's mistake.
+  if (stage === 3 || stage === 4) {
+    const flags: string[] = [];
+    if (genOpts.hookMirror !== undefined) flags.push("--hook-mirror");
+    if (genOpts.offline) flags.push("--offline");
+    if (flags.length > 0) throw new Error(`${flags.join("/")} only apply to stage 2, not stage ${stage}`);
+  }
   const stagesToReport = stage === "all" ? [2, 3, 4] : [stage];
   const mr = readManifest(root);
   let applied = false;
@@ -2529,7 +2640,10 @@ function parseArgs(argv: string[]): {
 } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
-    return i >= 0 ? argv[i + 1] : undefined;
+    if (i < 0) return undefined;
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} requires a value`);
+    return v;
   };
   const stageRaw = valueOf("--stage");
   const stage: number | "all" =
@@ -2570,7 +2684,12 @@ function parseArgs(argv: string[]): {
           return n;
         })();
   const verifyCommand = valueOf("--verify-command");
-  const hookMirror = valueOf("--hook-mirror");
+  const hookMirrorIndex = argv.indexOf("--hook-mirror");
+  const hookMirror = hookMirrorIndex >= 0 ? argv[hookMirrorIndex + 1] : undefined;
+  if (hookMirrorIndex >= 0 && (hookMirror === undefined || hookMirror.startsWith("--")))
+    throw new Error(
+      "--hook-mirror requires a value (the intranet mirror base, e.g. https://gitlab.example.com/mirrors/)",
+    );
   const offline = argv.includes("--offline");
   if (offline && hookMirror !== undefined)
     throw new Error("--offline and --hook-mirror are mutually exclusive (choose one)");

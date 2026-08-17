@@ -8,7 +8,7 @@ date: 2026-08-03
 
 ## Background
 
-M1 goal as defined in the session handoff: stack detection + scoring + report output, demoable on its own (score any repo live). Design basis: the internal scope archive (docs/02-scope.md, local-only): audit checks, gate matrix, maturity gating. **This spec pins the scoring matrix and the report schema — slices 2/3 must implement exactly this, no drift.**
+M1 goal as defined in the session handoff: stack detection + scoring + report output, demoable on its own (score any repo live). Design basis: the internal scope archive: audit checks, gate matrix, maturity gating. **This spec pins the scoring matrix and the report schema — slices 2/3 must implement exactly this, no drift.**
 
 ## Goal (one sentence)
 
@@ -73,7 +73,7 @@ Weight structure: Agent Setup 45% (the AI-specific core) / Configuration 20% / I
 | struct-readme | 0.5 | content with ≥3 section headings / content only / <50 chars                                                                    |
 | struct-layout | 0.5 | src / lib / packages subdir, or gradle module dirs carrying src/ (settings.gradle(.kts) project with app/src — Android/kotlin) |
 
-**Calibration note**: weights are an expert-set first version; the calibration loop (cross-check on real repos, see "Calibration status") is the differentiator (internal archive docs/04 insight #1), not a one-off.
+**Calibration note**: weights are an expert-set first version; the calibration loop (cross-check on real repos, see "Calibration status") is the differentiator (calibration insight #1), not a one-off.
 
 ## Maturity assessment (deterministic rules)
 
@@ -175,6 +175,6 @@ Weights calibrated on 5 real repositories (scores 8.5-17): discrimination health
 
 ## Risks
 
-- Scoring becomes yet another 0-100: closing the loop (score → fix) + calibration is the differentiator (internal archive docs/04 insight #1) — the calibration loop lives inside slice 2
+- Scoring becomes yet another 0-100: closing the loop (score → fix) + calibration is the differentiator (calibration insight #1) — the calibration loop lives inside slice 2
 - Invented commands: every command must derive from real files (killer gate) — agents-commands exists to enforce this
 - Arbitrary weights: the weights borrow a calibrated structure but the check mapping is not yet empirically calibrated — the ≥3-repo review in slice 2 is the stop-loss

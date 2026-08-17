@@ -8,7 +8,7 @@ date: 2026-08-04
 
 ## Background
 
-Transform supports the mainstream stacks: Java/Spring, Go, Python, React/Vue/Next. React/Vue/Next are node-stack (package.json tooling); the stack families are **python, go, java (Maven + Gradle)**, plus rust in the deep tier (spec 0011 — one of the three AI-stakes languages). `detect.ts` recognizes all of them (9 stacks), `audit.ts` scores any stack (under-estimates, never over-estimates — verified on a synthetic Java repo), and Stage 4 is stack-agnostic. The gaps are transform Stages 2-3, which are node-only: Stage 2 silently installs npm gates on non-node repos (the known ⚠️ — the npm CI workflow breaks non-node CI), and Stage 3's AGENTS.md command table is empty for non-node repos. The "branch hell" risk (decision #4) is mitigated by a deliberately small per-stack surface: one workflow template + one set of standard lifecycle commands per stack, verified by the CI hard gate — the same trust model as package.json scripts (a command is "real and executable" because the gate actually runs it). **Publish contract (docs/08 五.6)**: template set changes require a TOOL_VERSION bump (feature bumps recorded in the ledger). **This spec pins the stack model, the per-stack lifecycle commands, and the unsupported-stack notice — the slices must implement exactly this, no drift.**
+Transform supports the mainstream stacks: Java/Spring, Go, Python, React/Vue/Next. React/Vue/Next are node-stack (package.json tooling); the stack families are **python, go, java (Maven + Gradle)**, plus rust in the deep tier (spec 0011 — one of the three AI-stakes languages). `detect.ts` recognizes all of them (9 stacks), `audit.ts` scores any stack (under-estimates, never over-estimates — verified on a synthetic Java repo), and Stage 4 is stack-agnostic. The gaps are transform Stages 2-3, which are node-only: Stage 2 silently installs npm gates on non-node repos (the known ⚠️ — the npm CI workflow breaks non-node CI), and Stage 3's AGENTS.md command table is empty for non-node repos. The "branch hell" risk (decision #4) is mitigated by a deliberately small per-stack surface: one workflow template + one set of standard lifecycle commands per stack, verified by the CI hard gate — the same trust model as package.json scripts (a command is "real and executable" because the gate actually runs it). **Publish contract (version-ledger rule 五.6)**: template set changes require a TOOL_VERSION bump (feature bumps recorded in the ledger). **This spec pins the stack model, the per-stack lifecycle commands, and the unsupported-stack notice — the slices must implement exactly this, no drift.**
 
 ## Goal (one sentence)
 
@@ -31,7 +31,7 @@ For any node / python / go / java / rust repository, transform installs stack-co
 - **Stage 3 — per-stack AGENTS.md commands**: node (package.json scripts, existing) + Makefile (all stacks, existing); java: `pom.xml` → `mvn compile` / `mvn test`, `build.gradle` → `gradle build` / `gradle test`; go: `go.mod` → `go build ./...` / e2e-aware `go test` / `go vet ./...`; python: `pyproject.toml` or `requirements.txt` → `python -m unittest discover`
 - **audit.ts `checkAgentsCommands`**: command sources extended — AGENTS.md command table entries verified against package.json scripts / Makefile targets / per-stack lifecycle (go/mvn/gradle/unittest when the build file exists) — non-node repos can now credit `agents-commands`
 - **sync.ts**: template comparison is stack-aware — `templateFor` resolves the workflow template by `primaryStack` (a python repo's workflow is compared against the python template)
-- **TOOL_VERSION 0.2.0** + docs/08 ledger row + `EXPECTED` constant updated to 0.2.0 in all four workflow templates (rule 五.7)
+- **TOOL_VERSION 0.2.0** + local version-ledger row + `EXPECTED` constant updated to 0.2.0 in all four workflow templates (rule 五.7)
 
 ## Non-goals
 
@@ -50,7 +50,7 @@ For any node / python / go / java / rust repository, transform installs stack-co
 5. **Stage 3 per stack**: go/java/python fixtures → AGENTS.md command table lists the stack lifecycle commands, each traceable to the build file
 6. **Audit credits per-stack commands**: a go fixture whose AGENTS.md lists the e2e-aware `go test` → `agents-commands` evidence; the score reflects it (no longer always 0/2 for non-node)
 7. **sync stack-aware**: a python fixture with a stale version + differing workflow bytes → `outdated` and apply restores the **python** template bytes (not the node template)
-8. **Version + EXPECTED**: TOOL_VERSION equals the baked `EXPECTED` in all four workflow templates; docs/08 ledger row records the bump
+8. **Version + EXPECTED**: TOOL_VERSION equals the baked `EXPECTED` in all four workflow templates; local version-ledger row records the bump
 9. **Drift gate regression**: the M5 gate scenarios still pass against the node workflow template (extracted script: green / drift / no-manifest / stale / bad-schema)
 10. **Detect/audit unchanged**: 9 stacks recognized; non-node audit under-scores only (no over-estimation)
 11. **Docs**: SKILL.md stack matrix + stage-2/3 tables; README stack support matrix (bilingual); AGENTS.md status

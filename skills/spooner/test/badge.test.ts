@@ -100,6 +100,15 @@ test("probe: <img> tags are detected too", () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("probe: single-quoted <img src='...'> is detected too", () => {
+  const repo = fixture();
+  writeReadme(repo, `<img src='${SHIELDS}/x-y?style=flat-square' alt="p">\n`);
+  const p = probeReadme(repo);
+  assert.equal(p.decided, "flat-square");
+  assert.equal(p.source, "probe");
+  rmSync(repo, { recursive: true, force: true });
+});
+
 // --- style override -------------------------------------------------------------
 
 test("run: --style override wins and probe evidence is still reported", () => {
@@ -203,6 +212,9 @@ test("renderBadge: for-the-badge is big, bold, uppercase", () => {
   assert.match(svg, /font-weight="bold"/);
   assert.match(svg, />AI-FRIENDLY</);
   assert.match(svg, />16\/20</);
+  // aria-label/title follow the displayed uppercase text
+  assert.match(svg, /aria-label="AI-FRIENDLY: 16\/20"/);
+  assert.match(svg, /<title>AI-FRIENDLY: 16\/20<\/title>/);
 });
 
 test("renderBadge: all five styles render without error", () => {

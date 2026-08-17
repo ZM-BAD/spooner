@@ -110,7 +110,7 @@ $ node skills/spooner/scripts/audit.ts --root /path/to/repo --format markdown
 
 ## FAQ
 
-- **我的环境访问不了 GitHub，会被卡住吗？** 生成的 pre-commit 配置在运行时从 GitHub 拉取 hook 仓库；GitHub 不可达时 pre-commit 无法准备钩子环境、commit 会被阻塞——生成配置的头部说明了这一点并给出镜像方案。CI（GitHub Actions）不受影响。面向内网/离线环境的离线模式正在规划中。
+- **我的环境访问不了 GitHub，会被卡住吗？** 生成的 pre-commit 配置在运行时从 GitHub 拉取 hook 仓库；GitHub 不可达时 pre-commit 无法准备钩子环境、commit 会被阻塞——生成配置的头部说明了这一点并给出镜像方案。CI（GitHub Actions）不受影响。面向内网/离线环境：运行 `transform --stage 2 --offline` 生成仅 `repo: local` 的配置（从不访问 GitHub；npm 管理的 hook 如实省略），或使用 `--hook-mirror <base>` 将受管仓库 URL 重写到内网镜像。
 
 ## 开发
 

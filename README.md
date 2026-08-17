@@ -110,7 +110,7 @@ Every stage is verifiable and rollback-able (`git restore` of the listed files);
 
 ## FAQ
 
-- **GitHub is unreachable in my environment — will commits be blocked?** The generated pre-commit config fetches its hook repos from GitHub at run time; with GitHub unreachable, pre-commit cannot prepare hooks and commits are blocked — the generated header documents this and names the mirror workaround. CI (GitHub Actions) is unaffected. An offline-friendly mode for air-gapped environments is in the works.
+- **GitHub is unreachable in my environment — will commits be blocked?** The generated pre-commit config fetches its hook repos from GitHub at run time; with GitHub unreachable, pre-commit cannot prepare hooks and commits are blocked — the generated header documents this and names the mirror workaround. CI (GitHub Actions) is unaffected. For intranet/air-gapped environments, run `transform --stage 2 --offline` for a repo:local-only config (never fetches GitHub; npm-managed hooks honestly omitted), or `--hook-mirror <base>` to rewrite the managed repo URLs to an intranet mirror.
 
 ## Development
 

@@ -3,7 +3,7 @@
  * check — Spooner M3: re-run the audit, compare against the baseline and
  * the .ai-native.yml manifest, report drift with fixed suggestions.
  *
- * The loop (docs/02 §3): audit = check-up, transform = surgery, check =
+ * The loop: audit = check-up, transform = surgery, check =
  * re-check. Readiness decays (AGENTS.md goes stale, gates get deleted);
  * check makes detection repeatable with records.
  *
@@ -180,7 +180,10 @@ function renderMarkdown(r: CheckReport): string {
 function parseArgs(argv: string[]): { root: string; format: "json" | "markdown" } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
-    return i >= 0 ? argv[i + 1] : undefined;
+    if (i < 0) return undefined;
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} requires a value`);
+    return v;
   };
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
   return { root: valueOf("--root") ?? process.cwd(), format };

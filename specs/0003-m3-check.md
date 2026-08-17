@@ -8,7 +8,7 @@ date: 2026-08-04
 
 ## Background
 
-M1 ships the audit (score) and M2 ships the transform (in-place fix). The third command closes the loop (docs/02 §3, local-only): readiness decays — AGENTS.md goes stale, CI gates get deleted, lint gets bypassed. Without check, the skill is a one-shot migration script; with it, detection becomes a repeatable health check with records. Design basis: docs/02 §3 (re-run audit and compare, manifest vs actual drift, suggested actions), decision #7 (`.ai-native.yml` manifest + rerunnable). M2 already seeded the drift machinery: `transform.ts` reports manifest consistency; `audit.ts` produces the deterministic score. **This spec pins the check report schema and the baseline store — the slices must implement exactly this, no drift.**
+M1 ships the audit (score) and M2 ships the transform (in-place fix). The third command closes the loop: readiness decays — AGENTS.md goes stale, CI gates get deleted, lint gets bypassed. Without check, the skill is a one-shot migration script; with it, detection becomes a repeatable health check with records. Design basis: re-run audit and compare, manifest vs actual drift, suggested actions; decision #7 (`.ai-native.yml` manifest + rerunnable). M2 already seeded the drift machinery: `transform.ts` reports manifest consistency; `audit.ts` produces the deterministic score. **This spec pins the check report schema and the baseline store — the slices must implement exactly this, no drift.**
 
 ## Goal (one sentence)
 

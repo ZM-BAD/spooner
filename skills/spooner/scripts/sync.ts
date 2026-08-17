@@ -3,17 +3,21 @@
  * sync — Spooner M4: compare installed template files (recorded in
  * .ai-native.yml) against the current skill templates and re-sync them.
  *
- * The loop (docs/02 §3 + §8): transform installs template files and records
+ * The loop: transform installs template files and records
  * them in the manifest; when the tool advances (TOOL_VERSION bump with
  * changed templates), installed files go stale — pre-commit rev pins, actions
  * versions, gate configs. sync = versioned re-sync: byte-compare installed vs
  * current template, decide per-file status (up-to-date / outdated / modified /
  * missing / generated), and in apply mode (default) replace outdated + restore
- * missing — never touching user-modified files. check detects → sync applies.
+ * missing. `modified` (same-version byte diff) is never touched; `outdated`
+ * (older recorded version + byte diff) aligns to the current template by
+ * design — if a user edited an OLD-version install, those edits are replaced
+ * too (spec 0004 risk register). Dry-run first; every apply reports the git
+ * rollback command. check detects → sync applies.
  *
  * Naming (decision #12): "sync" not "upgrade" — transform = AI-ification of
  * the repo; the tool's own upgrade = replacing the skill package
- * (distribution, docs/07); sync = re-syncing installed artifacts to the
+ * (distribution); sync = re-syncing installed artifacts to the
  * current templates (uv sync semantics: reconcile installed → declared).
  *
  * Zero dependencies (Node builtins only); runs natively via Node's
@@ -243,6 +247,9 @@ export function run(root: string, dryRun: boolean): SyncReport {
   } else {
     const replaced = toApply.map((p) => p.report.file).join(", ");
     parts.push(`replaced/restored ${toApply.length} file(s): ${replaced}`);
+    parts.push(
+      "outdated = old-version byte diff — user edits on an OLD-version install are replaced too; dry-run first to preview",
+    );
     if (count("modified") > 0) parts.push(`${count("modified")} modified file(s) left untouched (user edits)`);
     parts.push("manifest updated (templateVersion)");
     parts.push(`rollback: git restore ${toApply.map((p) => p.report.file).join(" ")}`);
@@ -295,7 +302,10 @@ function renderMarkdown(r: SyncReport): string {
 function parseArgs(argv: string[]): { root: string; dryRun: boolean; format: "json" | "markdown" } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
-    return i >= 0 ? argv[i + 1] : undefined;
+    if (i < 0) return undefined;
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} requires a value`);
+    return v;
   };
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
   return { root: valueOf("--root") ?? process.cwd(), dryRun: argv.includes("--dry-run"), format };

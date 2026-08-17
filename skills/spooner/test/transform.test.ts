@@ -1,9 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import {
   TEMPLATE_DIR,
   TOOL_VERSION,
@@ -1181,6 +1191,36 @@ test("stage 4: --ci github overrides a gitlab remote (sdd workflow included)", (
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("stage 4: existing specs/ is respected — no docs/sdd templates, no SDD append", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, "specs"), { recursive: true });
+  writeFileSync(join(repo, "specs", "0001-example.md"), "---\nstatus: shipped\n---\n# Example\n");
+  writeFileSync(join(repo, "AGENTS.md"), "# Contract\n\nBuild commands live here.\n");
+  assert.deepEqual(stage4Templates(repo), {}, "specs/ must suppress the docs/sdd template set");
+  const r = applyStage4(repo, false);
+  assert.equal(r.applied, false);
+  assert.equal(r.agentsSdd.plan, "existing-spec-dir");
+  assert.equal(r.agentsSdd.specDir, "specs");
+  assert.ok(!existsSync(join(repo, "docs/sdd/spec.md")), "no docs/sdd installed");
+  assert.ok(!existsSync(join(repo, ".github/workflows/sdd.yml")), "no sdd workflow installed");
+  assert.doesNotMatch(readFileSync(join(repo, "AGENTS.md"), "utf8"), /Spec-driven workflow/, "AGENTS.md untouched");
+  assert.match(r.message ?? "", /existing spec dir specs/);
+  assert.match(r.message ?? "", /respecting it/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("stage 4: existing .agents/notes is respected like specs/", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, ".agents", "notes"), { recursive: true });
+  writeFileSync(join(repo, ".agents", "notes", "plan.md"), "# Plan\n");
+  const r = applyStage4(repo, true);
+  assert.equal(r.agentsSdd.plan, "existing-spec-dir");
+  assert.equal(r.agentsSdd.specDir, ".agents/notes");
+  assert.deepEqual(r.files, []);
+  assert.match(r.message ?? "", /existing spec dir \.agents\/notes/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("stage3: Makefile assignments and .PHONY never become commands", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n");
@@ -1786,6 +1826,10 @@ test("offline: generated config is repo:local-only, zero GitHub URLs, honest omi
   // stack local hooks survive offline; managed eslint is omitted
   assert.match(cfg, /id: typecheck/);
   assert.doesNotMatch(cfg, /mirrors-eslint/);
+  // offline typecheck must use the repo's own tsc, never npx (npx can fetch
+  // from the npm registry in an air-gapped environment)
+  assert.doesNotMatch(cfg, /npx tsc/);
+  assert.match(cfg, /node_modules\/\.bin\/tsc/);
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -1816,6 +1860,9 @@ test("hook-mirror: managed repo URLs rewritten, insteadOf command printed, deter
   assert.doesNotMatch(cfg, /  - repo: https:\/\/github\.com\//, "managed repos must point at the mirror");
   assert.match(cfg, new RegExp(`  - repo: ${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}pre-commit/pre-commit-hooks`));
   assert.match(cfg, /mirrored from https:\/\/gitlab\.example\.com\/mirrors\//);
+  // the mirror header must not keep the contradictory GitHub-blocked lines
+  assert.doesNotMatch(cfg, /commits are BLOCKED; make GitHub reachable first/);
+  assert.doesNotMatch(cfg, /hook repos below are fetched from GitHub/);
   const again = generatePreCommitConfig(repo, { hookMirror: base });
   assert.equal(again, cfg, "determinism: two runs byte-identical");
   const r = await awaitApplyStage2WithMirror(repo, base);
@@ -1833,6 +1880,20 @@ async function awaitApplyStage2WithMirror(repo: string, base: string) {
 test("offline + hook-mirror are mutually exclusive", () => {
   const repo = fixture();
   assert.throws(() => generatePreCommitConfig(repo, { offline: true, hookMirror: "https://x/" }), /mutually exclusive/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("applyStage2: offline + hook-mirror are mutually exclusive even when no pre-commit config is generated", async () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "x", scripts: { test: "true" }, devDependencies: { husky: "^9.0.0" } }),
+  );
+  mkdirSync(join(repo, ".husky"), { recursive: true });
+  await assert.rejects(
+    () => applyStage2(repo, false, undefined, {}, undefined, { offline: true, hookMirror: "https://x/" }),
+    /mutually exclusive/,
+  );
   rmSync(repo, { recursive: true, force: true });
 });
 
@@ -1872,6 +1933,98 @@ test("probe: --offline skips the probe entirely", async () => {
   }
 });
 
+test("offline: stage-2 report names the offline hook install + dormant config", async () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", scripts: { test: "true" } }));
+  const r = await applyStage2(repo, false, undefined, {}, undefined, { offline: true });
+  // the offline config has no commit-msg hooks — the prompt must only ask for
+  // the pre-commit stage, matching the config's own header (review finding)
+  assert.match(r.message ?? "", /pre-commit install --hook-type pre-commit/);
+  assert.doesNotMatch(r.message ?? "", /--hook-type commit-msg/);
+  // the two config files are installed as dormant config (no offline hooks
+  // consume them) and the report says so instead of leaving it unexplained
+  assert.ok(existsSync(join(repo, ".commitlintrc.json")));
+  assert.ok(existsSync(join(repo, ".markdownlint-cli2.yaml")));
+  assert.match(r.message ?? "", /installed as dormant config/);
+  // the CI workflow stays online-template-shaped; the report names the mismatch
+  assert.ok(existsSync(join(repo, ".github/workflows/ai-native.yml")));
+  assert.match(r.message ?? "", /installed as the online template/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("probe: husky/lefthook/yorkie repos keep their hooks — no GitHub probe notice", async () => {
+  const prev = process.env.SPOONER_GITHUB_PROBE;
+  process.env.SPOONER_GITHUB_PROBE = "unreachable";
+  try {
+    const repo = fixture();
+    writeFileSync(
+      join(repo, "package.json"),
+      JSON.stringify({ name: "x", scripts: { test: "true" }, devDependencies: { husky: "^9.0.0" } }),
+    );
+    mkdirSync(join(repo, ".husky"), { recursive: true });
+    const r = await applyStage2(repo, false);
+    assert.match(r.message ?? "", /detected husky/);
+    assert.doesNotMatch(
+      r.message ?? "",
+      /GitHub unreachable/,
+      "no pre-commit config is installed, so no probe guidance",
+    );
+    rmSync(repo, { recursive: true, force: true });
+  } finally {
+    if (prev === undefined) delete process.env.SPOONER_GITHUB_PROBE;
+    else process.env.SPOONER_GITHUB_PROBE = prev;
+  }
+});
+
+test("offline: husky repo gets no dormant-config notice (no offline pre-commit config exists)", async () => {
+  const repo = fixture();
+  writeFileSync(
+    join(repo, "package.json"),
+    JSON.stringify({ name: "x", scripts: { test: "true" }, devDependencies: { husky: "^9.0.0" } }),
+  );
+  mkdirSync(join(repo, ".husky"), { recursive: true });
+  const r = await applyStage2(repo, false, undefined, {}, undefined, { offline: true });
+  assert.match(r.message ?? "", /detected husky/);
+  assert.doesNotMatch(
+    r.message ?? "",
+    /installed as dormant config/,
+    "no offline pre-commit config → no dormant-config notice",
+  );
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("offline: gitleaks system hook is PATH-detected with the documented command shape", () => {
+  const repo = fixture();
+  const bin = join(repo, "bin");
+  mkdirSync(bin, { recursive: true });
+  const gitleaks = join(bin, "gitleaks");
+  writeFileSync(gitleaks, "#!/bin/sh\nexit 0\n");
+  chmodSync(gitleaks, 0o755);
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${bin}:${prevPath ?? ""}`;
+  try {
+    const cfg = generatePreCommitConfig(repo, { offline: true });
+    assert.match(cfg, /id: gitleaks/);
+    // runtime pre-check: missing gitleaks is a skip notice, never a block
+    assert.match(cfg, /command -v gitleaks/);
+    assert.match(cfg, /exec gitleaks git --pre-commit/);
+  } finally {
+    process.env.PATH = prevPath;
+  }
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("cli: --hook-mirror without a value is rejected", () => {
+  const repo = fixture();
+  const script = fileURLToPath(new URL("../scripts/transform.ts", import.meta.url));
+  const r = spawnSync(process.execPath, [script, "--root", repo, "--stage", "2", "--dry-run", "--hook-mirror"], {
+    encoding: "utf8",
+  });
+  assert.notEqual(r.status, 0, "missing value must fail");
+  assert.match(r.stderr ?? "", /--hook-mirror requires a value/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("probe: reachable simulation produces no guidance (spec 0010 AC16)", async () => {
   const prev = process.env.SPOONER_GITHUB_PROBE;
   process.env.SPOONER_GITHUB_PROBE = "reachable";
@@ -1907,7 +2060,15 @@ test("hook-mirror: base without trailing slash is normalized in config + instead
 
 test("hook-mirror: invalid bases are rejected", () => {
   const repo = fixture();
-  for (const bad of ["not a url", "ftp://mirror.example.com/x/", "https://x/\n  - repo: https://evil.example.com"]) {
+  for (const bad of [
+    "not a url",
+    "ftp://mirror.example.com/x/",
+    "https://x/\n  - repo: https://evil.example.com",
+    "https://mirror.example.com/base?path",
+    "https://mirror.example.com/base#fragment",
+    "https://mirror.example.com/base?",
+    "https://mirror.example.com/base#",
+  ]) {
     assert.throws(() => generatePreCommitConfig(repo, { hookMirror: bad }), /--hook-mirror/, `reject: ${bad}`);
   }
   rmSync(repo, { recursive: true, force: true });

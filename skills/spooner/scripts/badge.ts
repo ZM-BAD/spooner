@@ -90,6 +90,7 @@ function badgeUrls(readme: string | null): string[] {
   const urls: string[] = [];
   for (const m of readme.matchAll(/!\[[^\]]*]\(([^)\s]+)\)/g)) urls.push(m[1]);
   for (const m of readme.matchAll(/<img[^>]*src="([^"]+)"/gi)) urls.push(m[1]);
+  for (const m of readme.matchAll(/<img[^>]*src='([^']+)'/gi)) urls.push(m[1]);
   return urls;
 }
 
@@ -347,9 +348,9 @@ export function renderBadge(label: string, message: string, style: Style, messag
 
   const parts: string[] = [];
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(message)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" role="img" aria-label="${escapeXml(displayLabel)}: ${escapeXml(displayMsg)}">`,
   );
-  parts.push(`<title>${escapeXml(label)}: ${escapeXml(message)}</title>`);
+  parts.push(`<title>${escapeXml(displayLabel)}: ${escapeXml(displayMsg)}</title>`);
   if (spec.gradient) {
     parts.push(
       '<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>',
@@ -446,7 +447,10 @@ function renderMarkdown(r: BadgeReport): string {
 function parseArgs(argv: string[]): { root: string; format: "json" | "markdown" } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
-    return i >= 0 ? argv[i + 1] : undefined;
+    if (i < 0) return undefined;
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} requires a value`);
+    return v;
   };
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
   return { root: valueOf("--root") ?? process.cwd(), format };
@@ -468,20 +472,24 @@ function assertNodeVersion(): void {
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
 if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
-  const args = parseArgs(process.argv.slice(2));
-  const styleRaw = (() => {
-    const i = process.argv.indexOf("--style");
-    return i >= 0 ? process.argv[i + 1] : undefined;
-  })();
-  if (styleRaw !== undefined && !(STYLES as readonly string[]).includes(styleRaw)) {
-    console.error(`badge: unknown style "${styleRaw}" — valid: ${STYLES.join(", ")}`);
-    process.exit(1);
-  }
   try {
+    const args = parseArgs(process.argv.slice(2));
+    const styleRaw = (() => {
+      const i = process.argv.indexOf("--style");
+      if (i < 0) return undefined;
+      const v = process.argv[i + 1];
+      if (v === undefined || v.startsWith("--")) {
+        throw new Error("badge: --style requires a value");
+      }
+      return v;
+    })();
+    if (styleRaw !== undefined && !(STYLES as readonly string[]).includes(styleRaw)) {
+      throw new Error(`badge: unknown style "${styleRaw}" — valid: ${STYLES.join(", ")}`);
+    }
     const report = run(args.root, (styleRaw as Style | undefined) ?? null);
     process.stdout.write(args.format === "markdown" ? renderMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`);
   } catch (err) {
-    console.error(`badge: failed to scan ${args.root}: ${(err as Error).message}`);
+    console.error(`badge: ${(err as Error).message}`);
     process.exit(1);
   }
 }

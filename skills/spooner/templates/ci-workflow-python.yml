@@ -81,7 +81,7 @@ jobs:
           python3 - <<'PY'
           import sys, os, re
           # baked at install time; must track the spooner TOOL_VERSION that
-          # shipped this workflow (docs/08 ledger rule: every bump updates it)
+          # shipped this workflow (version-ledger rule: every bump updates it)
           EXPECTED = "0.14.0"
 
           def parse_yaml(text):

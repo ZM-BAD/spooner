@@ -8,7 +8,7 @@ date: 2026-08-05
 
 ## Background
 
-The distribution engine is the open gap before launch (docs/06): the before/after image is launch material, the SVG readiness badge is the recurring-impression asset ("a badge pasted once renders on every page load" — README badges are self-distributing brand impressions). The niche is currently empty in the readiness category: two near entries exist (brewmarsh/agent-readiness-scorecard `--badge`, @paladini/harness-score `renderBadge`) but both are CLI/library-form, offline single-SVG generators — neither is wired into an audit → transform → check loop, and neither probes the host README's existing badge style.
+The distribution engine is the open gap before launch: the before/after image is launch material, the SVG readiness badge is the recurring-impression asset ("a badge pasted once renders on every page load" — README badges are self-distributing brand impressions). The niche is currently empty in the readiness category: two near entries exist (brewmarsh/agent-readiness-scorecard `--badge`, @paladini/harness-score `renderBadge`) but both are CLI/library-form, offline single-SVG generators — neither is wired into an audit → transform → check loop, and neither probes the host README's existing badge style.
 
 Design principles this spec pins:
 

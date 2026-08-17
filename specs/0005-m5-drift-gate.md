@@ -8,7 +8,7 @@ date: 2026-08-04
 
 ## Background
 
-docs/02 §5's gate matrix promised a consistency job in the installed CI workflow; M2 shipped only four jobs (three warn-only quality jobs + the declared-commands hard gate), and the gap was logged as a functional candidate (HANDOFF §三/§四 #1). The loop is otherwise complete: `check` (M3) detects drift but only when someone runs it; `sync` (M4) repairs stale templates but needs a trigger. The drift gate is the enforcement leg: the installed `ai-native.yml` workflow grows a fifth, hard job that fails the build when the `.ai-native.yml` manifest is inconsistent with reality — missing files, or installed templates older than the workflow's baked version. README's workflow table already promises check "Every CI run"; this spec delivers it as a gate. **Publish contract (docs/08 五.6)**: template content changes require a TOOL_VERSION bump, recorded in the ledger. **This spec pins the gate's exact failure conditions and the baked-version maintenance rule — the slices must implement exactly this, no drift.**
+The gate matrix promised a consistency job in the installed CI workflow; M2 shipped only four jobs (three warn-only quality jobs + the declared-commands hard gate), and the gap was logged as a functional candidate (HANDOFF §三/§四 #1). The loop is otherwise complete: `check` (M3) detects drift but only when someone runs it; `sync` (M4) repairs stale templates but needs a trigger. The drift gate is the enforcement leg: the installed `ai-native.yml` workflow grows a fifth, hard job that fails the build when the `.ai-native.yml` manifest is inconsistent with reality — missing files, or installed templates older than the workflow's baked version. README's workflow table already promises check "Every CI run"; this spec delivers it as a gate. **Publish contract (version-ledger rule 五.6)**: template content changes require a TOOL_VERSION bump, recorded in the ledger. **This spec pins the gate's exact failure conditions and the baked-version maintenance rule — the slices must implement exactly this, no drift.**
 
 ## Goal (one sentence)
 
@@ -20,7 +20,7 @@ For any repository with the installed CI workflow, fail the build when the `.ai-
 - **Check 1 — manifest presence + schema**: `.ai-native.yml` missing or unparseable (schemaVersion ≠ 1 / tool ≠ spooner / stages malformed) → fail with "run transform stage 2" guidance
 - **Check 2 — file drift**: every manifest-listed file must exist on disk; any missing → fail, naming the files and the transform stage that restores them (the same `stageHint` mapping as check.ts: sdd → 4, AGENTS.md/CLAUDE.md → 3, else 2)
 - **Check 3 — template staleness**: baked `EXPECTED` version constant in the job vs the manifest top-level `version` (the last tool version that wrote the manifest — `writeManifest` always stamps it) → older → fail with "run sync" guidance
-- **Version contract**: TOOL_VERSION (transform.ts constant; the baked `EXPECTED` must equal it) + docs/08 ledger row + maintenance rule: every TOOL_VERSION bump must update the baked `EXPECTED` in the template
+- **Version contract**: TOOL_VERSION (transform.ts constant; the baked `EXPECTED` must equal it) + local version-ledger row + maintenance rule: every TOOL_VERSION bump must update the baked `EXPECTED` in the template
 - **Manifest restore**: `transform --stage 2` restores a deleted `.ai-native.yml` even when no files are written (the manifest is the ledger — a deleted manifest must not dead-end the gate's "run transform stage 2" remediation)
 - SKILL.md / README / AGENTS.md: stage-2 gate description + status sync (slice 3)
 
@@ -57,7 +57,7 @@ Exit 0 + a one-line "consistent (N stage(s) at vX)" summary on green; exit 1 + t
 5. **Fail on stale templates**: manifest `version` older than the baked `EXPECTED` → exit non-zero, "run sync"
 6. **Schema guard**: unparseable/wrong-schema manifest → exit non-zero
 7. **Baked version == TOOL_VERSION**: the job's `EXPECTED` constant equals transform.ts `TOOL_VERSION`
-8. **Version bump + ledger**: TOOL_VERSION bump recorded in docs/08 §七, maintenance rule documented
+8. **Version bump + ledger**: TOOL_VERSION bump recorded in local version-ledger §七, maintenance rule documented
 9. **Self-apply**: `sync --root .` on this repo classifies the installed workflow `outdated` and applies it; the manifest is stamped with the current TOOL_VERSION; the extracted gate script passes on this repo itself
 10. **Other jobs untouched**: the four existing jobs in `ci-workflow.yml` are byte-identical to the pre-M5 template (git diff)
 11. **YAML + docs green**: check-yaml and markdownlint pass; SKILL.md/README/AGENTS.md updated; agentskills validate passes
@@ -66,7 +66,7 @@ Exit 0 + a one-line "consistent (N stage(s) at vX)" summary on green; exit 1 + t
 
 | Slice | Content                                                                                                                                                          |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `ci-workflow.yml` fifth job (self-contained parser + file-drift + version-staleness gates) + TOOL_VERSION bump + docs/08 ledger + maintenance rule               |
+| 1     | `ci-workflow.yml` fifth job (self-contained parser + file-drift + version-staleness gates) + TOOL_VERSION bump + local version-ledger + maintenance rule         |
 | 2     | Self-apply: sync the installed workflow (replaced + manifest stamped) + gate script verified against fixtures (green / drift / no-manifest / stale / bad-schema) |
 | 3     | SKILL.md/README/AGENTS/ROADMAP/HANDOFF sync + acceptance + ship                                                                                                  |
 

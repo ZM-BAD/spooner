@@ -29,7 +29,7 @@ Rust repositories get the same deep transform as node/python/go/java: a cargo li
 - **Stage 3**: `stackCommandsOf` gains rust — `Cargo.toml` → `cargo build` (build) / `cargo test` (test) / `cargo fmt --check` (fmt) / `cargo clippy` (lint), each traceable to the build file.
 - **audit `checkAgentsCommands`**: `stackCommandSources` gains rust — `Cargo.toml → cargo build/test` (rust repos can now credit 2/2).
 - **M10 generator**: `rustHooks(root)` — `cargo fmt --check` + `cargo clippy --all-targets` (no `-D warnings`) + `cargo test`, local system hooks, `files: \.rs$`, `stages: [pre-commit]`, emitted when `Cargo.toml` present; joined into `generatePreCommitConfig` after go.
-- **TOOL_VERSION 0.4.0** (feature bump) + `EXPECTED` synced in all **five** workflow templates + docs/08 ledger row (spec 0004/0005 contract).
+- **TOOL_VERSION 0.4.0** (feature bump) + `EXPECTED` synced in all **five** workflow templates + local version-ledger row (spec 0004/0005 contract).
 - **Spec revisions (living doc)**: spec 0006 — rust moves from the unsupported list to the deep tier (goal, scope, acceptance #3 fixture switches to ruby); spec 0010 — acceptance #6's "unsupported stack" fixture switches from Cargo.toml to ruby.
 
 ## Non-goals
@@ -49,7 +49,7 @@ Rust repositories get the same deep transform as node/python/go/java: a cargo li
 5. **Audit credit**: rust fixture with AGENTS.md listing `cargo test` → `agents-commands` credits 2/2 (hasBuild+hasTest from Cargo.toml)
 6. **Pre-commit gates**: rust fixture → generated config contains `cargo-fmt` + `cargo-clippy` + `cargo-test` local hooks, no `-D warnings` in clippy args, no orphaned hook blocks
 7. **Unsupported notice narrows**: ruby fixture (`Gemfile`) → cross-stack gates only, no workflow, "not supported yet" notice (the old Cargo.toml fixture now installs the rust workflow)
-8. **Version + EXPECTED**: TOOL_VERSION = baked `EXPECTED` in all five workflow templates; docs/08 ledger row records the bump
+8. **Version + EXPECTED**: TOOL_VERSION = baked `EXPECTED` in all five workflow templates; local version-ledger row records the bump
 9. **Regression**: typecheck + markdownlint + full suite green (52 M10-era tests + new rust fixtures); M6/M10 acceptance re-run; `sync` applies the 0.4.0 templates
 10. **Docs**: SKILL.md stack matrix + stage tables; README stack matrix (bilingual); AGENTS.md status + docs table
 

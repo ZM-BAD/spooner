@@ -146,17 +146,20 @@ export function detect(root: string): DetectResult {
 
 function parseRootArg(argv: string[]): string {
   const i = argv.indexOf("--root");
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : process.cwd();
+  if (i < 0) return process.cwd();
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith("--")) throw new Error("--root requires a value");
+  return v;
 }
 
 // CLI entry: runs only when executed directly (importing from audit.ts
 // must not trigger side effects)
 if (isDirectEntry(import.meta.url)) {
-  const root = parseRootArg(process.argv.slice(2));
   try {
+    const root = parseRootArg(process.argv.slice(2));
     process.stdout.write(`${JSON.stringify(detect(root), null, 2)}\n`);
   } catch (err) {
-    console.error(`detect: failed to scan ${root}: ${(err as Error).message}`);
+    console.error(`detect: ${(err as Error).message}`);
     process.exit(1);
   }
 }

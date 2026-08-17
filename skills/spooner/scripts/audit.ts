@@ -950,15 +950,19 @@ function checkCfgLint(root: string): CheckResult {
       ? "transform Stage 2 (CI lint job)"
       : "add a lint command (transform never invents commands)"
     : "add a lint config + command (eslint/biome/ruff/oxlint)";
+  const evidence = config
+    ? `${config} + ${cmd ?? (ci ? "CI lint step" : "no command")}`
+    : cmd
+      ? `lint config: missing, command: ${cmd}`
+      : ci
+        ? "CI lint step (no lint config or command)"
+        : "lint config: missing, command: missing";
   return {
     id: "cfg-lint",
     category: "configuration",
     score,
     max: 0.5,
-    evidence:
-      config && (cmd ?? (ci ? "CI lint step" : "no command"))
-        ? `${config} + ${cmd ?? (ci ? "CI lint step" : "no command")}`
-        : `lint config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
+    evidence,
     fix,
   };
 }
@@ -1056,15 +1060,19 @@ function checkCfgFormat(root: string): CheckResult {
       ? "transform Stage 2 (CI format job)"
       : "add a format command (transform never invents commands)"
     : "add a formatter config + format command (prettier/biome/ruff)";
+  const evidence = config
+    ? `${config} + ${cmd ?? (ci ? "CI format step" : "no command")}`
+    : cmd
+      ? `formatter config: missing, command: ${cmd}`
+      : ci
+        ? "CI format step (no formatter config or command)"
+        : "formatter config: missing, command: missing";
   return {
     id: "cfg-format",
     category: "configuration",
     score,
     max: 0.5,
-    evidence:
-      config && (cmd ?? (ci ? "CI format step" : "no command"))
-        ? `${config} + ${cmd ?? (ci ? "CI format step" : "no command")}`
-        : `formatter config: ${config ?? "missing"}, command: ${cmd ?? "missing"}`,
+    evidence,
     fix,
   };
 }
@@ -1426,8 +1434,24 @@ function checkSecScan(root: string): CheckResult {
   const preCommit = readIfExists(join(root, ".pre-commit-config.yaml")) ?? "";
   const mentioned = gitleaksConfig || /\bgitleaks\b/i.test(preCommit) || /\bgitleaks\b/i.test(ciContent(root));
   const declared = /\bgitleaks\b/i.test(preCommit);
+  // Respect core.hooksPath (lefthook's recommended layout) — the hook
+  // actually runs from the configured hooks dir, not only .git/hooks
+  // (checkCfgHooks parity; review round, 2026-08-16).
+  const hooksDir = (() => {
+    try {
+      const p = execFileSync("git", ["-C", root, "config", "--local", "--get", "core.hooksPath"], {
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .toString()
+        .trim();
+      return p ? resolve(root, p) : null;
+    } catch {
+      return null;
+    }
+  })();
   const installed =
-    existsSync(join(root, ".git", "hooks", "pre-commit")) || existsSync(join(root, ".husky", "pre-commit"));
+    existsSync(join(hooksDir ?? join(root, ".git", "hooks"), "pre-commit")) ||
+    existsSync(join(root, ".husky", "pre-commit"));
   let score = 0;
   let detail = "no secret scanning configured";
   if (mentioned) {
@@ -1550,25 +1574,40 @@ function checkFreshDeps(root: string): CheckResult {
       ...((pkg.dependencies as Record<string, string>) ?? {}),
       ...((pkg.devDependencies as Record<string, string>) ?? {}),
     };
-    const wildcard = Object.values(deps).some((v) => String(v).includes("*"));
-    const pinned = !wildcard;
+    // Exact-pin detection (review): `^1.0.0`, `~1.0.0`, `latest`, git URLs,
+    // file: links and wildcards are NOT pins — only an exact npm version
+    // (`1.2.3`, with optional pre-release/build suffix) is a pin. An empty
+    // dependency map has nothing to pin and must not claim "deps pinned".
+    const exactPin = (v: unknown): boolean =>
+      /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(String(v));
+    const values = Object.values(deps);
+    const pinned = values.length > 0 && values.every(exactPin);
     // PHP co-exists in mixed repos — a committed composer.lock locks the PHP
     // side; "no lockfile" must not be reported while it exists.
     const locks = [...(lock ? [lock] : []), ...(existsSync(join(root, "composer.lock")) ? ["composer.lock"] : [])];
-    const score = pinned && locks.length > 0 ? 0.5 : pinned ? 0.3 : 0.1;
+    // A committed lockfile locks whatever ranges/tags are declared (npm
+    // package-lock pins the resolved tree), so it earns the full score even
+    // when package.json uses `^` ranges; without a lock, only exact pins count.
+    const score = locks.length > 0 ? 0.5 : pinned || values.length === 0 ? 0.3 : 0.1;
     const evidence =
       locks.length > 0
-        ? `deps pinned + ${locks.join(" + ")}`
-        : pinned
-          ? "deps pinned, no lockfile"
-          : "deps use wildcard ranges";
+        ? pinned
+          ? `deps pinned + ${locks.join(" + ")}`
+          : values.length === 0
+            ? `no dependencies declared + ${locks.join(" + ")}`
+            : `deps use ranges/tags + ${locks.join(" + ")}`
+        : values.length === 0
+          ? "no dependencies declared"
+          : pinned
+            ? "deps pinned, no lockfile"
+            : "deps use ranges/tags (not pinned)";
     return {
       id: "fresh-deps",
       category: "freshness",
       score,
       max: 0.5,
       evidence,
-      fix: "pin versions and commit a lockfile",
+      fix: values.length === 0 ? "n/a" : "pin exact versions and commit a lockfile",
     };
   }
   if (pyproject) {
@@ -2116,7 +2155,10 @@ function parseArgs(argv: string[]): {
 } {
   const valueOf = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
-    return i >= 0 ? argv[i + 1] : undefined;
+    if (i < 0) return undefined;
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} requires a value`);
+    return v;
   };
   const format = valueOf("--format") === "markdown" ? "markdown" : "json";
   return {
@@ -2143,12 +2185,12 @@ function assertNodeVersion(): void {
 // CLI entry: runs only when executed directly (importing must not trigger side effects)
 if (isDirectEntry(import.meta.url)) {
   assertNodeVersion();
-  const { root, format, verify, verifyCommand } = parseArgs(process.argv.slice(2));
   try {
+    const { root, format, verify, verifyCommand } = parseArgs(process.argv.slice(2));
     const result = runAudit(root, verify, verifyCommand);
     process.stdout.write(format === "markdown" ? renderMarkdown(result) : `${JSON.stringify(result, null, 2)}\n`);
   } catch (err) {
-    console.error(`audit: failed to scan ${root}: ${(err as Error).message}`);
+    console.error(`audit: ${(err as Error).message}`);
     process.exit(1);
   }
 }

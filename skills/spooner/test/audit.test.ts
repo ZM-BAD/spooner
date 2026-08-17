@@ -237,6 +237,28 @@ test("drift: version current but a declared file missing -> 0.3 with a restore-s
 
 // --- freshness: per-stack dependency locks ------------------------------------
 
+test("fresh-deps: node exact pins + package-lock -> 0.5; ^ ranges without lock -> 0.1", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", devDependencies: { typescript: "5.4.5" } }));
+  writeFileSync(join(repo, "package-lock.json"), "{}\n");
+  assert.equal(item(repo, "fresh-deps")?.score, 0.5);
+  rmSync(join(repo, "package-lock.json"));
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x", devDependencies: { typescript: "^5.0.0" } }));
+  assert.equal(item(repo, "fresh-deps")?.score, 0.1);
+  assert.match(item(repo, "fresh-deps")?.evidence ?? "", /ranges\/tags/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("fresh-deps: node empty deps -> no dependencies declared, not 'deps pinned'", () => {
+  const repo = fixture();
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x" }));
+  const f = item(repo, "fresh-deps");
+  assert.equal(f?.score, 0.3);
+  assert.match(f?.evidence ?? "", /no dependencies declared/);
+  assert.doesNotMatch(f?.evidence ?? "", /pinned/);
+  rmSync(repo, { recursive: true, force: true });
+});
+
 test("fresh-deps: go.mod + go.sum -> 0.5 (checksum lockfile)", () => {
   const repo = fixture();
   writeFileSync(join(repo, "go.mod"), "module x\n");
