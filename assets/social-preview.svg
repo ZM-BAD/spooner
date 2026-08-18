@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 1280" role="img" aria-label="Spooner — make your git repository ready for AI: audit → transform → check → sync, 4.3/10 → 9.2/10">
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Spooner — make your git repository ready for AI: audit → transform → check → sync, 4.3/10 → 9.2/10">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0d1117"/>
@@ -9,35 +9,35 @@
       <stop offset="100%" stop-color="#3fb950"/>
     </linearGradient>
   </defs>
-  <rect width="1280" height="1280" fill="url(#bg)"/>
-  <rect x="0" y="320" width="1280" height="8" fill="url(#accent)"/>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect x="0" y="106" width="1280" height="6" fill="url(#accent)"/>
 
-  <text x="80" y="500" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="72" font-weight="700" fill="#f0f6fc">Spooner</text>
-  <text x="82" y="570" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="34" fill="#8b949e">Make your git repository ready for AI coding agents</text>
+  <text x="80" y="220" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="68" font-weight="700" fill="#f0f6fc">Spooner</text>
+  <text x="82" y="282" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="30" fill="#8b949e">Make your git repository ready for AI coding agents</text>
 
-  <g font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="30">
-    <rect x="80" y="630" width="230" height="70" rx="12" fill="#21262d"/>
-    <text x="195" y="676" text-anchor="middle" fill="#58a6ff">audit</text>
-    <text x="330" y="676" fill="#8b949e">→</text>
-    <rect x="360" y="630" width="300" height="70" rx="12" fill="#21262d"/>
-    <text x="510" y="676" text-anchor="middle" fill="#d2a8ff">transform</text>
-    <text x="680" y="676" fill="#8b949e">→</text>
-    <rect x="710" y="630" width="220" height="70" rx="12" fill="#21262d"/>
-    <text x="820" y="676" text-anchor="middle" fill="#58a6ff">check</text>
-    <text x="950" y="676" fill="#8b949e">→</text>
-    <rect x="980" y="630" width="220" height="70" rx="12" fill="#21262d"/>
-    <text x="1090" y="676" text-anchor="middle" fill="#3fb950">sync</text>
+  <g font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="26">
+    <rect x="80" y="340" width="230" height="64" rx="12" fill="#21262d"/>
+    <text x="195" y="381" text-anchor="middle" fill="#58a6ff">audit</text>
+    <text x="330" y="381" fill="#8b949e">→</text>
+    <rect x="360" y="340" width="300" height="64" rx="12" fill="#21262d"/>
+    <text x="510" y="381" text-anchor="middle" fill="#d2a8ff">transform</text>
+    <text x="680" y="381" fill="#8b949e">→</text>
+    <rect x="710" y="340" width="220" height="64" rx="12" fill="#21262d"/>
+    <text x="820" y="381" text-anchor="middle" fill="#58a6ff">check</text>
+    <text x="950" y="381" fill="#8b949e">→</text>
+    <rect x="980" y="340" width="220" height="64" rx="12" fill="#21262d"/>
+    <text x="1090" y="381" text-anchor="middle" fill="#3fb950">sync</text>
   </g>
 
   <g font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
-    <rect x="80" y="750" width="300" height="80" rx="12" fill="#21262d"/>
-    <text x="230" y="786" text-anchor="middle" font-size="28" fill="#8b949e">before</text>
-    <text x="230" y="818" text-anchor="middle" font-size="32" font-weight="700" fill="#f85149">4.3/10 AI-Aware</text>
-    <text x="410" y="795" font-size="36" fill="#8b949e">→</text>
-    <rect x="460" y="750" width="320" height="80" rx="12" fill="#21262d"/>
-    <text x="620" y="786" text-anchor="middle" font-size="28" fill="#8b949e">after one run</text>
-    <text x="620" y="818" text-anchor="middle" font-size="32" font-weight="700" fill="#3fb950">9.2/10 AI-Native</text>
+    <rect x="80" y="450" width="300" height="68" rx="12" fill="#21262d"/>
+    <text x="230" y="476" text-anchor="middle" font-size="24" fill="#8b949e">before</text>
+    <text x="230" y="504" text-anchor="middle" font-size="28" font-weight="700" fill="#f85149">4.3/10 AI-Aware</text>
+    <text x="410" y="495" font-size="36" fill="#8b949e">→</text>
+    <rect x="460" y="450" width="320" height="68" rx="12" fill="#21262d"/>
+    <text x="620" y="476" text-anchor="middle" font-size="24" fill="#8b949e">after one run</text>
+    <text x="620" y="504" text-anchor="middle" font-size="28" font-weight="700" fill="#3fb950">9.2/10 AI-Native</text>
   </g>
 
-  <text x="82" y="890" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="24" fill="#8b949e">Agent Skills (SKILL.md) · 20+ coding agents · zero dependencies · every score evidence-backed</text>
+  <text x="82" y="585" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="22" fill="#8b949e">Agent Skills (SKILL.md) · 20+ coding agents · zero dependencies · every score evidence-backed</text>
 </svg>
